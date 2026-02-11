@@ -1,0 +1,17 @@
+{
+    "name": "SceneBlueprint.Actions",
+    "rootNamespace": "SceneBlueprint.Actions",
+    "references": [
+        "SceneBlueprint.Core",
+        "NodeGraph.Math"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

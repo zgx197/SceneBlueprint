@@ -11,6 +11,7 @@
 !LICENSE
 
 # 3. 逐层放行到目标目录
+!/.windsurf/
 !/Assets/
 /Assets/*
 !/Assets/Extensions/

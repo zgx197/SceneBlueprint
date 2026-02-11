@@ -604,20 +604,564 @@ registry.RegisterContentRenderer("Combat.BossPhase", new BossPhaseContentRendere
 
 ---
 
-## 10. 实施步骤
+## 10. 实施步骤与测试
 
-| 步骤 | 内容 | 估时 |
-|------|------|------|
-| 1 | 定义 ActionDefinition / PropertyDefinition / PortDefinition 数据类 | 0.5d |
-| 2 | 实现 ActionRegistry + AutoDiscover + ActionTypeAttribute | 0.5d |
-| 3 | 实现 PropertyBag + ActionNodeData + 序列化 | 0.5d |
-| 4 | 实现 Prop 便捷工厂 | 0.5d |
-| 5 | 实现 InspectorGenerator（基础控件映射） | 1d |
-| 6 | 实现 VisibleWhen 条件评估器 | 0.5d |
-| 7 | 实现自动摘要 ContentRenderer | 0.5d |
-| 8 | 注册 Flow 域内置行动（Start/End/Delay/Branch/Join） | 0.5d |
-| 9 | 注册第一批 Combat 域行动（Spawn/PlacePreset）验证全流程 | 1d |
-| 10 | 搜索窗集成 | 1d |
+### 测试基础设施
+
+```
+测试目录：Assets/Extensions/SceneBlueprint/Tests/
+测试程序集：SceneBlueprint.Tests.asmdef（引用 SceneBlueprint + NUnit）
+运行方式：Unity Editor → Test Runner → EditMode
+冒烟测试：通过 [MenuItem("SceneBlueprint/Tests/...")] 提供一键验证
+```
+
+---
+
+### Step 1：数据类定义（0.5d）
+
+**实现内容：**
+- `ActionDefinition`、`PropertyDefinition`、`PortDefinition` 数据类
+- `ActionDuration` 枚举、`PropertyType` 枚举、`BindingType` 枚举
+- `PortDirection`、`PortCapacity` 枚举
+
+**测试用例：**
+
+```csharp
+[Test]
+public void ActionDefinition_Create_HasCorrectFields()
+{
+    var def = new ActionDefinition
+    {
+        TypeId = "Combat.Spawn",
+        DisplayName = "刷怪",
+        Category = "Combat",
+        Duration = ActionDuration.Duration,
+        Ports = new[] { Port.FlowIn("in"), Port.FlowOut("out") },
+        Properties = new[] { Prop.Int("count", "数量", defaultValue: 5) }
+    };
+
+    Assert.AreEqual("Combat.Spawn", def.TypeId);
+    Assert.AreEqual(2, def.Ports.Length);
+    Assert.AreEqual(1, def.Properties.Length);
+    Assert.AreEqual(5, def.Properties[0].DefaultValue);
+}
+
+[Test]
+public void PortDefinition_FlowIn_HasCorrectDirection()
+{
+    var port = Port.FlowIn("in", "输入");
+    Assert.AreEqual(PortDirection.In, port.Direction);
+    Assert.AreEqual(PortCapacity.Multiple, port.Capacity);
+}
+```
+
+**通过标准：** 数据类可正常构造，字段赋值和读取无误。
+
+---
+
+### Step 2：ActionRegistry（0.5d）
+
+**实现内容：**
+- `IActionRegistry` 接口
+- `ActionRegistry` 实现（Register / Get / GetByCategory / GetAll）
+- `ActionTypeAttribute` 标注
+- `IActionDefinitionProvider` 接口
+- `AutoDiscover()` 反射扫描
+
+**测试用例：**
+
+```csharp
+[Test]
+public void Registry_Register_CanRetrieveByTypeId()
+{
+    var registry = new ActionRegistry();
+    var def = new ActionDefinition { TypeId = "Test.Action", Category = "Test" };
+    registry.Register(def);
+
+    Assert.IsTrue(registry.TryGet("Test.Action", out var result));
+    Assert.AreEqual("Test.Action", result.TypeId);
+}
+
+[Test]
+public void Registry_GetByCategory_ReturnsCorrectGroup()
+{
+    var registry = new ActionRegistry();
+    registry.Register(new ActionDefinition { TypeId = "A.1", Category = "A" });
+    registry.Register(new ActionDefinition { TypeId = "A.2", Category = "A" });
+    registry.Register(new ActionDefinition { TypeId = "B.1", Category = "B" });
+
+    var groupA = registry.GetByCategory("A");
+    Assert.AreEqual(2, groupA.Count);
+}
+
+[Test]
+public void Registry_AutoDiscover_FindsAnnotatedProviders()
+{
+    var registry = new ActionRegistry();
+    registry.AutoDiscover();
+
+    // 至少能发现 Flow.Start（内置行动，Step 8 注册后启用）
+    // Step 2 阶段：先手动注册一个测试用 Provider 验证机制
+    Assert.IsTrue(registry.GetAll().Count >= 0); // 占位，Step 8 后改为 > 0
+}
+```
+
+**冒烟测试：**
+
+```csharp
+[MenuItem("SceneBlueprint/Tests/Step2 - Registry")]
+static void SmokeTest_Registry()
+{
+    var registry = new ActionRegistry();
+    registry.AutoDiscover();
+    foreach (var def in registry.GetAll())
+        Debug.Log($"[{def.Category}] {def.TypeId} - {def.DisplayName} ({def.Properties?.Length ?? 0} props)");
+    Debug.Log($"共发现 {registry.GetAll().Count} 个行动类型，{registry.GetCategories().Count} 个分类");
+}
+```
+
+**通过标准：** 注册/查找/分类过滤均正确，AutoDiscover 机制可用。
+
+---
+
+### Step 3：PropertyBag + ActionNodeData（0.5d）
+
+**实现内容：**
+- `PropertyBag`（Set / Get\<T\> / Has / Remove / All）
+- `ActionNodeData`（ActionTypeId + PropertyBag）
+- `ActionNodeData.CreateFromDefinition()` 默认值初始化
+- PropertyBag JSON 序列化/反序列化
+
+**测试用例：**
+
+```csharp
+[Test]
+public void PropertyBag_SetGet_AllTypes()
+{
+    var bag = new PropertyBag();
+    bag.Set("f", 3.14f);
+    bag.Set("i", 42);
+    bag.Set("b", true);
+    bag.Set("s", "hello");
+
+    Assert.AreEqual(3.14f, bag.Get<float>("f"));
+    Assert.AreEqual(42, bag.Get<int>("i"));
+    Assert.AreEqual(true, bag.Get<bool>("b"));
+    Assert.AreEqual("hello", bag.Get<string>("s"));
+}
+
+[Test]
+public void PropertyBag_GetMissing_ReturnsDefault()
+{
+    var bag = new PropertyBag();
+    Assert.AreEqual(0f, bag.Get<float>("missing"));
+    Assert.AreEqual("fallback", bag.Get<string>("missing", "fallback"));
+}
+
+[Test]
+public void ActionNodeData_CreateFromDefinition_AppliesDefaults()
+{
+    var def = new ActionDefinition
+    {
+        TypeId = "Test.X",
+        Properties = new[]
+        {
+            Prop.Int("count", "数量", defaultValue: 5),
+            Prop.Float("speed", "速度", defaultValue: 1.5f)
+        }
+    };
+    var data = ActionNodeData.CreateFromDefinition(def);
+
+    Assert.AreEqual("Test.X", data.ActionTypeId);
+    Assert.AreEqual(5, data.Properties.Get<int>("count"));
+    Assert.AreEqual(1.5f, data.Properties.Get<float>("speed"));
+}
+
+[Test]
+public void PropertyBag_JsonRoundTrip()
+{
+    var original = new PropertyBag();
+    original.Set("name", "elite");
+    original.Set("count", 5);
+    original.Set("rate", 2.5f);
+    original.Set("active", true);
+
+    string json = PropertyBagSerializer.ToJson(original);
+    var restored = PropertyBagSerializer.FromJson(json);
+
+    Assert.AreEqual("elite", restored.Get<string>("name"));
+    Assert.AreEqual(5, restored.Get<int>("count"));
+    Assert.AreEqual(2.5f, restored.Get<float>("rate"));
+    Assert.AreEqual(true, restored.Get<bool>("active"));
+}
+```
+
+**通过标准：** 所有类型存取正确，JSON 往返无损。
+
+---
+
+### Step 4：Prop 便捷工厂（0.5d）
+
+**实现内容：**
+- `Prop` 静态类所有工厂方法（Float / Int / Bool / String / Enum / AssetRef / SceneBinding / Tag）
+
+**测试用例：**
+
+```csharp
+[Test]
+public void Prop_Float_SetsAllFields()
+{
+    var p = Prop.Float("interval", "间隔", defaultValue: 2f, min: 0.1f, max: 30f, category: "节奏");
+
+    Assert.AreEqual("interval", p.Key);
+    Assert.AreEqual(PropertyType.Float, p.Type);
+    Assert.AreEqual(2f, p.DefaultValue);
+    Assert.AreEqual(0.1f, p.Min);
+    Assert.AreEqual(30f, p.Max);
+    Assert.AreEqual("节奏", p.Category);
+}
+
+[Test]
+public void Prop_Enum_ExtractsOptions()
+{
+    var p = Prop.Enum<ActionDuration>("duration", "持续类型");
+
+    Assert.AreEqual(PropertyType.Enum, p.Type);
+    Assert.Contains("Instant", p.EnumOptions);
+    Assert.Contains("Duration", p.EnumOptions);
+}
+
+[Test]
+public void Prop_SceneBinding_SetsBindingType()
+{
+    var p = Prop.SceneBinding("area", "区域", BindingType.Area);
+    Assert.AreEqual(BindingType.Area, p.BindingType);
+}
+```
+
+**通过标准：** 每个工厂方法生成的 PropertyDefinition 字段均正确。
+
+---
+
+### Step 5：InspectorGenerator（1d）
+
+**实现内容：**
+- `InspectorGenerator.Draw(ActionDefinition, PropertyBag)` → 返回是否有变更
+- 每种 PropertyType 对应的 IMGUI 控件映射
+- Category 分组 + Foldout
+
+**测试用例：**
+
+```csharp
+[Test]
+public void InspectorGenerator_GroupsByCategory()
+{
+    var def = new ActionDefinition
+    {
+        Properties = new[]
+        {
+            Prop.Int("a", "A", category: "基础"),
+            Prop.Int("b", "B", category: "基础"),
+            Prop.Float("c", "C", category: "高级"),
+        }
+    };
+
+    var groups = InspectorGenerator.GroupProperties(def.Properties);
+    Assert.AreEqual(2, groups.Count);             // "基础" 和 "高级"
+    Assert.AreEqual(2, groups["基础"].Count);      // a, b
+    Assert.AreEqual(1, groups["高级"].Count);      // c
+}
+```
+
+**冒烟测试：** 在编辑器窗口中选中一个 Spawn 节点，确认 Inspector 面板显示所有属性控件，修改值后节点摘要更新。
+
+**通过标准：** 所有 PropertyType 都有对应控件，分组正确，值修改能回写 PropertyBag。
+
+---
+
+### Step 6：VisibleWhen 条件评估器（0.5d）
+
+**实现内容：**
+- `VisibleWhenEvaluator.Evaluate(string expression, PropertyBag bag) → bool`
+- 支持 `==`、`!=`、`>`、`<`、`||`、`&&`
+
+**测试用例：**
+
+```csharp
+[Test]
+public void VisibleWhen_EqualEnum_True()
+{
+    var bag = new PropertyBag();
+    bag.Set("mode", "Interval");
+    Assert.IsTrue(VisibleWhenEvaluator.Evaluate("mode == Interval", bag));
+}
+
+[Test]
+public void VisibleWhen_NotEqual_True()
+{
+    var bag = new PropertyBag();
+    bag.Set("mode", "Burst");
+    Assert.IsTrue(VisibleWhenEvaluator.Evaluate("mode != Interval", bag));
+}
+
+[Test]
+public void VisibleWhen_NumericCompare()
+{
+    var bag = new PropertyBag();
+    bag.Set("waves", 3);
+    Assert.IsTrue(VisibleWhenEvaluator.Evaluate("waves > 1", bag));
+    Assert.IsFalse(VisibleWhenEvaluator.Evaluate("waves < 1", bag));
+}
+
+[Test]
+public void VisibleWhen_Or()
+{
+    var bag = new PropertyBag();
+    bag.Set("action", "Follow");
+    Assert.IsTrue(VisibleWhenEvaluator.Evaluate("action == LookAt || action == Follow", bag));
+}
+
+[Test]
+public void VisibleWhen_NullExpression_ReturnsTrue()
+{
+    var bag = new PropertyBag();
+    Assert.IsTrue(VisibleWhenEvaluator.Evaluate(null, bag));
+    Assert.IsTrue(VisibleWhenEvaluator.Evaluate("", bag));
+}
+```
+
+**通过标准：** 所有操作符正确评估，空表达式返回 true（始终可见）。
+
+---
+
+### Step 7：自动摘要 ContentRenderer（0.5d）
+
+**实现内容：**
+- `ActionContentSummary.Generate(ActionDefinition, PropertyBag) → string[]`
+- 摘要规则：AssetRef 名 → Enum 当前值 → 关键数值参数
+
+**测试用例：**
+
+```csharp
+[Test]
+public void ContentSummary_ShowsAssetRefFirst()
+{
+    var def = new ActionDefinition
+    {
+        Properties = new[]
+        {
+            Prop.AssetRef("template", "模板", typeof(object)),
+            Prop.Int("count", "数量")
+        }
+    };
+    var bag = new PropertyBag();
+    bag.Set("template", "elite_group_01");
+    bag.Set("count", 5);
+
+    var lines = ActionContentSummary.Generate(def, bag);
+    Assert.IsTrue(lines[0].Contains("elite_group_01")); // AssetRef 优先
+}
+```
+
+**通过标准：** 摘要包含关键属性信息，顺序合理。
+
+---
+
+### Step 8：Flow 域内置行动注册（0.5d）
+
+**实现内容：**
+- `FlowStartDef`（Flow.Start）、`FlowEndDef`（Flow.End）
+- `FlowDelayDef`（Flow.Delay）— 属性：duration
+- `FlowBranchDef`（Flow.Branch）— 端口：true / false
+- `FlowJoinDef`（Flow.Join）— 多输入汇合
+
+**测试用例：**
+
+```csharp
+[Test]
+public void FlowActions_AllRegistered()
+{
+    var registry = new ActionRegistry();
+    registry.AutoDiscover();
+
+    Assert.IsTrue(registry.TryGet("Flow.Start", out _));
+    Assert.IsTrue(registry.TryGet("Flow.End", out _));
+    Assert.IsTrue(registry.TryGet("Flow.Delay", out _));
+    Assert.IsTrue(registry.TryGet("Flow.Branch", out _));
+    Assert.IsTrue(registry.TryGet("Flow.Join", out _));
+}
+
+[Test]
+public void FlowDelay_HasDurationProperty()
+{
+    var registry = new ActionRegistry();
+    registry.AutoDiscover();
+    var def = registry.Get("Flow.Delay");
+
+    Assert.IsTrue(def.Properties.Any(p => p.Key == "duration" && p.Type == PropertyType.Float));
+}
+
+[Test]
+public void FlowBranch_HasTrueFalsePorts()
+{
+    var registry = new ActionRegistry();
+    registry.AutoDiscover();
+    var def = registry.Get("Flow.Branch");
+
+    Assert.IsTrue(def.Ports.Any(p => p.Id == "true" && p.Direction == PortDirection.Out));
+    Assert.IsTrue(def.Ports.Any(p => p.Id == "false" && p.Direction == PortDirection.Out));
+}
+```
+
+**通过标准：** 5 个 Flow 行动全部可通过 AutoDiscover 发现，端口和属性声明正确。
+
+---
+
+### Step 9：Combat 域行动注册 + 端到端验证（1d）
+
+**实现内容：**
+- `SpawnActionDef`（Combat.Spawn）
+- `PlacePresetActionDef`（Combat.PlacePreset）
+- 端到端流程：创建图 → 添加节点 → 设置属性 → 序列化 → 反序列化 → 断言一致
+
+**测试用例：**
+
+```csharp
+[Test]
+public void CombatSpawn_FullDefinition()
+{
+    var registry = new ActionRegistry();
+    registry.AutoDiscover();
+    var def = registry.Get("Combat.Spawn");
+
+    Assert.AreEqual("Combat", def.Category);
+    Assert.AreEqual(ActionDuration.Duration, def.Duration);
+    Assert.IsTrue(def.Ports.Any(p => p.Id == "onWaveComplete"));
+    Assert.IsTrue(def.Ports.Any(p => p.Id == "onAllComplete"));
+    Assert.IsTrue(def.Properties.Any(p => p.Key == "template"));
+    Assert.IsTrue(def.Properties.Any(p => p.Key == "monstersPerWave"));
+}
+
+[Test]
+public void EndToEnd_CreateGraph_SetProperties_Serialize_Roundtrip()
+{
+    // 1. 初始化
+    var registry = new ActionRegistry();
+    registry.AutoDiscover();
+
+    // 2. 创建图并添加节点
+    var graph = new Graph();
+    var startDef = registry.Get("Flow.Start");
+    var spawnDef = registry.Get("Combat.Spawn");
+
+    var startNode = graph.AddNode(/* ... */);
+    startNode.UserData = ActionNodeData.CreateFromDefinition(startDef);
+
+    var spawnNode = graph.AddNode(/* ... */);
+    var spawnData = ActionNodeData.CreateFromDefinition(spawnDef);
+    spawnData.Properties.Set("monstersPerWave", 8);
+    spawnNode.UserData = spawnData;
+
+    // 3. 连线
+    graph.AddEdge(startNode, "out", spawnNode, "in");
+
+    // 4. 序列化 → 反序列化
+    string json = GraphSerializer.Serialize(graph);
+    var restored = GraphSerializer.Deserialize(json);
+
+    // 5. 断言
+    var restoredSpawn = restored.Nodes[1].UserData as ActionNodeData;
+    Assert.AreEqual("Combat.Spawn", restoredSpawn.ActionTypeId);
+    Assert.AreEqual(8, restoredSpawn.Properties.Get<int>("monstersPerWave"));
+}
+```
+
+**冒烟测试：**
+
+```csharp
+[MenuItem("SceneBlueprint/Tests/Step9 - E2E")]
+static void SmokeTest_EndToEnd()
+{
+    var registry = new ActionRegistry();
+    registry.AutoDiscover();
+
+    Debug.Log($"=== 端到端验证 ===");
+    Debug.Log($"已注册行动类型: {registry.GetAll().Count}");
+    foreach (var cat in registry.GetCategories())
+    {
+        var actions = registry.GetByCategory(cat);
+        Debug.Log($"  [{cat}] {actions.Count} 个: {string.Join(", ", actions.Select(a => a.DisplayName))}");
+    }
+
+    // 创建 SpawnAction 数据并往返序列化
+    var spawnDef = registry.Get("Combat.Spawn");
+    var data = ActionNodeData.CreateFromDefinition(spawnDef);
+    data.Properties.Set("monstersPerWave", 8);
+    data.Properties.Set("template", "elite_group_01");
+
+    string json = PropertyBagSerializer.ToJson(data.Properties);
+    var restored = PropertyBagSerializer.FromJson(json);
+
+    bool pass = restored.Get<int>("monstersPerWave") == 8
+             && restored.Get<string>("template") == "elite_group_01";
+    Debug.Log($"序列化往返测试: {(pass ? "✅ PASS" : "❌ FAIL")}");
+}
+```
+
+**通过标准：** 完整的创建→编辑→序列化→反序列化流程无损。
+
+---
+
+### Step 10：搜索窗集成（1d）
+
+**实现内容：**
+- 搜索窗数据源从 ActionRegistry 读取
+- 按 Category 分组显示
+- 模糊搜索 DisplayName 和 TypeId
+- 选中后创建对应节点
+
+**测试用例：**
+
+```csharp
+[Test]
+public void SearchModel_FilterByKeyword()
+{
+    var registry = new ActionRegistry();
+    registry.AutoDiscover();
+
+    var model = new ActionSearchModel(registry);
+    var results = model.Search("刷怪");
+
+    Assert.IsTrue(results.Any(r => r.TypeId == "Combat.Spawn"));
+}
+
+[Test]
+public void SearchModel_FilterByCategory()
+{
+    var registry = new ActionRegistry();
+    registry.AutoDiscover();
+
+    var model = new ActionSearchModel(registry);
+    var combatActions = model.GetByCategory("Combat");
+
+    Assert.IsTrue(combatActions.Count >= 2); // Spawn + PlacePreset
+}
+```
+
+**冒烟测试：** 在编辑器中拖拽连线或右键→弹出搜索窗→输入"刷"→显示 Spawn→选中创建节点。
+
+**通过标准：** 搜索窗正确展示所有 Action 类型，模糊搜索过滤正常，选中后节点创建成功。
+
+---
+
+### Phase 1 整体通过标准
+
+```
+全部 Step 1~10 单元测试通过（Unity Test Runner 绿色）
+Step 2 冒烟测试：Console 打印所有已注册行动
+Step 9 冒烟测试：端到端序列化往返 ✅ PASS
+编辑器冒烟测试：可打开蓝图编辑器 → 创建节点 → 连线 → Inspector 编辑属性
+```
 
 ---
 
