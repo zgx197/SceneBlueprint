@@ -1,0 +1,123 @@
+#nullable enable
+using System;
+
+namespace NodeGraph.Core
+{
+    /// <summary>端口方向</summary>
+    public enum PortDirection
+    {
+        Input,
+        Output
+    }
+
+    /// <summary>端口类别：控制流 vs 数据流</summary>
+    public enum PortKind
+    {
+        Control,
+        Data
+    }
+
+    /// <summary>端口连接容量</summary>
+    public enum PortCapacity
+    {
+        /// <summary>只能连一条线</summary>
+        Single,
+        /// <summary>可以连多条线</summary>
+        Multiple
+    }
+
+    /// <summary>
+    /// 端口定义模板，用于 NodeTypeDefinition 中描述默认端口，以及动态添加端口时使用。
+    /// </summary>
+    public class PortDefinition
+    {
+        public string Name { get; }
+        public PortDirection Direction { get; }
+        public PortKind Kind { get; }
+        public string DataType { get; }
+        public PortCapacity Capacity { get; }
+        public int SortOrder { get; }
+
+        public PortDefinition(
+            string name,
+            PortDirection direction,
+            PortKind kind = PortKind.Control,
+            string dataType = "exec",
+            PortCapacity capacity = PortCapacity.Multiple,
+            int sortOrder = 0)
+        {
+            Name = name ?? throw new ArgumentNullException(nameof(name));
+            Direction = direction;
+            Kind = kind;
+            DataType = dataType ?? throw new ArgumentNullException(nameof(dataType));
+            Capacity = capacity;
+            SortOrder = sortOrder;
+        }
+    }
+
+    /// <summary>
+    /// 端口实例，属于某个节点。每个端口有唯一 ID、方向、类别和数据类型。
+    /// </summary>
+    public class Port
+    {
+        /// <summary>端口唯一 ID（GUID）</summary>
+        public string Id { get; }
+
+        /// <summary>所属节点 ID</summary>
+        public string NodeId { get; }
+
+        /// <summary>端口显示名称</summary>
+        public string Name { get; set; }
+
+        /// <summary>输入 / 输出</summary>
+        public PortDirection Direction { get; }
+
+        /// <summary>控制流 / 数据流</summary>
+        public PortKind Kind { get; }
+
+        /// <summary>数据类型标识（如 "exec" / "float" / "int" / "string"）</summary>
+        public string DataType { get; }
+
+        /// <summary>连接容量：单连接 / 多连接</summary>
+        public PortCapacity Capacity { get; }
+
+        /// <summary>端口排序顺序（行为树中子节点顺序等）</summary>
+        public int SortOrder { get; set; }
+
+        public Port(string id, string nodeId, PortDefinition definition)
+        {
+            Id = id ?? throw new ArgumentNullException(nameof(id));
+            NodeId = nodeId ?? throw new ArgumentNullException(nameof(nodeId));
+            if (definition == null) throw new ArgumentNullException(nameof(definition));
+
+            Name = definition.Name;
+            Direction = definition.Direction;
+            Kind = definition.Kind;
+            DataType = definition.DataType;
+            Capacity = definition.Capacity;
+        }
+
+        /// <summary>内部构造：用于反序列化等需要直接指定所有字段的场景</summary>
+        internal Port(
+            string id,
+            string nodeId,
+            string name,
+            PortDirection direction,
+            PortKind kind,
+            string dataType,
+            PortCapacity capacity,
+            int sortOrder = 0)
+        {
+            Id = id;
+            NodeId = nodeId;
+            Name = name;
+            Direction = direction;
+            Kind = kind;
+            DataType = dataType;
+            Capacity = capacity;
+            SortOrder = sortOrder;
+        }
+
+        public override string ToString() => $"Port({Name}, {Direction}, {Kind}, {DataType})";
+    }
+}

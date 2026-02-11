@@ -1,0 +1,17 @@
+{
+    "name": "NodeGraph.Abstraction",
+    "rootNamespace": "NodeGraph.Abstraction",
+    "references": [
+        "NodeGraph.Math",
+        "NodeGraph.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

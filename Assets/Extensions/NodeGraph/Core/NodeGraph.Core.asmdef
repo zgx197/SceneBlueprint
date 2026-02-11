@@ -1,0 +1,16 @@
+{
+    "name": "NodeGraph.Core",
+    "rootNamespace": "NodeGraph.Core",
+    "references": [
+        "NodeGraph.Math"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

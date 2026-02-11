@@ -1,0 +1,18 @@
+{
+    "name": "NodeGraph.Serialization",
+    "rootNamespace": "NodeGraph.Serialization",
+    "references": [
+        "NodeGraph.Math",
+        "NodeGraph.Core",
+        "NodeGraph.Abstraction"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

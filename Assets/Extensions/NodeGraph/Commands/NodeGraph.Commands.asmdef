@@ -1,0 +1,17 @@
+{
+    "name": "NodeGraph.Commands",
+    "rootNamespace": "NodeGraph.Commands",
+    "references": [
+        "NodeGraph.Math",
+        "NodeGraph.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

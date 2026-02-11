@@ -1,0 +1,34 @@
+# =================================================== #
+#  只追踪 NodeGraph 和 SceneBlueprint                   #
+#  策略：先忽略一切，再白名单逐层放行                     #
+# =================================================== #
+
+# 1. 忽略根目录下的一切
+/*
+
+# 2. 放行根目录必要文件
+!.gitignore
+!LICENSE
+
+# 3. 逐层放行到目标目录
+!/Assets/
+/Assets/*
+!/Assets/Extensions/
+!/Assets/Extensions.meta
+/Assets/Extensions/*
+!/Assets/Extensions/NodeGraph/
+!/Assets/Extensions/NodeGraph.meta
+!/Assets/Extensions/SceneBlueprint/
+!/Assets/Extensions/SceneBlueprint.meta
+
+# =================================================== #
+#  目标目录内部的忽略规则                                #
+# =================================================== #
+
+# OS 生成文件
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Unity 不需要的文件
+*.unitypackage

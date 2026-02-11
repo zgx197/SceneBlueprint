@@ -1,0 +1,17 @@
+{
+    "name": "NodeGraph.Layout",
+    "rootNamespace": "NodeGraph.Layout",
+    "references": [
+        "NodeGraph.Math",
+        "NodeGraph.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}
