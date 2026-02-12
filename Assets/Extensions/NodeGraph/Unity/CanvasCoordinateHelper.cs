@@ -6,20 +6,27 @@ namespace NodeGraph.Unity
 {
     /// <summary>
     /// 画布坐标系统工具类。
-    /// 解决 Handles + GUI.matrix + GUI.BeginClip 组合使用时
-    /// Handles 渲染位置偏移的问题（clipOffset 被 GUI.matrix 的缩放因子影响）。
+    /// 提供画布区域内的鼠标坐标校正，解决不同渲染模式下的坐标偏移问题。
     ///
-    /// 使用方式：
+    /// ── 支持的两种渲染模式 ──
+    ///
+    /// 【模式 A：Zero-Matrix + BeginClip（推荐）】
+    /// GUI.matrix 保持 identity，使用 GUI.BeginClip 做视觉裁剪。
     /// 1. 调用 SetGraphAreaRect(graphRect) 设置画布区域
-    /// 2. 不要使用 GUI.BeginClip — 改为将 graphRect 偏移合并到渲染矩阵中
-    /// 3. 使用 CorrectedMousePosition 获取画布区域内的鼠标坐标
-    /// 4. 将 CanvasCoordinateHelper 传入 UnityPlatformInput.Update 的重载
+    /// 2. 在 GUI.BeginClip 之前调用 UnityPlatformInput.Update(evt, this)
+    ///    （此时 evt.mousePosition 是窗口坐标，CorrectedMousePosition 减去 graphRect.position）
+    /// 3. GUI.BeginClip(graphRect) 内调用 Render，screenOffset = Vector2.zero
+    /// 4. GUI.EndClip()
+    /// 此模式下 Handles/EditorGUI 在 BeginClip 内正常工作（因 GUI.matrix 无缩放分量）。
     ///
-    /// 原理：
-    /// - Handles 在 GUI.BeginClip 内配合 GUI.matrix（scale≠1）时，
-    ///   clipOffset 会被缩放因子影响，导致渲染位置偏移
-    /// - 移除 GUI.BeginClip，将 graphRect.position 偏移直接加到渲染矩阵的平移分量中，
-    ///   确保 Handles/EditorGUI/GUI 使用完全相同的坐标变换
+    /// 【模式 B：Zero-Matrix 无 BeginClip】
+    /// 不使用 GUI.BeginClip，将 graphRect 偏移直接传给 Render 的 screenOffset 参数。
+    /// 注意：此模式下节点可能渲染到画布区域外（如工具栏上方），需自行处理裁剪。
+    ///
+    /// ── 注意事项 ──
+    /// - 当 GUI.matrix 包含缩放分量（scale≠1）时，不要使用 GUI.BeginClip，
+    ///   因为 Handles 在此组合下会出现 clipOffset 偏移问题。
+    /// - Zero-Matrix 模式（GUI.matrix = identity）下使用 BeginClip 是安全的。
     /// </summary>
     public class CanvasCoordinateHelper
     {

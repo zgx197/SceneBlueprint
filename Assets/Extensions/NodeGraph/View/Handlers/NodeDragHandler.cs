@@ -26,8 +26,23 @@ namespace NodeGraph.View.Handlers
                 Vec2 canvasPos = viewModel.ScreenToCanvas(input.MousePosition);
                 var hitNode = viewModel.HitTestNode(canvasPos);
 
-                if (hitNode != null)
+                if (hitNode == null)
+                    return false; // 没命中节点，交给后续处理器（框选等）
+
                 {
+                    // 双击折叠的 Rep 节点 → 展开子蓝图
+                    if (input.IsDoubleClick(MouseButton.Left)
+                        && hitNode.TypeId == SubGraphConstants.BoundaryNodeTypeId)
+                    {
+                        var frame = viewModel.Graph.FindContainerSubGraphFrame(hitNode.Id);
+                        if (frame != null && frame.IsCollapsed)
+                        {
+                            viewModel.Commands.Execute(new ToggleSubGraphCollapseCommand(frame.Id));
+                            viewModel.RequestRepaint();
+                            return true;
+                        }
+                    }
+
                     // 如果点击未选中的节点
                     if (!viewModel.Selection.IsSelected(hitNode.Id))
                     {

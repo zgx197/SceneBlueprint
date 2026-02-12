@@ -2,7 +2,8 @@
     "name": "SceneBlueprint.Core",
     "rootNamespace": "SceneBlueprint.Core",
     "references": [
-        "NodeGraph.Math"
+        "NodeGraph.Math",
+        "NodeGraph.Core"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

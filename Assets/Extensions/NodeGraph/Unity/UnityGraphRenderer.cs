@@ -375,14 +375,15 @@ namespace NodeGraph.Unity
                 new Vec2(bounds.Right, bounds.Y + t.TitleBarHeight),
                 t.TitleSeparatorColor, 1f);
 
-            // 5. 标题文字
+            // 5. 标题文字（折叠的子图节点在标题前加 ▶ 图标）
             _titleStyle!.fontSize = ScaledFontSize(t.TitleFontSize);
             _titleStyle.normal.textColor = t.TitleTextColor.ToUnity();
+            string titlePrefix = node.IsCollapsedSubGraph ? "▶ " : "";
             GUI.Label(C2WRect(
                 bounds.X + t.TitlePaddingLeft,
                 bounds.Y,
                 bounds.Width - t.TitlePaddingLeft * 2f,
-                t.TitleBarHeight), node.TitleText, _titleStyle);
+                t.TitleBarHeight), titlePrefix + node.TitleText, _titleStyle);
 
             // 6. 节点外边框（矢量圆角边框）
             DrawRoundedBorder(bounds, t.NodeBorderColor, t.NodeBorderWidth, cornerPx);
@@ -611,9 +612,11 @@ namespace NodeGraph.Unity
 
             if (content.ShowEditor && editCtx != null && content.Node != null)
             {
-                // 编辑模式：由 INodeContentRenderer 直接绘制
-                // 注意：editCtx 内部的 EditorGUI 控件在无 GUI.matrix 时使用窗口坐标，
-                // 此处传入画布坐标矩形，content renderer 需要适配
+                // 编辑模式：将画布坐标转换为窗口坐标，初始化 editCtx 布局区域
+                var windowRect = C2WRect(rect);
+                editCtx.Begin(new Rect2(windowRect.x, windowRect.y,
+                    windowRect.width, windowRect.height));
+
                 if (_contentRenderers.TryGetValue(content.TypeId, out var renderer))
                 {
                     renderer.DrawEditor(content.Node, rect, editCtx);

@@ -1,0 +1,97 @@
+#nullable enable
+using System.Collections.Generic;
+using NodeGraph.Core;
+using NodeGraph.Math;
+using SceneBlueprint.Core;
+
+// 使用别名消除两个框架中同名类型的歧义
+using NGPortDef = NodeGraph.Core.PortDefinition;
+using NGPortDir = NodeGraph.Core.PortDirection;
+using NGPortCap = NodeGraph.Core.PortCapacity;
+using SBPortDef = SceneBlueprint.Core.PortDefinition;
+using SBPortDir = SceneBlueprint.Core.PortDirection;
+using SBPortCap = SceneBlueprint.Core.PortCapacity;
+
+namespace SceneBlueprint.Editor
+{
+    /// <summary>
+    /// ActionDefinition → NodeTypeDefinition 适配器。
+    /// 将 SceneBlueprint 的行动定义桥接到 NodeGraph 的节点类型系统。
+    /// </summary>
+    public static class ActionNodeTypeAdapter
+    {
+        /// <summary>
+        /// 将 ActionRegistry 中所有已注册的 ActionDefinition 转换并注册到 NodeTypeRegistry。
+        /// </summary>
+        public static void RegisterAll(ActionRegistry actionRegistry, NodeTypeRegistry nodeTypeRegistry)
+        {
+            foreach (var actionDef in actionRegistry.GetAll())
+            {
+                var nodeTypeDef = Convert(actionDef);
+                nodeTypeRegistry.Register(nodeTypeDef);
+            }
+        }
+
+        /// <summary>
+        /// 将单个 ActionDefinition 转换为 NodeTypeDefinition。
+        /// </summary>
+        public static NodeTypeDefinition Convert(ActionDefinition actionDef)
+        {
+            // 转换端口定义
+            var ngPorts = ConvertPorts(actionDef.Ports);
+
+            var nodeTypeDef = new NodeTypeDefinition(
+                typeId: actionDef.TypeId,
+                displayName: actionDef.DisplayName,
+                category: actionDef.Category,
+                defaultPorts: ngPorts
+            )
+            {
+                Color = actionDef.ThemeColor,
+                // 创建默认业务数据：从 ActionDefinition 初始化 ActionNodeData（含默认属性值）
+                CreateDefaultData = () => ActionNodeData.CreateFromDefinition(actionDef)
+            };
+
+            return nodeTypeDef;
+        }
+
+        /// <summary>
+        /// 将 SceneBlueprint 端口定义数组转换为 NodeGraph 端口定义数组。
+        /// </summary>
+        private static NGPortDef[] ConvertPorts(SBPortDef[] sbPorts)
+        {
+            if (sbPorts == null || sbPorts.Length == 0)
+                return System.Array.Empty<NGPortDef>();
+
+            var result = new NGPortDef[sbPorts.Length];
+            for (int i = 0; i < sbPorts.Length; i++)
+            {
+                result[i] = ConvertPort(sbPorts[i], i);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 将单个 SceneBlueprint 端口定义转换为 NodeGraph 端口定义。
+        /// </summary>
+        private static NGPortDef ConvertPort(SBPortDef sbPort, int sortOrder)
+        {
+            var direction = sbPort.Direction == SBPortDir.In
+                ? NGPortDir.Input
+                : NGPortDir.Output;
+
+            var capacity = sbPort.Capacity == SBPortCap.Single
+                ? NGPortCap.Single
+                : NGPortCap.Multiple;
+
+            return new NGPortDef(
+                name: string.IsNullOrEmpty(sbPort.DisplayName) ? sbPort.Id : sbPort.DisplayName,
+                direction: direction,
+                kind: PortKind.Control,
+                dataType: "exec",
+                capacity: capacity,
+                sortOrder: sortOrder
+            );
+        }
+    }
+}

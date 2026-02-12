@@ -231,6 +231,13 @@ namespace NodeGraph.View
             foreach (var node in graph.Nodes)
                 node.Size = ComputeNodeSize(node, viewModel);
 
+            // 展开状态的 SubGraphFrame 自动适应内部节点范围
+            foreach (var sgf in graph.SubGraphFrames)
+            {
+                if (!sgf.IsCollapsed && sgf.ContainedNodeIds.Count > 0)
+                    sgf.AutoFit(graph);
+            }
+
             var hiddenNodeIds = BuildHiddenNodeSet(graph);
             var boundaryPortPositions = BuildBoundaryPortPositionMap(graph, viewModel);
 
@@ -338,6 +345,9 @@ namespace NodeGraph.View
                 }
                 else if (container is SubGraphFrame sgf)
                 {
+                    // 折叠状态下不渲染框装饰，仅显示 RepresentativeNode
+                    if (sgf.IsCollapsed) continue;
+
                     var decoFrame = new DecorationFrame
                     {
                         Kind = DecorationKind.SubGraph,
@@ -347,15 +357,12 @@ namespace NodeGraph.View
                         BackgroundColor = new Color4(0.15f, 0.25f, 0.35f, 0.4f),
                         BorderColor = new Color4(0.3f, 0.5f, 0.7f, 0.8f),
                         ShowCollapseButton = true,
-                        IsCollapsed = sgf.IsCollapsed
+                        IsCollapsed = false
                     };
 
-                    if (!sgf.IsCollapsed)
-                    {
-                        var repNode = graph.FindNode(sgf.RepresentativeNodeId);
-                        if (repNode != null && repNode.Ports.Count > 0)
-                            decoFrame.BoundaryPorts = BuildBoundaryPorts(repNode, sgf.Bounds, viewModel);
-                    }
+                    var repNode = graph.FindNode(sgf.RepresentativeNodeId);
+                    if (repNode != null && repNode.Ports.Count > 0)
+                        decoFrame.BoundaryPorts = BuildBoundaryPorts(repNode, sgf.Bounds, viewModel);
 
                     frame.Decorations.Add(decoFrame);
                 }
@@ -376,6 +383,7 @@ namespace NodeGraph.View
                 Vec2 pos = GetBoundaryPortPosition(port, frameBounds, idx, portSpacing, titleBarHeight);
                 int edgeCount = viewModel.Graph.GetEdgeCountForPort(port.Id);
 
+                bool isHovered = port.Id == viewModel.HoveredPortId;
                 ports.Add(new PortFrame
                 {
                     PortId = port.Id,
@@ -387,7 +395,9 @@ namespace NodeGraph.View
                     Kind = port.Kind,
                     Capacity = port.Capacity,
                     ConnectedEdgeCount = edgeCount,
-                    TotalSlots = 1
+                    TotalSlots = 1,
+                    Hovered = isHovered,
+                    HoveredSlotIndex = isHovered ? 0 : -1
                 });
             }
             return ports;
@@ -434,6 +444,17 @@ namespace NodeGraph.View
                     IsPrimary = isPrimary,
                     DisplayMode = node.DisplayMode
                 };
+
+                // 标记折叠状态的 Rep 节点（用于渲染展开按钮）
+                if (node.TypeId == SubGraphConstants.BoundaryNodeTypeId)
+                {
+                    var ownerFrame2 = graph.FindContainerSubGraphFrame(node.Id);
+                    if (ownerFrame2 != null && ownerFrame2.IsCollapsed)
+                    {
+                        nodeFrame.IsCollapsedSubGraph = true;
+                        nodeFrame.SubGraphFrameId = ownerFrame2.Id;
+                    }
+                }
 
                 BuildPorts(nodeFrame, node, bounds, viewModel, theme);
                 BuildNodeContent(nodeFrame, node, bounds, viewModel, theme, selected, isPrimary);
@@ -538,10 +559,19 @@ namespace NodeGraph.View
                 var targetNode = graph.FindNode(targetPort.NodeId);
                 if (sourceNode == null || targetNode == null) continue;
 
-                if (hiddenNodeIds.Count > 0
-                    && hiddenNodeIds.Contains(sourceNode.Id)
-                    && hiddenNodeIds.Contains(targetNode.Id))
-                    continue;
+                // 隐藏节点的连线可见性判断：
+                // - 隐藏节点的端口如果在 boundaryPortPositions 中，说明是展开状态的边界端口，仍需渲染
+                // - 否则（折叠的内部节点）跳过
+                if (hiddenNodeIds.Count > 0)
+                {
+                    bool srcHidden = hiddenNodeIds.Contains(sourceNode.Id);
+                    bool tgtHidden = hiddenNodeIds.Contains(targetNode.Id);
+                    bool srcHasBP = boundaryPortPositions.ContainsKey(edge.SourcePortId);
+                    bool tgtHasBP = boundaryPortPositions.ContainsKey(edge.TargetPortId);
+
+                    if ((srcHidden && !srcHasBP) || (tgtHidden && !tgtHasBP))
+                        continue;
+                }
 
                 Vec2 start;
                 if (boundaryPortPositions.TryGetValue(edge.SourcePortId, out var bpStart))
@@ -609,6 +639,20 @@ namespace NodeGraph.View
         {
             if (!viewModel.ContentRenderers.TryGetValue(node.TypeId, out var renderer))
                 return 0f;
+
+            // 选中节点处于编辑模式时，使用编辑器尺寸（包含所有可见属性）
+            bool isEditorMode = viewModel.Selection.PrimarySelectedNodeId == node.Id
+                && renderer.SupportsInlineEdit
+                && node.DisplayMode == NodeDisplayMode.Expanded;
+
+            if (isEditorMode)
+            {
+                // GetEditorSize 的 IEditContext 参数仅用于渲染时的布局，
+                // 尺寸计算阶段不需要实际的 editCtx，传 null 安全
+                var editorSize = renderer.GetEditorSize(node, null!);
+                return editorSize.Y + 6f;
+            }
+
             var summarySize = renderer.GetSummarySize(node, TextMeasurer);
             return summarySize.Y + 6f;
         }

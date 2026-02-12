@@ -13,6 +13,7 @@
 
 # 3. 逐层放行到目标目录
 !/.windsurf/
+!/.windsurf.meta
 !/Assets/
 /Assets/*
 !/Assets/Extensions/
@@ -22,6 +23,8 @@
 !/Assets/Extensions/NodeGraph.meta
 !/Assets/Extensions/SceneBlueprint/
 !/Assets/Extensions/SceneBlueprint.meta
+!/Assets/GameAssets/SceneBlueprint/
+!/Assets/GameAssets/SceneBlueprint.meta
 
 # =================================================== #
 #  目标目录内部的忽略规则                                #

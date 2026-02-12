@@ -37,5 +37,11 @@ namespace NodeGraph.View
 
         /// <summary>节点内容信息（可为 null 表示无内容区）</summary>
         public NodeContentInfo? Content { get; set; }
+
+        /// <summary>是否为折叠状态的子图 RepresentativeNode（用于渲染展开按钮）</summary>
+        public bool IsCollapsedSubGraph { get; set; }
+
+        /// <summary>所属子图框 ID（仅当 IsCollapsedSubGraph 为 true 时有效）</summary>
+        public string? SubGraphFrameId { get; set; }
     }
 }

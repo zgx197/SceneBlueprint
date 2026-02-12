@@ -25,7 +25,7 @@ namespace SceneBlueprint.Actions.Flow
             Duration = ActionDuration.Instant,
             Ports = new[]
             {
-                Port.FlowOut("out", "输出") // 唯一的输出端口，连接到第一个行动
+                Port.EventOut("out", "输出") // 输出端口（Multiple），可并行触发多个初始行动
             },
             Properties = System.Array.Empty<PropertyDefinition>() // 无属性
         };

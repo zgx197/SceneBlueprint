@@ -77,6 +77,26 @@ namespace NodeGraph.View
         /// <summary>渲染帧构建器（由 BlueprintProfile 提供，或手动设置）</summary>
         public IGraphFrameBuilder FrameBuilder { get; set; } = null!;
 
+        // ── 上下文菜单事件（宿主窗口订阅，框架层 Handler 触发）──
+
+        /// <summary>
+        /// 右键点击画布空白区域时触发。参数为画布坐标。
+        /// 宿主窗口订阅此事件以显示平台原生的"添加节点"菜单。
+        /// </summary>
+        public Action<Vec2>? OnContextMenuRequested { get; set; }
+
+        /// <summary>
+        /// 右键点击节点时触发。参数为 (节点, 画布坐标)。
+        /// 宿主窗口订阅此事件以显示节点上下文菜单（删除、复制等）。
+        /// </summary>
+        public Action<Node, Vec2>? OnNodeContextMenuRequested { get; set; }
+
+        /// <summary>
+        /// 右键点击端口时触发。参数为 (端口, 画布坐标)。
+        /// 宿主窗口订阅此事件以显示端口连线管理菜单。
+        /// </summary>
+        public Action<Port, Vec2>? OnPortContextMenuRequested { get; set; }
+
         // ══════════════════════════════════════
         //  构造
         // ══════════════════════════════════════
@@ -95,6 +115,7 @@ namespace NodeGraph.View
             AddHandler(new ConnectionDragHandler());
             AddHandler(new NodeDragHandler());
             AddHandler(new MarqueeSelectionHandler());
+            AddHandler(new ContextMenuHandler());
         }
 
         // ══════════════════════════════════════
@@ -244,26 +265,54 @@ namespace NodeGraph.View
         //  命中测试
         // ══════════════════════════════════════
 
-        /// <summary>命中测试节点（返回最上层命中的节点）</summary>
+        /// <summary>命中测试节点（返回最上层命中的节点，跳过隐藏节点）</summary>
         public Node? HitTestNode(Vec2 canvasPos)
         {
             // 从后向前遍历（后绘制的在上层）
             for (int i = Graph.Nodes.Count - 1; i >= 0; i--)
             {
                 var node = Graph.Nodes[i];
-                if (node.GetBounds().Contains(canvasPos))
+                if (node.GetBounds().Contains(canvasPos) && !IsNodeHidden(node))
                     return node;
             }
             return null;
         }
 
-        /// <summary>命中测试端口（Multiple Input 端口检测所有槽位）</summary>
+        /// <summary>
+        /// 判断节点是否被隐藏（不可见不可交互）。
+        /// - 展开状态的框：RepresentativeNode 隐藏
+        /// - 折叠状态的框：内部节点隐藏
+        /// </summary>
+        private bool IsNodeHidden(Node node)
+        {
+            foreach (var sgf in Graph.SubGraphFrames)
+            {
+                if (sgf.IsCollapsed)
+                {
+                    // 折叠时：内部节点隐藏
+                    if (sgf.ContainedNodeIds.Contains(node.Id))
+                        return true;
+                }
+                else
+                {
+                    // 展开时：RepresentativeNode 隐藏
+                    if (sgf.RepresentativeNodeId == node.Id)
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>命中测试端口（Multiple Input 端口检测所有槽位，跳过隐藏节点，但检测展开状态的边界端口）</summary>
         public Port? HitTestPort(Vec2 canvasPos, float hitRadius = 12f)
         {
             float hitRadiusSq = hitRadius * hitRadius;
+
+            // 第一遍：检测可见节点的端口
             for (int i = Graph.Nodes.Count - 1; i >= 0; i--)
             {
                 var node = Graph.Nodes[i];
+                if (IsNodeHidden(node)) continue;
                 foreach (var port in node.Ports)
                 {
                     bool isMultipleInput = port.Direction == PortDirection.Input
@@ -286,6 +335,22 @@ namespace NodeGraph.View
                     }
                 }
             }
+
+            // 第二遍：检测展开状态的 SubGraphFrame 边界端口（Rep 节点隐藏但端口在框边缘可交互）
+            foreach (var sgf in Graph.SubGraphFrames)
+            {
+                if (sgf.IsCollapsed) continue;
+                var repNode = Graph.FindNode(sgf.RepresentativeNodeId);
+                if (repNode == null) continue;
+
+                foreach (var port in repNode.Ports)
+                {
+                    Vec2 edgePos = GetBoundaryPortEdgePosition(port, repNode, sgf);
+                    if (Vec2.DistanceSquared(canvasPos, edgePos) <= hitRadiusSq)
+                        return port;
+                }
+            }
+
             return null;
         }
 
@@ -342,7 +407,7 @@ namespace NodeGraph.View
             return positions;
         }
 
-        /// <summary>命中测试连线（检查点到贝塞尔曲线的距离）</summary>
+        /// <summary>命中测试连线（检查点到贝塞尔曲线的距离，跳过隐藏节点的边）</summary>
         public Edge? HitTestEdge(Vec2 canvasPos, float hitDistance = 8f)
         {
             foreach (var edge in Graph.Edges)
@@ -354,6 +419,10 @@ namespace NodeGraph.View
                 var sourceNode = Graph.FindNode(sourcePort.NodeId);
                 var targetNode = Graph.FindNode(targetPort.NodeId);
                 if (sourceNode == null || targetNode == null) continue;
+
+                // 跳过任一端点为隐藏节点的连线
+                if (IsNodeHidden(sourceNode) || IsNodeHidden(targetNode))
+                    continue;
 
                 Vec2 start = GetPortPosition(sourcePort);
                 // Multiple Input 端口：使用每条边各自的槽位位置
@@ -378,11 +447,29 @@ namespace NodeGraph.View
         {
             foreach (var sgf in Graph.SubGraphFrames)
             {
+                if (sgf.IsCollapsed) continue; // 折叠状态下由 Rep 节点接管
                 // 折叠按钮在标题栏左侧，约 24x24 区域
                 var buttonRect = new Rect2(
                     sgf.Bounds.X, sgf.Bounds.Y,
                     sgf.Bounds.Width, 24f); // 整个标题栏可点击
                 if (buttonRect.Contains(canvasPos))
+                    return sgf;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 命中测试子图框标题栏（展开和折叠状态均可命中）。
+        /// 展开时用于拖动和折叠切换，折叠时用于展开切换。
+        /// </summary>
+        public SubGraphFrame? HitTestSubGraphFrameTitleBar(Vec2 canvasPos)
+        {
+            foreach (var sgf in Graph.SubGraphFrames)
+            {
+                var titleBar = new Rect2(
+                    sgf.Bounds.X, sgf.Bounds.Y,
+                    sgf.Bounds.Width, 24f);
+                if (titleBar.Contains(canvasPos))
                     return sgf;
             }
             return null;
@@ -394,14 +481,42 @@ namespace NodeGraph.View
 
         /// <summary>
         /// 获取端口在画布坐标系的位置。
-        /// 委托给 FrameBuilder 计算，支持 Multiple 端口的槽位偏移。
+        /// 对展开状态的 SubGraphFrame 边界端口返回框边缘位置；其他端口委托给 FrameBuilder。
         /// </summary>
         public Vec2 GetPortPosition(Port port)
         {
             var node = Graph.FindNode(port.NodeId);
             if (node == null) return Vec2.Zero;
 
+            // 边界端口特殊处理：展开状态下返回框边缘位置
+            if (node.TypeId == SubGraphConstants.BoundaryNodeTypeId)
+            {
+                var frame = Graph.FindContainerSubGraphFrame(node.Id);
+                if (frame != null && !frame.IsCollapsed)
+                    return GetBoundaryPortEdgePosition(port, node, frame);
+            }
+
             return FrameBuilder.GetPortPosition(port, node, node.GetBounds(), Theme, this);
+        }
+
+        /// <summary>计算边界端口在框边缘的位置（与 BaseFrameBuilder 一致）</summary>
+        private Vec2 GetBoundaryPortEdgePosition(Port port, Node repNode, SubGraphFrame frame)
+        {
+            float titleBarHeight = 24f;
+            float portSpacing = Theme.PortSpacing;
+
+            // 计算该端口在同方向端口中的索引
+            int index = 0;
+            foreach (var p in repNode.Ports)
+            {
+                if (p.Id == port.Id) break;
+                if (p.Direction == port.Direction) index++;
+            }
+
+            float offset = titleBarHeight + portSpacing * (index + 0.5f);
+            return port.Direction == PortDirection.Input
+                ? new Vec2(frame.Bounds.X, frame.Bounds.Y + offset)
+                : new Vec2(frame.Bounds.Right, frame.Bounds.Y + offset);
         }
 
         /// <summary>检查端口是否有连线</summary>
@@ -571,7 +686,18 @@ namespace NodeGraph.View
 
                 // 再删除选中的节点
                 foreach (var nodeId in Selection.SelectedNodeIds.ToList())
-                    Commands.Execute(new RemoveNodeCommand(nodeId));
+                {
+                    // 如果选中的是 SubGraphFrame 的 RepresentativeNode，执行 Ungroup 而非删除
+                    var frame = Graph.FindContainerSubGraphFrame(nodeId);
+                    if (frame != null && frame.RepresentativeNodeId == nodeId)
+                    {
+                        Commands.Execute(new UngroupSubGraphCommand(frame.Id));
+                    }
+                    else
+                    {
+                        Commands.Execute(new RemoveNodeCommand(nodeId));
+                    }
+                }
             }
 
             Selection.ClearSelection();

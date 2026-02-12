@@ -9,6 +9,15 @@ namespace NodeGraph.Abstraction
     /// </summary>
     public interface IEditContext
     {
+        // ── 帧初始化 ──
+
+        /// <summary>
+        /// 开始一帧的编辑布局。设置可用绘制区域，重置内部布局游标。
+        /// 必须在调用任何控件方法之前调用。
+        /// 坐标为引擎窗口坐标系（由调用方负责从画布坐标转换）。
+        /// </summary>
+        void Begin(Rect2 availableRect);
+
         // ── 基础控件 ──
 
         /// <summary>浮点数输入字段</summary>

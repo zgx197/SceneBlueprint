@@ -1,0 +1,28 @@
+{
+    "name": "SceneBlueprint.Editor",
+    "rootNamespace": "SceneBlueprint.Editor",
+    "references": [
+        "SceneBlueprint.Core",
+        "SceneBlueprint.Actions",
+        "SceneBlueprint.Runtime",
+        "NodeGraph.Math",
+        "NodeGraph.Core",
+        "NodeGraph.Commands",
+        "NodeGraph.Abstraction",
+        "NodeGraph.View",
+        "NodeGraph.Layout",
+        "NodeGraph.Serialization",
+        "NodeGraph.Unity"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

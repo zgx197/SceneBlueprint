@@ -1,4 +1,5 @@
 #nullable enable
+using NodeGraph.Core;
 
 namespace SceneBlueprint.Core
 {
@@ -29,7 +30,7 @@ namespace SceneBlueprint.Core
     /// </list>
     /// </para>
     /// </summary>
-    public class ActionNodeData
+    public class ActionNodeData : INodeData
     {
         /// <summary>
         /// 指向 ActionDefinition.TypeId，表示这个节点是什么类型的行动。

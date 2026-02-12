@@ -19,10 +19,11 @@ namespace NodeGraph.Unity
         private float _spacing = 2f;
 
         /// <summary>开始一帧的编辑（在绘制节点内容前调用）</summary>
-        public void Begin(Rect availableRect)
+        public void Begin(Rect2 availableRect)
         {
-            _availableRect = availableRect;
-            _currentY = availableRect.y;
+            _availableRect = new Rect(availableRect.X, availableRect.Y,
+                availableRect.Width, availableRect.Height);
+            _currentY = availableRect.Y;
             _lineHeight = EditorGUIUtility.singleLineHeight;
             _hasChanged = false;
         }

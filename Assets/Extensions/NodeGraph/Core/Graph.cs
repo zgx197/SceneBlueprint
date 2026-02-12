@@ -183,8 +183,26 @@ namespace NodeGraph.Core
             var targetPort = FindPort(targetPortId);
             if (sourcePort == null || targetPort == null) return null;
 
-            // 自动纠正方向
-            if (sourcePort.Direction == PortDirection.Input && targetPort.Direction == PortDirection.Output)
+            // 判断是否为边界端口的内部连接（桥接模式）
+            var sNode = FindNode(sourcePort.NodeId);
+            var tNode = FindNode(targetPort.NodeId);
+            bool sBoundary = sNode?.TypeId == SubGraphConstants.BoundaryNodeTypeId;
+            bool tBoundary = tNode?.TypeId == SubGraphConstants.BoundaryNodeTypeId;
+            bool isInternalBoundary = false;
+            if (sBoundary || tBoundary)
+            {
+                var boundaryNode = sBoundary ? sNode! : tNode!;
+                var otherNode = sBoundary ? tNode! : sNode!;
+                var frame = FindContainerSubGraphFrame(boundaryNode.Id);
+                isInternalBoundary = frame != null && frame.ContainedNodeIds.Contains(otherNode.Id);
+            }
+
+            // 自动纠正方向（内部桥接连接跳过，外部连接正常纠正）
+            if (isInternalBoundary)
+            {
+                // 边界端口内部桥接：不按方向纠正，保持用户拖拽的方向
+            }
+            else if (sourcePort.Direction == PortDirection.Input && targetPort.Direction == PortDirection.Output)
             {
                 (sourcePort, targetPort) = (targetPort, sourcePort);
                 (sourcePortId, targetPortId) = (targetPortId, sourcePortId);
@@ -195,7 +213,9 @@ namespace NodeGraph.Core
             if (result != ConnectionResult.Success) return null;
 
             // 如果目标端口是 Single 容量且已有连接，先断开旧连接
-            if (targetPort.Capacity == PortCapacity.Single)
+            // 边界端口始终跳过（需同时承载外部+内部多条连线）
+            bool targetIsBoundary = tBoundary || sBoundary;
+            if (targetPort.Capacity == PortCapacity.Single && !targetIsBoundary)
             {
                 if (_portEdgeIndex.TryGetValue(targetPortId, out var existing) && existing.Count > 0)
                 {
@@ -278,6 +298,19 @@ namespace NodeGraph.Core
                 }
             }
             return result;
+        }
+
+        /// <summary>根据 ID 查找连线</summary>
+        public Edge? FindEdge(string edgeId)
+        {
+            if (edgeId == null) return null;
+            return _edgeMap.TryGetValue(edgeId, out var edge) ? edge : null;
+        }
+
+        /// <summary>根据 ID 移除连线（公共 API，供 Command 使用）</summary>
+        public void RemoveEdge(string edgeId)
+        {
+            Disconnect(edgeId);
         }
 
         /// <summary>获取指定端口关联的所有连线（O(1) 查找）</summary>

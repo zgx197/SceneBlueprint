@@ -1,15 +1,19 @@
 #nullable enable
 using NodeGraph.Core;
+using NodeGraph.Math;
 
 namespace NodeGraph.Commands
 {
     /// <summary>
-    /// 切换子图框折叠/展开状态的命令。支持 Undo/Redo。
+    /// 切换子图框折叠/展开状态的命令。
+    /// 折叠时将 RepresentativeNode 移动到框左上角，展开时恢复原位。
+    /// 支持 Undo/Redo。
     /// </summary>
     public class ToggleSubGraphCollapseCommand : ICommand
     {
         private readonly string _frameId;
         private bool _previousState;
+        private Vec2 _previousRepNodePos;
 
         public string Description { get; }
 
@@ -25,7 +29,18 @@ namespace NodeGraph.Commands
             if (frame == null) return;
 
             _previousState = frame.IsCollapsed;
+
+            var repNode = graph.FindNode(frame.RepresentativeNodeId);
+            if (repNode != null)
+                _previousRepNodePos = repNode.Position;
+
             frame.IsCollapsed = !frame.IsCollapsed;
+
+            // 折叠时：将 Rep 节点移到框左上角
+            if (frame.IsCollapsed && repNode != null)
+            {
+                repNode.Position = new Vec2(frame.Bounds.X, frame.Bounds.Y);
+            }
         }
 
         public void Undo(Graph graph)
@@ -34,6 +49,11 @@ namespace NodeGraph.Commands
             if (frame == null) return;
 
             frame.IsCollapsed = _previousState;
+
+            // 恢复 Rep 节点原始位置
+            var repNode = graph.FindNode(frame.RepresentativeNodeId);
+            if (repNode != null)
+                repNode.Position = _previousRepNodePos;
         }
     }
 }
