@@ -9,6 +9,7 @@
 # 2. 放行根目录必要文件
 !.gitignore
 !LICENSE
+!/.github/
 
 # 3. 逐层放行到目标目录
 !/.windsurf/
