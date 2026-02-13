@@ -750,7 +750,7 @@ namespace SceneBlueprint.Editor
                 }
             }
 
-            // 策略 2：对于未恢复的绑定，尝试用 PropertyBag 中的 GameObject 名称回退查找
+            // 策略 2：对于未恢复的绑定，用 PropertyBag 中的 MarkerId 回退查找
             var registry = SceneBlueprintProfile.CreateActionRegistry();
             foreach (var node in _viewModel.Graph.Nodes)
             {
@@ -762,13 +762,14 @@ namespace SceneBlueprint.Editor
                     if (prop.SceneBindingType == null) continue;
                     if (_bindingContext.Get(prop.Key) != null) continue; // 已恢复，跳过
 
-                    var objName = data.Properties.Get<string>(prop.Key);
-                    if (string.IsNullOrEmpty(objName)) continue;
+                    var storedId = data.Properties.Get<string>(prop.Key);
+                    if (string.IsNullOrEmpty(storedId)) continue;
 
-                    var go = GameObject.Find(objName);
-                    if (go != null)
+                    // 通过 MarkerId 在场景中查找对应的 SceneMarker
+                    var marker = SceneMarkerSelectionBridge.FindMarkerInScene(storedId);
+                    if (marker != null)
                     {
-                        _bindingContext.Set(prop.Key, go);
+                        _bindingContext.Set(prop.Key, marker.gameObject);
                     }
                 }
             }
@@ -1191,7 +1192,7 @@ namespace SceneBlueprint.Editor
 
         /// <summary>
         /// Scene View 中创建标记后的回调。
-        /// 在蓝图中自动创建对应 Action 节点（暂不自动绑定，后续接入）。
+        /// 在蓝图中自动创建对应 Action 节点，并自动绑定创建的标记。
         /// </summary>
         private void OnMarkerCreated(MarkerCreationResult result)
         {
@@ -1213,6 +1214,25 @@ namespace SceneBlueprint.Editor
 
             var cmd = new AddNodeCommand(result.ActionTypeId, canvasCenter);
             _viewModel.Commands.Execute(cmd);
+
+            // ── 自动绑定：将刚创建的标记写入 BindingContext + PropertyBag ──
+            if (cmd.CreatedNodeId != null && _bindingContext != null)
+            {
+                var node = graph.FindNode(cmd.CreatedNodeId);
+                if (node?.UserData is Core.ActionNodeData data)
+                {
+                    foreach (var entry in result.CreatedMarkers)
+                    {
+                        // BindingContext 持有 GameObject 引用
+                        _bindingContext.Set(entry.BindingKey, entry.MarkerGameObject);
+                        // PropertyBag 存储 MarkerId（稳定唯一标识）
+                        data.Properties.Set(entry.BindingKey, entry.MarkerId);
+                    }
+
+                    SBLog.Info(SBLogTags.Binding,
+                        $"已自动绑定 {result.CreatedMarkers.Count} 个标记到节点 {result.ActionDisplayName}");
+                }
+            }
 
             SBLog.Info(SBLogTags.Marker, $"已为 {result.ActionDisplayName} 创建蓝图节点，" +
                 $"关联 {result.CreatedMarkers.Count} 个标记");
@@ -1249,27 +1269,27 @@ namespace SceneBlueprint.Editor
                     // 策略 1：从 BindingContext 获取 GameObject 引用
                     GameObject? boundObj = _bindingContext?.Get(prop.Key);
 
-                    // 策略 2：BindingContext 为空时，用 PropertyBag 中的名称回退查找
+                    // 策略 2：BindingContext 为空时，用 PropertyBag 中的 MarkerId 回退查找
                     if (boundObj == null)
                     {
-                        var objName = data.Properties.Get<string>(prop.Key);
-                        if (!string.IsNullOrEmpty(objName))
+                        var storedId = data.Properties.Get<string>(prop.Key);
+                        if (!string.IsNullOrEmpty(storedId))
                         {
-                            var go = GameObject.Find(objName);
-                            if (go != null)
+                            var marker = SceneMarkerSelectionBridge.FindMarkerInScene(storedId);
+                            if (marker != null)
                             {
-                                boundObj = go;
-                                // 同时回填到 BindingContext 以便后续使用
-                                _bindingContext?.Set(prop.Key, go);
+                                boundObj = marker.gameObject;
+                                // 回填到 BindingContext 以便后续使用
+                                _bindingContext?.Set(prop.Key, boundObj);
                             }
                         }
                     }
 
                     if (boundObj == null) continue;
 
-                    var marker = boundObj.GetComponent<SceneMarker>();
-                    if (marker != null && !string.IsNullOrEmpty(marker.MarkerId))
-                        markerIds.Add(marker.MarkerId);
+                    var markerComp = boundObj.GetComponent<SceneMarker>();
+                    if (markerComp != null && !string.IsNullOrEmpty(markerComp.MarkerId))
+                        markerIds.Add(markerComp.MarkerId);
                 }
             }
 
@@ -1283,12 +1303,6 @@ namespace SceneBlueprint.Editor
         {
             if (_viewModel == null) return;
 
-            // 查找场景中该 MarkerId 对应的 GameObject
-            var selectedMarker = SceneMarkerSelectionBridge.FindMarkerInScene(markerId);
-            if (selectedMarker == null) return;
-
-            var selectedGO = selectedMarker.gameObject;
-            var selectedName = selectedGO.name;
             var registry = SceneBlueprintProfile.CreateActionRegistry();
             var nodeIds = new List<string>();
 
@@ -1301,23 +1315,12 @@ namespace SceneBlueprint.Editor
                 {
                     if (prop.SceneBindingType == null) continue;
 
-                    // 策略 1：BindingContext 中的 GameObject 引用匹配
-                    var boundObj = _bindingContext?.Get(prop.Key);
-                    if (boundObj == selectedGO)
+                    // PropertyBag 中存储的是 MarkerId，直接比较即可
+                    var storedId = data.Properties.Get<string>(prop.Key);
+                    if (!string.IsNullOrEmpty(storedId) && storedId == markerId)
                     {
                         nodeIds.Add(node.Id);
                         break;
-                    }
-
-                    // 策略 2：PropertyBag 中的 GameObject 名称匹配
-                    if (boundObj == null)
-                    {
-                        var objName = data.Properties.Get<string>(prop.Key);
-                        if (!string.IsNullOrEmpty(objName) && objName == selectedName)
-                        {
-                            nodeIds.Add(node.Id);
-                            break;
-                        }
                     }
                 }
             }

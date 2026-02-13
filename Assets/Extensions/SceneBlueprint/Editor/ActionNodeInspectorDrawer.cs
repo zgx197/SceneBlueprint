@@ -5,6 +5,8 @@ using UnityEditor;
 using NodeGraph.Core;
 using NodeGraph.Unity;
 using SceneBlueprint.Core;
+using SceneBlueprint.Editor.Markers;
+using SceneBlueprint.Runtime.Markers;
 
 namespace SceneBlueprint.Editor
 {
@@ -272,8 +274,9 @@ namespace SceneBlueprint.Editor
                 if (result != current)
                 {
                     _bindingContext.Set(prop.Key, result);
-                    // 同时在 PropertyBag 中记录绑定对象名（用于画布摘要显示）
-                    bag.Set(prop.Key, result != null ? result.name : "");
+                    // PropertyBag 中存储 MarkerId（稳定唯一标识，不怕改名）
+                    var marker = result != null ? result.GetComponent<SceneMarker>() : null;
+                    bag.Set(prop.Key, marker != null ? marker.MarkerId : "");
                     EditorGUILayout.EndVertical();
                     return true;
                 }
@@ -285,9 +288,19 @@ namespace SceneBlueprint.Editor
             }
             else
             {
-                // 无 BindingContext 时降级为只读文本
-                string name = bag.Get<string>(prop.Key) ?? "";
-                EditorGUILayout.LabelField("场景对象", string.IsNullOrEmpty(name) ? "(未绑定)" : name);
+                // 无 BindingContext 时降级为只读显示 MarkerId
+                string storedId = bag.Get<string>(prop.Key) ?? "";
+                if (string.IsNullOrEmpty(storedId))
+                {
+                    EditorGUILayout.LabelField("场景对象", "(未绑定)");
+                }
+                else
+                {
+                    // 尝试通过 MarkerId 查找标记名称用于显示
+                    var marker = SceneMarkerSelectionBridge.FindMarkerInScene(storedId);
+                    string displayText = marker != null ? marker.GetDisplayLabel() : $"(ID: {storedId[..System.Math.Min(8, storedId.Length)]})";
+                    EditorGUILayout.LabelField("场景对象", displayText);
+                }
                 EditorGUILayout.HelpBox("请先保存蓝图以启用场景绑定", MessageType.Info);
             }
 

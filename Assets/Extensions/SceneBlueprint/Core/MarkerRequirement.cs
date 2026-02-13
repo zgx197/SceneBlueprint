@@ -19,9 +19,9 @@ namespace SceneBlueprint.Core
     /// // Spawn Action 声明需要一个区域和多个点位
     /// SceneRequirements = new[]
     /// {
-    ///     new MarkerRequirement("spawnArea", MarkerType.Area, "刷怪区域",
+    ///     new MarkerRequirement("spawnArea", MarkerTypeIds.Area, "刷怪区域",
     ///         required: true, defaultTag: "Combat.SpawnArea"),
-    ///     new MarkerRequirement("spawnPoints", MarkerType.Point, "刷怪点",
+    ///     new MarkerRequirement("spawnPoints", MarkerTypeIds.Point, "刷怪点",
     ///         required: false, allowMultiple: true, minCount: 1,
     ///         defaultTag: "Combat.SpawnPoint"),
     /// };
@@ -36,9 +36,11 @@ namespace SceneBlueprint.Core
         public string BindingKey { get; set; } = "";
 
         /// <summary>
-        /// 需要的标记类型——Point / Area / Entity
+        /// 需要的标记类型 ID——对应 <see cref="MarkerTypeIds"/> 中定义的常量，
+        /// 也可以是自定义的字符串 ID。
+        /// <para>如 "Point", "Area", "Entity", "Path"</para>
         /// </summary>
-        public MarkerType MarkerType { get; set; }
+        public string MarkerTypeId { get; set; } = "";
 
         /// <summary>
         /// 显示名称——在 Inspector 和创建菜单中显示。
@@ -73,7 +75,7 @@ namespace SceneBlueprint.Core
         /// <summary>便捷构造函数</summary>
         public MarkerRequirement(
             string bindingKey,
-            MarkerType markerType,
+            string markerTypeId,
             string displayName,
             bool required = false,
             bool allowMultiple = false,
@@ -81,7 +83,7 @@ namespace SceneBlueprint.Core
             string defaultTag = "")
         {
             BindingKey = bindingKey;
-            MarkerType = markerType;
+            MarkerTypeId = markerTypeId;
             DisplayName = displayName;
             Required = required;
             AllowMultiple = allowMultiple;

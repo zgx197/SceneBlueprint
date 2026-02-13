@@ -14,7 +14,7 @@ namespace SceneBlueprint.Runtime.Markers
     [AddComponentMenu("SceneBlueprint/Entity Marker")]
     public class EntityMarker : SceneMarker
     {
-        public override MarkerType Type => MarkerType.Entity;
+        public override string MarkerTypeId => MarkerTypeIds.Entity;
 
         [Header("实体设置")]
 

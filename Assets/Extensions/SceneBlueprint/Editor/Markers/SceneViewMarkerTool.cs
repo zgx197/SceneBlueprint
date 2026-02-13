@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEditor;
 using SceneBlueprint.Core;
 using SceneBlueprint.Editor.Logging;
+using SceneBlueprint.Editor.Markers.Definitions;
 using SceneBlueprint.Runtime.Markers;
 
 namespace SceneBlueprint.Editor.Markers
@@ -233,53 +234,35 @@ namespace SceneBlueprint.Editor.Markers
             {
                 int count = req.AllowMultiple ? System.Math.Max(req.MinCount, 1) : 1;
 
+                var markerDef = MarkerDefinitionRegistry.Get(req.MarkerTypeId);
+                if (markerDef == null)
+                {
+                    SBLog.Warn(SBLogTags.Marker,
+                        $"未找到标记类型定义: {req.MarkerTypeId}，跳过创建");
+                    continue;
+                }
+
                 for (int i = 0; i < count; i++)
                 {
                     var markerPos = basePos + Vector3.right * offset;
-                    SceneMarker? marker = null;
+                    string markerName = count > 1
+                        ? $"{req.DisplayName}_{i + 1:D2}"
+                        : req.DisplayName;
 
-                    switch (req.MarkerType)
+                    var marker = MarkerHierarchyManager.CreateMarker(
+                        markerDef.ComponentType, markerName, markerPos, tag: req.DefaultTag);
+
+                    markerDef.Initializer?.Invoke(marker);
+                    offset += markerDef.DefaultSpacing;
+
+                    result.CreatedMarkers.Add(new MarkerBindingEntry
                     {
-                        case MarkerType.Point:
-                            marker = MarkerHierarchyManager.CreateMarker<PointMarker>(
-                                $"{req.DisplayName}{(count > 1 ? $"_{i + 1:D2}" : "")}",
-                                markerPos,
-                                tag: req.DefaultTag);
-                            offset += 2f;
-                            break;
+                        BindingKey = req.BindingKey,
+                        MarkerId = marker.MarkerId,
+                        MarkerGameObject = marker.gameObject
+                    });
 
-                        case MarkerType.Area:
-                            var areaMarker = MarkerHierarchyManager.CreateMarker<AreaMarker>(
-                                req.DisplayName,
-                                markerPos,
-                                tag: req.DefaultTag);
-                            areaMarker.Shape = AreaShape.Box;
-                            areaMarker.BoxSize = new Vector3(8f, 3f, 8f);
-                            marker = areaMarker;
-                            offset += 10f;
-                            break;
-
-                        case MarkerType.Entity:
-                            marker = MarkerHierarchyManager.CreateMarker<EntityMarker>(
-                                req.DisplayName,
-                                markerPos,
-                                tag: req.DefaultTag);
-                            offset += 2f;
-                            break;
-                    }
-
-                    if (marker != null)
-                    {
-                        result.CreatedMarkers.Add(new MarkerBindingEntry
-                        {
-                            BindingKey = req.BindingKey,
-                            MarkerId = marker.MarkerId,
-                            MarkerGameObject = marker.gameObject
-                        });
-
-                        // 选中最后创建的标记
-                        Selection.activeGameObject = marker.gameObject;
-                    }
+                    Selection.activeGameObject = marker.gameObject;
                 }
             }
 

@@ -461,34 +461,38 @@ HandlePicking(drawList):
 - `GizmoDrawContext.IsHighlighted` 从 `SceneMarkerSelectionBridge.IsMarkerHighlighted` 读取
 - 高亮时管线自动启动持续重绘（复用现有 `EditorApplication.update` 机制）
 
-### 7.3 AreaMarkerEditor
-- `AreaMarkerEditor` 的编辑 Handle 独立于管线（`[CustomEditor]` + `OnSceneGUI`）
-- 选中 AreaMarker 时，管线的 Fill/Wireframe 降低优先级，让 Editor Handle 控制
+### 7.3 AreaMarker 编辑（已迁入管线）
+- `AreaMarkerEditor` 已删除，编辑逻辑迁入 `AreaMarkerRenderer.DrawInteractive`
+- 选中 AreaMarker 时，`DrawInteractive` 返回 true → 管线跳过该标记的 Fill/Wireframe
+- Box 模式：`BoxBoundsHandle` + 完整 6 面填充 + 12 边线框
+- Polygon 模式：顶点拖拽 Handle + 右键添加/删除顶点
 
 ---
 
 ## 8. 迁移计划
 
-### Step 1: 基础框架
+### Step 1: 基础框架 ✅
 - 创建 `GizmoRenderPipeline`、`MarkerCache`、`GizmoDrawContext`、`IMarkerGizmoRenderer`
 - 注册 `SceneView.duringSceneGui`
-- **暂时保留** `[DrawGizmo]` 旧代码，新旧共存
+- 自动发现所有 `IMarkerGizmoRenderer` 实现
 
-### Step 2: 迁移 Renderer
+### Step 2: 迁移 Renderer ✅
 - 实现 `PointMarkerRenderer`、`AreaMarkerRenderer`、`EntityMarkerRenderer`
-- 每迁移完一个类型，**删除**对应的 `[DrawGizmo]` 方法
-- 冒烟测试：Gizmo 外观与旧版一致
+- 已删除对应的 `[DrawGizmo]` 方法
+- Gizmo 外观与旧版一致
 
-### Step 3: 拾取迁移 + Interactive Phase
-- 将拾取逻辑移入管线 `HandlePicking`，复用 drawList
-- 实现 `AreaMarkerRenderer.DrawInteractive`（顶点拖拽 + Box Handle + 添加/删除）
-- 删除 `AreaMarkerEditor.cs`
-- 删除 `MarkerGizmoDrawer.OnSceneGUI` + `PickMarkerAtMouse`
+### Step 3: 拾取迁移 + Interactive Phase ✅
+- 拾取逻辑已移入管线 `HandlePicking`，复用 drawList
+- `AreaMarkerRenderer.DrawInteractive` 已实现（Box Handle 6面填充 + 12边线框 + 多边形顶点拖拽）
+- `AreaMarkerEditor.cs` 已删除
+- `MarkerGizmoDrawer.OnSceneGUI` + `PickMarkerAtMouse` 已删除
 
-### Step 4: 清理
-- 删除 `MarkerGizmoDrawer` 中所有 `[DrawGizmo]` 方法
-- `MarkerGizmoDrawer` → 只保留颜色映射等静态工具方法（或合并到 GizmoStyleConstants）
-- 更新 `SceneMarkerSelectionBridge` 的持续重绘逻辑
+### Step 4: 清理 ✅
+- `MarkerGizmoDrawer` 已精简为遗留兼容文件（仅保留 `GetMarkerColor`）
+- `GizmoStyleConstants` 集中管理所有颜色、透明度、脉冲参数
+- `SceneMarkerSelectionBridge` 持续重绘逻辑已更新
+
+> **状态：全部迁移完成（2026-02-14）**
 
 ---
 
@@ -532,9 +536,12 @@ Editor/Markers/
 
 ## 11. 已确认决策
 
-| # | 问题 | 决策 |
-|---|------|------|
-| Q1 | Area Fill API 选择 | Box 用 `DrawSolidRectangleWithOutline`（6 面 × 4 顶点），Polygon 用 `DrawAAConvexPolygon`。不引入预制 Mesh |
-| Q2 | 自定义 Phase 扩展点 | 暂不需要，7 Phase 足够。如需扩展，在 `DrawPhase` 枚举中加值即可 |
-| Q3 | 视锥裁剪 | **加入**。使用 `GeometryUtility.CalculateFrustumPlanes` + `TestPlanesAABB`，每帧一次 planes 计算 |
-| Q4 | 编辑 Handle 协调 | 删除 `AreaMarkerEditor`（`[CustomEditor]`），编辑逻辑迁入 `IMarkerGizmoRenderer.DrawInteractive`，返回 true 时管线跳过 Fill/Wireframe |
+| # | 问题 | 决策 | 状态 |
+|---|------|------|------|
+| Q1 | Area Fill API 选择 | Box: `DrawSolidRectangleWithOutline`（6 面 × 4 顶点），Polygon: `DrawAAConvexPolygon` | ✅ 已实现 |
+| Q2 | 自定义 Phase 扩展点 | 7 Phase 足够，如需扩展在 `DrawPhase` 枚举中加值 | ✅ 确认 |
+| Q3 | 视锥裁剪 | `GeometryUtility.CalculateFrustumPlanes` + `TestPlanesAABB` | ✅ 已实现 |
+| Q4 | 编辑 Handle 协调 | `AreaMarkerEditor` 已删除，迁入 `DrawInteractive`，返回 true 跳过 Fill/Wireframe | ✅ 已实现 |
+| Q5 | Renderer 自动发现 | 反射扫描 `IMarkerGizmoRenderer` 实现，新增 Renderer 零侥入 | ✅ 已实现 |
+| Q6 | Box 线框绘制 | 手动 `Handles.DrawLine` 12 条边，替代不可靠的 `Handles.DrawWireCube` | ✅ 已实现 |
+| Q7 | Box 6 面填充 | `DrawAllBoxFaces` 绘制完整 6 面（底、顶、前、后、左、右） | ✅ 已实现 |

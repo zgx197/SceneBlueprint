@@ -48,8 +48,11 @@ namespace SceneBlueprint.Runtime.Markers
             set => _subGraphId = value;
         }
 
-        /// <summary>标记类型（由子类实现）</summary>
-        public abstract MarkerType Type { get; }
+        /// <summary>
+        /// 标记类型 ID（由子类实现）——对应 <see cref="MarkerTypeIds"/> 中定义的常量。
+        /// <para>如 "Point", "Area", "Entity"，也可以是自定义类型 ID。</para>
+        /// </summary>
+        public abstract string MarkerTypeId { get; }
 
         /// <summary>
         /// 返回标记的代表位置——用于双向联动聚焦（Scene View Frame Selected）。

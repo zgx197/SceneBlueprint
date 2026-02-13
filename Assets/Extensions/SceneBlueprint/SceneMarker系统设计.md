@@ -1,8 +1,8 @@
 # SceneMarker 系统设计
 
-> 版本：v0.1（草案）  
-> 日期：2026-02-13  
-> 状态：设计阶段  
+> 版本：v0.3  
+> 日期：2026-02-14  
+> 状态：核心功能已实现（标记体系 + Gizmo 管线 + 绑定系统 + 双向联动 + 日志系统 + 标记定义注册表）  
 > 关联：[场景蓝图系统总体设计](场景蓝图系统总体设计.md) — Phase 4B-2 / Phase 5
 
 ---
@@ -93,13 +93,15 @@ public abstract class SceneMarker : MonoBehaviour
     public string Tag;                            // Tag 标签（如 "Combat.SpawnPoint"）
     [ReadOnly] public string SubGraphId;          // 所属子蓝图 ID（可空=顶层）
 
-    /// <summary>标记类型枚举（用于图层映射和序列化）</summary>
-    public abstract MarkerType Type { get; }
+    /// <summary>标记类型 ID（字符串，对应 MarkerTypeIds 常量）</summary>
+    public abstract string MarkerTypeId { get; }
 
     /// <summary>返回标记的代表位置（用于双向联动聚焦）</summary>
     public virtual Vector3 GetRepresentativePosition() => transform.position;
 }
 ```
+
+> **设计决策（v0.2）**：旧版使用 `MarkerType` 枚举（Point/Area/Entity），已替换为 `MarkerTypeIds` 字符串常量类 + `string MarkerTypeId` 属性。新增标记类型无需修改枚举，只需添加字符串常量 + Provider 文件即可。
 
 ### 3.2 PointMarker
 
@@ -107,10 +109,9 @@ public abstract class SceneMarker : MonoBehaviour
 /// <summary>单点标记 — 表示一个位置 + 朝向</summary>
 public class PointMarker : SceneMarker
 {
-    public override MarkerType Type => MarkerType.Point;
+    public override string MarkerTypeId => MarkerTypeIds.Point;
     public float GizmoRadius = 0.5f;             // Gizmo 显示半径
-
-    // Transform 本身即为空间数据，无需额外字段
+    public bool ShowDirection = true;             // 是否显示方向箭头
 }
 ```
 
@@ -120,12 +121,12 @@ public class PointMarker : SceneMarker
 /// <summary>区域标记 — 表示一个多边形或 Box 区域</summary>
 public class AreaMarker : SceneMarker
 {
-    public override MarkerType Type => MarkerType.Area;
+    public override string MarkerTypeId => MarkerTypeIds.Area;
 
-    public AreaShape Shape = AreaShape.Polygon;   // Polygon / Box
-    public List<Vector3> Vertices = new();        // 多边形顶点（相对坐标）
-    public Vector3 BoxSize = Vector3.one;         // Box 模式的尺寸
-    public float Height = 3f;                     // 区域高度（用于体积判定）
+    public AreaShape Shape = AreaShape.Box;        // Polygon / Box
+    public List<Vector3> Vertices = new();         // 多边形顶点（相对坐标）
+    public Vector3 BoxSize = new(8f, 3f, 8f);     // Box 模式的尺寸
+    public float Height = 3f;                      // 区域高度（用于体积判定）
 
     /// <summary>返回区域中心</summary>
     public override Vector3 GetRepresentativePosition()
@@ -147,11 +148,10 @@ public enum AreaShape { Polygon, Box }
 /// <summary>实体标记 — 表示一个 Prefab 实例的放置</summary>
 public class EntityMarker : SceneMarker
 {
-    public override MarkerType Type => MarkerType.Entity;
+    public override string MarkerTypeId => MarkerTypeIds.Entity;
 
     public GameObject PrefabRef;                  // 引用的 Prefab
     public int Count = 1;                         // 数量（用于刷怪等场景）
-    // Prefab 的预览通过 Editor 侧 PreviewRenderer 实现
 }
 ```
 
@@ -169,13 +169,72 @@ public class EntityMarker : SceneMarker
 public class MarkerRequirement
 {
     public string BindingKey;          // 绑定键名（如 "spawnArea", "spawnPoints"）
-    public MarkerType MarkerType;      // 需要的标记类型
+    public string MarkerTypeId;        // 需要的标记类型 ID（如 "Point", "Area", "Entity"）
     public string DisplayName;         // 显示名称（如 "刷怪区域"）
     public bool Required;              // 是否必需
     public bool AllowMultiple;         // 是否允许绑定多个标记
     public int MinCount;               // 最少数量（AllowMultiple 时有效）
     public string DefaultTag;          // 自动创建时的默认 Tag
 }
+```
+
+### 3.6 MarkerTypeIds（标记类型 ID 常量）
+
+```csharp
+/// <summary>字符串常量，取代旧版 MarkerType 枚举。开放式扩展。</summary>
+public static class MarkerTypeIds
+{
+    public const string Point = "Point";
+    public const string Area = "Area";
+    public const string Entity = "Entity";
+    // 新增类型只需添加常量，无需修改已有代码
+}
+```
+
+### 3.7 MarkerDefinition + MarkerDefinitionRegistry（扩展性核心）
+
+```csharp
+/// <summary>标记类型定义——描述一种标记“是什么、怎么创建、创建后怎么初始化”</summary>
+public class MarkerDefinition
+{
+    public string TypeId;                  // 全局唯一 ID（对应 MarkerTypeIds）
+    public string DisplayName;             // 编辑器显示名
+    public string Description;             // 描述文本
+    public Type ComponentType;             // 对应的 SceneMarker 子类类型
+    public float DefaultSpacing = 2f;      // 自动创建时相邻标记间距
+    public Action<SceneMarker> Initializer; // 创建后的初始化回调（可选）
+}
+
+/// <summary>标记定义提供者接口（自动发现）</summary>
+[MarkerDef("Point")]  // 标注 Attribute 声明类型 ID
+public class PointMarkerDef : IMarkerDefinitionProvider
+{
+    public MarkerDefinition Define() => new MarkerDefinition
+    {
+        TypeId = MarkerTypeIds.Point,
+        DisplayName = "点标记",
+        ComponentType = typeof(PointMarker),
+        DefaultSpacing = 2f,
+    };
+}
+
+/// <summary>注册表，自动扫描所有 [MarkerDef] 标注的 Provider</summary>
+public static class MarkerDefinitionRegistry
+{
+    public static void AutoDiscover();           // 反射自动发现
+    public static MarkerDefinition? Get(string typeId);
+    public static IReadOnlyList<MarkerDefinition> GetAll();
+}
+```
+
+**新增标记类型的操作（零接触已有逻辑文件）：**
+
+```
+1. Core/MarkerType.cs 加一个 const string         (可选，1行)
+2. Runtime/Markers/PathMarker.cs                     (新文件，~30行)
+3. Editor/Markers/Definitions/PathMarkerDef.cs       (新文件，~25行)
+4. Editor/Markers/Renderers/PathMarkerRenderer.cs    (新文件，~80行)
+   ━━ 完成，AutoDiscover 自动注册，无需修改任何已有文件 ━━
 ```
 
 ---
@@ -376,37 +435,75 @@ LightingChange      → Environment.Lighting
 
 ---
 
-## 8. 数据持久化
+## 8. 绑定系统与数据持久化
 
-### 8.1 标记数据存储
+### 8.1 绑定架构（v0.3 优化后）
 
 ```
-场景标记数据存储在两个地方：
+核心原则：
+  - BindingContext 为编辑时唯一真相源（内存中的 GameObject 引用）
+  - PropertyBag 中存储 MarkerId（稳定唯一标识，不怕改名）
+  - SceneBlueprintManager 为场景持久化镜像
+
+数据流：
+  编辑时（Inspector 拖拽）：
+    BindingContext.Set(key, GO)               ← 内存引用
+    PropertyBag.Set(key, marker.MarkerId)     ← 稳定 ID
+
+  创建时（Shift+右键）：
+    创建标记 → 创建节点 → 自动绑定（同上）   ← v0.3 新增
+
+  保存时：
+    BindingContext → SceneBlueprintManager（持久化到场景）
+
+  加载时：
+    策略1: Manager.BoundObject → BindingContext（直接引用恢复）
+    策略2: PropertyBag.MarkerId → FindMarkerInScene → BindingContext（回退查找）
+
+  联动时：
+    蓝图→场景: BindingContext.Get → GO → MarkerId → 高亮
+    场景→蓝图: MarkerId → PropertyBag 匹配 → 选中节点
+```
+
+> **设计决策（v0.3）**：旧版 PropertyBag 中存储 `GameObject.name`，改名即断裂。现改为存储 `MarkerId`（GUID），彻底消除改名导致的绑定丢失问题。同时实现了创建标记后自动绑定到蓝图节点。
+
+### 8.2 标记数据存储
+
+```
+场景标记数据存储在三个地方：
 
 1. Scene 中的 GameObject + SceneMarker 组件
    - 随场景保存（.unity 文件）
    - 包含空间数据（Transform、Vertices、PrefabRef 等）
-   - 包含 MarkerId（唯一标识）
+   - 包含 MarkerId（唯一标识，GUID 格式）
 
-2. BlueprintAsset (SO) 中的绑定映射
-   - 存储在 GraphJson 中，作为节点属性的一部分
-   - 格式：{ bindingKey: "spawnArea", markerId: "marker_abc123" }
-   - 不存储空间数据（空间数据只存在场景中，单一数据源）
+2. PropertyBag（节点属性）中的 MarkerId
+   - 存储在 BlueprintAsset.GraphJson 中
+   - 格式：{ "spawnArea": "a3f2c1d8-..." }
+   - 仅存 ID，不存空间数据（单一数据源）
+
+3. SceneBlueprintManager（场景 MonoBehaviour）
+   - 持有 GameObject 直接引用（SceneBindingSlot.BoundObject）
+   - 按子蓝图 ID 分组（SubGraphBindingGroup）
+   - 由编辑器"同步到场景"功能自动维护
 ```
 
-### 8.2 同步与验证
+### 8.3 同步与验证
 
 ```
 打开蓝图编辑器时：
-  1. 加载 BlueprintAsset → 获取所有 markerId 引用
-  2. 扫描场景中的 SceneMarker 组件 → 建立 markerId → GameObject 映射
-  3. 标记缺失的绑定（标记被删除但节点仍引用 → ⚠️ 警告）
-  4. 标记孤立的标记（存在于场景但没有节点引用 → 💡 提示）
+  1. 加载 BlueprintAsset → 反序列化 Graph
+  2. 从 SceneBlueprintManager 恢复 BindingContext（策略1）
+  3. 对于未恢复的绑定，用 PropertyBag 中的 MarkerId 查找场景标记（策略2）
+  4. MarkerBindingValidator 检查绑定一致性：
+     - 类型匹配：marker.MarkerTypeId == req.MarkerTypeId
+     - 缺失标记：MarkerId 引用的标记在场景中不存在 → ⚠️ 警告
+     - 必需未绑定：Required 标记未绑定 → ❌ 错误
 
 保存时：
   - 蓝图数据 → BlueprintAsset.GraphJson
-  - 标记数据 → 随场景保存（无需额外操作）
-  - 绑定关系的一致性检查
+  - 标记数据 → 随场景保存
+  - BindingContext → SceneBlueprintManager（自动同步）
 ```
 
 ---
@@ -415,30 +512,79 @@ LightingChange      → Environment.Lighting
 
 ```
 Assets/Extensions/SceneBlueprint/
+  ├── Core/
+  │   ├── SceneBlueprint.Core.asmdef             ← 纯 C#，无 Unity 引用
+  │   ├── MarkerType.cs                          ← MarkerTypeIds 字符串常量类
+  │   ├── MarkerRequirement.cs                   ← Action 场景需求声明（使用 string MarkerTypeId）
+  │   ├── ActionDefinition.cs                    ← SceneRequirements 引用 MarkerRequirement
+  │   └── ...
+  │
   ├── Runtime/
   │   ├── SceneBlueprint.Runtime.asmdef
-  │   ├── BlueprintAsset.cs                      ← 已有
-  │   ├── Markers/                               ← 新增
-  │   │   ├── SceneMarker.cs                     ← 抽象基类
+  │   ├── BlueprintAsset.cs
+  │   ├── SceneBlueprintManager.cs               ← 场景持久化（自动管理）
+  │   ├── SceneBindingSlot.cs                    ← 单条绑定数据
+  │   ├── SubGraphBindingGroup.cs                ← 按子蓝图分组的绑定
+  │   ├── Markers/
+  │   │   ├── SceneMarker.cs                     ← 抽象基类（MarkerTypeId 字符串属性）
   │   │   ├── PointMarker.cs
   │   │   ├── AreaMarker.cs
-  │   │   ├── EntityMarker.cs
-  │   │   ├── MarkerType.cs                      ← 枚举
-  │   │   └── MarkerRequirement.cs               ← Action 场景需求声明
+  │   │   └── EntityMarker.cs
   │   └── ...
   │
   ├── Editor/
-  │   ├── SceneBlueprintWindow.cs                ← 已有
-  │   ├── Markers/                               ← 新增
-  │   │   ├── SceneMarkerEditor.cs               ← SceneMarker 自定义 Inspector
-  │   │   ├── AreaMarkerEditor.cs                ← 区域顶点编辑 Handle
-  │   │   ├── MarkerGizmoDrawer.cs               ← 统一 Gizmo 绘制
-  │   │   ├── MarkerLayerOverlay.cs              ← Scene View 图层切换面板
-  │   │   ├── SceneViewMarkerTool.cs             ← 右键菜单 + 放置模式
+  │   ├── SceneBlueprintWindow.cs                ← 编辑器主窗口（含双向联动、自动绑定）
+  │   ├── ActionNodeInspectorDrawer.cs           ← Inspector（SceneBinding 存 MarkerId）
+  │   ├── ActionContentRenderer.cs               ← 画布摘要（MarkerId 截短显示）
+  │   ├── BindingContext.cs                      ← 编辑时绑定上下文（唯一真相源）
+  │   │
+  │   ├── Logging/                               ← 日志系统（v0.2 新增）
+  │   │   ├── SBLog.cs                           ← 核心日志 API
+  │   │   ├── SBLogLevel.cs / SBLogEntry.cs
+  │   │   ├── SBLogTags.cs                       ← 模块标签常量
+  │   │   ├── SBLogBuffer.cs                     ← 环形缓冲
+  │   │   ├── SBLogSettings.cs                   ← EditorPrefs 持久化设置
+  │   │   └── SBLogWindow.cs                     ← 日志查看器 EditorWindow
+  │   │
+  │   ├── Markers/
+  │   │   ├── Definitions/                       ← 标记定义系统（v0.2 新增）
+  │   │   │   ├── MarkerDefinition.cs            ← 标记类型元数据
+  │   │   │   ├── IMarkerDefinitionProvider.cs   ← 接口 + [MarkerDef] 属性
+  │   │   │   ├── MarkerDefinitionRegistry.cs    ← AutoDiscover 注册表
+  │   │   │   ├── PointMarkerDef.cs              ← 内置 Provider
+  │   │   │   ├── AreaMarkerDef.cs
+  │   │   │   └── EntityMarkerDef.cs
+  │   │   │
+  │   │   ├── Pipeline/                          ← Gizmo 绘制管线（v0.2 新增）
+  │   │   │   ├── GizmoRenderPipeline.cs         ← 管线主循环 + 阶段调度
+  │   │   │   ├── GizmoDrawContext.cs            ← 绘制上下文
+  │   │   │   ├── IMarkerGizmoRenderer.cs        ← 渲染器接口 + DrawPhase
+  │   │   │   ├── MarkerCache.cs                 ← 标记缓存
+  │   │   │   ├── GizmoStyleConstants.cs         ← 颜色/尺寸常量
+  │   │   │   └── GizmoLabelUtil.cs              ← 标签绘制工具
+  │   │   │
+  │   │   ├── Renderers/                         ← 标记渲染器（v0.2 新增）
+  │   │   │   ├── PointMarkerRenderer.cs
+  │   │   │   ├── AreaMarkerRenderer.cs
+  │   │   │   └── EntityMarkerRenderer.cs
+  │   │   │
+  │   │   ├── MarkerGizmoDrawer.cs               ← 遗留兼容（仅保留 GetMarkerColor）
+  │   │   ├── MarkerLayerSystem.cs               ← 图层系统
+  │   │   ├── MarkerLayerOverlay.cs              ← Scene View 图层面板
+  │   │   ├── MarkerHierarchyManager.cs          ← Hierarchy 自动分组
+  │   │   ├── MarkerBindingValidator.cs          ← 绑定验证（使用 MarkerTypeId 字符串比较）
+  │   │   ├── SceneViewMarkerTool.cs             ← 右键菜单（Registry 驱动，无 switch）
   │   │   └── SceneMarkerSelectionBridge.cs      ← 双向联动事件桥
+  │   │
+  │   ├── Export/
+  │   │   ├── BlueprintExporter.cs               ← 导出器（合并 SO + Manager）
+  │   │   └── BlueprintSerializer.cs
   │   └── ...
   │
-  ├── Actions/                                   ← 已有：各 Action 中增加 SceneRequirements
+  ├── Actions/                                   ← 各 Action 使用 MarkerTypeIds.xxx
+  │   ├── Combat/SpawnActionDef.cs
+  │   ├── Combat/PlacePresetActionDef.cs
+  │   └── ...
   └── ...
 ```
 
@@ -446,55 +592,58 @@ Assets/Extensions/SceneBlueprint/
 
 ## 10. 实施路线
 
-### Phase 4B-2 同步实现（基础功能）
+### Phase 4B-2：标记体系 + Gizmo + 绑定 ✅（2026-02-14 完成）
 
 ```
-步骤：
-  M1. SceneMarker 组件体系：基类 + PointMarker + AreaMarker + EntityMarker
-  M2. MarkerRequirement 数据结构 + ActionDefinition 扩展
-  M3. MarkerGizmoDrawer：基础 Gizmo 绘制（颜色、图标、标签）
-  M4. SceneViewMarkerTool：Scene View 右键菜单 → 创建标记 + 蓝图节点 + 自动绑定
-  M5. 场景 Hierarchy 自动分组管理
-
-冒烟测试：
-  → 打开蓝图编辑器 + Scene View
-  → 在 Scene View 地面右键 → "战斗 → 刷怪"
-  → 画出刷怪区域 → 放置 3 个刷怪点
-  → 蓝图中自动出现 Spawn 节点（已绑定标记）
-  → Scene View 中标记显示红色 Gizmo
+已完成步骤：
+  ✅ M1. SceneMarker 组件体系：基类 + PointMarker + AreaMarker + EntityMarker
+  ✅ M2. MarkerRequirement + MarkerTypeIds 字符串常量 + ActionDefinition.SceneRequirements
+  ✅ M3. Gizmo 绘制管线：GizmoRenderPipeline + 3 个 Renderer（分阶段、缓存、视锥裁剪）
+  ✅ M4. SceneViewMarkerTool：Shift+右键菜单 → Registry 驱动创建标记 + 蓝图节点
+  ✅ M5. MarkerHierarchyManager：场景 Hierarchy 自动分组管理
+  ✅ M6. 图层系统：MarkerLayerSystem + MarkerLayerOverlay（Tag 前缀映射）
+  ✅ M7. 双向联动：SceneMarkerSelectionBridge（选中/高亮/聚焦/双击）
+  ✅ M8. AreaMarkerRenderer.DrawInteractive：Box Handle + 多边形顶点拖拽
+  ✅ M9. MarkerBindingValidator：绑定一致性验证（类型匹配、缺失检测）
+  ✅ M10. MarkerDefinition + IMarkerDefinitionProvider + MarkerDefinitionRegistry（自动发现）
+  ✅ M11. 绑定优化：PropertyBag 存 MarkerId、自动绑定、MarkerId 恢复
+  ✅ M12. SBLog 日志系统：分级日志 + 模块标签 + 环形缓冲 + 专用 EditorWindow
 ```
 
-### Phase 5 后扩展（Tag 集成 + 双向联动）
+### Phase 5 待实施（Tag 深度集成 + 高级功能）
 
 ```
-步骤：
-  M6. 图层系统：Tag 前缀映射 + Scene View Overlay 切换面板
-  M7. 双向联动：SceneMarkerSelectionBridge + 高亮 + 聚焦
-  M8. AreaMarkerEditor：多边形顶点可视化编辑 Handle
-  M9. 验证系统：打开时检查绑定一致性，提示缺失/孤立标记
-
-冒烟测试：
-  → 选中蓝图中的 Spawn 节点 → Scene View 自动高亮刷怪区域和点位
-  → 关闭 Camera 图层 → 摄像机标记 Gizmo 隐藏
-  → 删除场景中某个标记 → 蓝图节点旁显示 ⚠️ 绑定缺失警告
+待实施步骤：
+  M13. Tag 条件过滤：不仅按图层开关，还可按 Tag 表达式过滤
+  M14. 蓝图编辑器中按 Tag 过滤节点高亮
+  M15. 多步创建流程：区域绘制 → 点位放置（按 SceneRequirements 顺序引导）
 ```
 
 ### Phase 6+（遭遇模板）
 
 ```
-步骤：
-  M10. 遭遇模板资产：EncounterTemplate (SO) 存储标记布局 + 子蓝图模板
-  M11. 模板库面板 + 拖拽实例化
-  M12. 空间热力图：事件密度可视化叠加层
+待实施步骤：
+  M16. 遭遇模板资产：EncounterTemplate (SO) 存储标记布局 + 子蓝图模板
+  M17. 模板库面板 + 拖拽实例化
+  M18. 空间热力图：事件密度可视化叠加层
 ```
 
 ---
 
-## 11. 开放问题
+## 11. 已确认决策
+
+| # | 问题 | 决策 |
+|---|------|------|
+| D1 | AreaMarker 的区域编辑方式 | **两者都支持**：Box Handle + 多边形顶点拖拽，通过 AreaShape 枚举切换 |
+| D2 | 标记删除时的绑定处理 | **保留引用+标警告**：MarkerBindingValidator 检测缺失标记并报 Warning |
+| D3 | 标记类型扩展机制 | **方案B**：MarkerTypeIds 字符串 + MarkerDefinition + AutoDiscover Registry |
+| D4 | PropertyBag 绑定存储格式 | **存 MarkerId**（GUID），不存 GameObject.name（v0.3 优化） |
+| D5 | 创建标记后是否自动绑定 | **自动绑定**：OnMarkerCreated 回调中写入 BindingContext + PropertyBag |
+
+## 12. 开放问题
 
 | 问题 | 状态 | 备选方案 |
 |------|------|---------|
-| AreaMarker 的区域编辑方式？ | 待定 | A) 多边形顶点拖拽 B) Box Handle C) 两者都支持 |
-| 标记删除时是否自动清理蓝图绑定？ | 待定 | A) 自动清理 B) 保留引用+标警告 C) 弹确认框 |
 | 多个蓝图共享同一场景的标记？ | 待定 | 当前一个关卡=一张图，暂不考虑 |
 | EntityMarker 运行时是否实例化 Prefab？ | 待定 | 取决于运行时 Handler 的实现方式 |
+| 多步创建流程的 UX 交互细节？ | 待定 | 参考 ProBuilder 的多步放置模式 |

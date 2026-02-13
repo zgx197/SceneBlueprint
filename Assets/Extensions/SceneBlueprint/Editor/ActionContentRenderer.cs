@@ -288,10 +288,22 @@ namespace SceneBlueprint.Editor
                 PropertyType.String => value.ToString() ?? "",
                 PropertyType.Enum => value.ToString() ?? "",
                 PropertyType.AssetRef => value.ToString() ?? "(无)",
-                PropertyType.SceneBinding => value.ToString() ?? "(无)",
+                PropertyType.SceneBinding => FormatSceneBindingSummary(value),
                 PropertyType.Tag => value.ToString() ?? "(无)",
                 _ => value.ToString() ?? ""
             };
+        }
+
+        /// <summary>
+        /// 格式化 SceneBinding 的摘要显示。
+        /// PropertyBag 中存储的是 MarkerId（GUID 字符串），截短显示以保持可读性。
+        /// </summary>
+        private static string FormatSceneBindingSummary(object value)
+        {
+            var str = value.ToString() ?? "";
+            if (string.IsNullOrEmpty(str)) return "(无)";
+            // MarkerId 通常是 GUID 格式，截取前 8 位作为摘要
+            return str.Length > 8 ? $"[{str[..8]}…]" : str;
         }
     }
 }

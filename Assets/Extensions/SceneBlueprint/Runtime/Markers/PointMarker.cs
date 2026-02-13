@@ -14,7 +14,7 @@ namespace SceneBlueprint.Runtime.Markers
     [AddComponentMenu("SceneBlueprint/Point Marker")]
     public class PointMarker : SceneMarker
     {
-        public override MarkerType Type => MarkerType.Point;
+        public override string MarkerTypeId => MarkerTypeIds.Point;
 
         [Header("显示")]
 

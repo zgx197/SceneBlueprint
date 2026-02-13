@@ -79,11 +79,11 @@ namespace SceneBlueprint.Actions.Combat
             SceneRequirements = new[]
             {
                 // 刷怪区域——必需，一个区域标记
-                new MarkerRequirement("spawnArea", MarkerType.Area, "刷怪区域",
+                new MarkerRequirement("spawnArea", MarkerTypeIds.Area, "刷怪区域",
                     required: true, defaultTag: "Combat.SpawnArea"),
 
                 // 刷怪点——可选，允许多个点位标记
-                new MarkerRequirement("spawnPoints", MarkerType.Point, "刷怪点",
+                new MarkerRequirement("spawnPoints", MarkerTypeIds.Point, "刷怪点",
                     required: false, allowMultiple: true, minCount: 1,
                     defaultTag: "Combat.SpawnPoint"),
             }

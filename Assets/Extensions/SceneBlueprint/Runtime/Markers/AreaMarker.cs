@@ -27,7 +27,7 @@ namespace SceneBlueprint.Runtime.Markers
     [AddComponentMenu("SceneBlueprint/Area Marker")]
     public class AreaMarker : SceneMarker
     {
-        public override MarkerType Type => MarkerType.Area;
+        public override string MarkerTypeId => MarkerTypeIds.Area;
 
         [Header("区域形状")]
 

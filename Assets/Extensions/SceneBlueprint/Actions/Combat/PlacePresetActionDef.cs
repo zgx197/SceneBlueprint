@@ -44,7 +44,7 @@ namespace SceneBlueprint.Actions.Combat
             SceneRequirements = new[]
             {
                 // 放置点位——必需，允许多个点位（Boss 出场点、守卫站位等）
-                new MarkerRequirement("presetPoints", MarkerType.Point, "放置点位",
+                new MarkerRequirement("presetPoints", MarkerTypeIds.Point, "放置点位",
                     required: true, allowMultiple: true, minCount: 1,
                     defaultTag: "Combat.PresetPoint"),
             }

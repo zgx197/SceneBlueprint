@@ -145,12 +145,12 @@ namespace SceneBlueprint.Editor.Markers
                         else
                         {
                             // 检查类型匹配
-                            if (marker.Type != req.MarkerType)
+                            if (!string.Equals(marker.MarkerTypeId, req.MarkerTypeId, System.StringComparison.Ordinal))
                             {
                                 report.Add(
                                     ValidationEntry.Severity.Warning,
                                     $"节点 [{actionDef.DisplayName}] 的绑定 '{req.DisplayName}' " +
-                                    $"期望 {req.MarkerType} 类型标记，但绑定的是 {marker.Type} 类型",
+                                    $"期望 {req.MarkerTypeId} 类型标记，但绑定的是 {marker.MarkerTypeId} 类型",
                                     node.Id, markerId);
                             }
                         }
