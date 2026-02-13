@@ -4,6 +4,7 @@ using System.Linq;
 using UnityEngine;
 using NodeGraph.Core;
 using SceneBlueprint.Core;
+using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Runtime.Markers;
 
 namespace SceneBlueprint.Editor.Markers
@@ -238,7 +239,7 @@ namespace SceneBlueprint.Editor.Markers
         {
             if (!report.HasIssues)
             {
-                Debug.Log("[蓝图验证] 绑定一致性检查通过，未发现问题。");
+                SBLog.Info(SBLogTags.Validator, "绑定一致性检查通过，未发现问题");
                 return;
             }
 
@@ -247,18 +248,18 @@ namespace SceneBlueprint.Editor.Markers
                 switch (entry.Level)
                 {
                     case ValidationEntry.Severity.Error:
-                        Debug.LogError($"[蓝图验证] ❌ {entry.Message}");
+                        SBLog.Error(SBLogTags.Validator, entry.Message);
                         break;
                     case ValidationEntry.Severity.Warning:
-                        Debug.LogWarning($"[蓝图验证] ⚠️ {entry.Message}");
+                        SBLog.Warn(SBLogTags.Validator, entry.Message);
                         break;
                     case ValidationEntry.Severity.Info:
-                        Debug.Log($"[蓝图验证] 💡 {entry.Message}");
+                        SBLog.Info(SBLogTags.Validator, entry.Message);
                         break;
                 }
             }
 
-            Debug.Log($"[蓝图验证] 汇总: {report.ErrorCount} 错误, {report.WarningCount} 警告, {report.InfoCount} 提示");
+            SBLog.Info(SBLogTags.Validator, $"汇总: {report.ErrorCount} 错误, {report.WarningCount} 警告, {report.InfoCount} 提示");
         }
     }
 }

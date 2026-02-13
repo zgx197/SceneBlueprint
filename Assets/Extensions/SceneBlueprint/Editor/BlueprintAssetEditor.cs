@@ -1,6 +1,7 @@
 #nullable enable
 using UnityEngine;
 using UnityEditor;
+using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Runtime;
 using NodeGraph.Serialization;
 
@@ -113,7 +114,7 @@ namespace SceneBlueprint.Editor
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"[BlueprintAsset] 解析图数据摘要失败: {ex.Message}");
+                SBLog.Warn(SBLogTags.Blueprint, $"解析图数据摘要失败: {ex.Message}");
             }
         }
 

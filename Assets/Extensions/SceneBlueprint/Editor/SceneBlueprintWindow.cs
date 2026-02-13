@@ -10,6 +10,7 @@ using NodeGraph.View;
 using NodeGraph.Unity;
 using NodeGraph.Serialization;
 using SceneBlueprint.Editor.Export;
+using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers;
 using SceneBlueprint.Runtime;
 using SceneBlueprint.Runtime.Markers;
@@ -445,7 +446,7 @@ namespace SceneBlueprint.Editor
                 _currentAsset.Version++;
                 EditorUtility.SetDirty(_currentAsset);
                 AssetDatabase.SaveAssets();
-                Debug.Log($"[蓝图] 已保存: {AssetDatabase.GetAssetPath(_currentAsset)}");
+                SBLog.Info(SBLogTags.Blueprint, $"已保存: {AssetDatabase.GetAssetPath(_currentAsset)}");
                 UpdateTitle();
             }
             else
@@ -468,7 +469,7 @@ namespace SceneBlueprint.Editor
 
                     _currentAsset = asset;
                     UpdateTitle();
-                    Debug.Log($"[蓝图] 已创建: {path} (ID: {asset.BlueprintId})");
+                    SBLog.Info(SBLogTags.Blueprint, $"已创建: {path} (ID: {asset.BlueprintId})");
                 }
             }
         }
@@ -514,7 +515,7 @@ namespace SceneBlueprint.Editor
                 CenterView();
                 Repaint();
 
-                Debug.Log($"[蓝图] 已加载: {AssetDatabase.GetAssetPath(asset)}" +
+                SBLog.Info(SBLogTags.Blueprint, $"已加载: {AssetDatabase.GetAssetPath(asset)}" +
                     $" (节点: {graph.Nodes.Count}, 连线: {graph.Edges.Count})");
 
                 // 加载后运行绑定一致性验证
@@ -523,7 +524,7 @@ namespace SceneBlueprint.Editor
             catch (System.Exception ex)
             {
                 EditorUtility.DisplayDialog("加载失败", $"反序列化图数据失败:\n{ex.Message}", "确定");
-                Debug.LogError($"[蓝图] 加载失败: {ex}");
+                SBLog.Error(SBLogTags.Blueprint, $"加载失败: {ex}");
             }
         }
 
@@ -546,7 +547,7 @@ namespace SceneBlueprint.Editor
                 CenterView();
                 Repaint();
 
-                Debug.Log($"[蓝图] 已加载: {AssetDatabase.GetAssetPath(asset)}" +
+                SBLog.Info(SBLogTags.Blueprint, $"已加载: {AssetDatabase.GetAssetPath(asset)}" +
                     $" (节点: {graph.Nodes.Count}, 连线: {graph.Edges.Count})");
 
                 // 加载后运行绑定一致性验证
@@ -555,7 +556,7 @@ namespace SceneBlueprint.Editor
             catch (System.Exception ex)
             {
                 EditorUtility.DisplayDialog("加载失败", $"反序列化图数据失败:\n{ex.Message}", "确定");
-                Debug.LogError($"[蓝图] 加载失败: {ex}");
+                SBLog.Error(SBLogTags.Blueprint, $"加载失败: {ex}");
             }
         }
 
@@ -622,13 +623,13 @@ namespace SceneBlueprint.Editor
                 switch (msg.Level)
                 {
                     case ValidationLevel.Error:
-                        UnityEngine.Debug.LogError($"[导出] {msg.Message}");
+                        SBLog.Error(SBLogTags.Export, msg.Message);
                         break;
                     case ValidationLevel.Warning:
-                        UnityEngine.Debug.LogWarning($"[导出] {msg.Message}");
+                        SBLog.Warn(SBLogTags.Export, msg.Message);
                         break;
                     default:
-                        UnityEngine.Debug.Log($"[导出] {msg.Message}");
+                        SBLog.Info(SBLogTags.Export, msg.Message);
                         break;
                 }
             }
@@ -669,10 +670,10 @@ namespace SceneBlueprint.Editor
                     }
                 }
 
-                UnityEngine.Debug.Log($"[导出] 蓝图已导出到: {path}\n" +
-                    $"  行动数: {result.Data.Actions.Length}\n" +
-                    $"  过渡数: {result.Data.Transitions.Length}\n" +
-                    $"  绑定数: {boundBindings}/{totalBindings}");
+                SBLog.Info(SBLogTags.Export, $"蓝图已导出到: {path} " +
+                    $"(行动数: {result.Data.Actions.Length}, " +
+                    $"过渡数: {result.Data.Transitions.Length}, " +
+                    $"绑定数: {boundBindings}/{totalBindings})");
 
                 if (result.HasWarnings)
                 {
@@ -720,7 +721,7 @@ namespace SceneBlueprint.Editor
             _viewModel.RequestRepaint();
             Repaint();
 
-            Debug.Log($"[蓝图] 已创建子蓝图: {title}");
+            SBLog.Info(SBLogTags.Blueprint, $"已创建子蓝图: {title}");
         }
 
         /// <summary>
@@ -775,7 +776,7 @@ namespace SceneBlueprint.Editor
             int restored = _bindingContext.BoundCount;
             if (restored > 0)
             {
-                Debug.Log($"[蓝图] 已从场景恢复 {restored} 个绑定");
+                SBLog.Info(SBLogTags.Binding, $"已从场景恢复 {restored} 个绑定");
             }
         }
 
@@ -818,7 +819,7 @@ namespace SceneBlueprint.Editor
                 var go = new GameObject("SceneBlueprintManager");
                 manager = go.AddComponent<SceneBlueprintManager>();
                 Undo.RegisterCreatedObjectUndo(go, "创建场景蓝图管理器");
-                Debug.Log("[蓝图] 已在场景中创建 SceneBlueprintManager");
+                SBLog.Info(SBLogTags.Binding, "已在场景中创建 SceneBlueprintManager");
             }
 
             // 3. 设置蓝图资产引用
@@ -886,7 +887,7 @@ namespace SceneBlueprint.Editor
                 }
             }
 
-            Debug.Log($"[蓝图] 已同步到场景: " +
+            SBLog.Info(SBLogTags.Binding, $"已同步到场景: " +
                 $"子蓝图分组: {manager.BindingGroups.Count}, " +
                 $"绑定: {boundBindings}/{totalBindings}");
         }
@@ -1061,7 +1062,7 @@ namespace SceneBlueprint.Editor
                     _viewModel.Selection.ClearSelection();
                     _viewModel.RequestRepaint();
                     Repaint();
-                    Debug.Log($"[蓝图] 已创建子蓝图: {name}（包含 {selectedIds.Count} 个节点）");
+                    SBLog.Info(SBLogTags.Blueprint, $"已创建子蓝图: {name}（包含 {selectedIds.Count} 个节点）");
                 });
             }
 
@@ -1201,7 +1202,7 @@ namespace SceneBlueprint.Editor
             var nodeType = graph.Settings.NodeTypes.GetDefinition(result.ActionTypeId);
             if (nodeType == null)
             {
-                Debug.LogWarning($"[SceneMarker] 未找到 Action 类型: {result.ActionTypeId}");
+                SBLog.Warn(SBLogTags.Marker, $"未找到 Action 类型: {result.ActionTypeId}");
                 return;
             }
 
@@ -1213,7 +1214,7 @@ namespace SceneBlueprint.Editor
             var cmd = new AddNodeCommand(result.ActionTypeId, canvasCenter);
             _viewModel.Commands.Execute(cmd);
 
-            Debug.Log($"[SceneMarker] 已为 {result.ActionDisplayName} 创建蓝图节点，" +
+            SBLog.Info(SBLogTags.Marker, $"已为 {result.ActionDisplayName} 创建蓝图节点，" +
                 $"关联 {result.CreatedMarkers.Count} 个标记");
 
             _viewModel.RequestRepaint();
@@ -1344,7 +1345,7 @@ namespace SceneBlueprint.Editor
             if (_viewModel == null) return;
 
             var go = Selection.activeGameObject;
-            Debug.Log($"[联动] OnUnitySelectionChanged: activeGameObject={go?.name ?? "null"}");
+            SBLog.Debug(SBLogTags.Selection, $"OnUnitySelectionChanged: activeGameObject={go?.name ?? "null"}");
 
             if (go == null)
             {
@@ -1360,13 +1361,13 @@ namespace SceneBlueprint.Editor
             if (marker != null && !string.IsNullOrEmpty(marker.MarkerId))
             {
                 // 选中了 SceneMarker → 联动到蓝图
-                Debug.Log($"[联动]   是 SceneMarker: {marker.MarkerId}");
+                SBLog.Debug(SBLogTags.Selection, $"是 SceneMarker: {marker.MarkerId}");
                 SceneMarkerSelectionBridge.NotifySceneMarkerSelected(marker.MarkerId);
             }
             else
             {
                 // 选中了非标记对象 → 清除蓝图中的联动选中
-                Debug.Log($"[联动]   非 SceneMarker，清除蓝图选中");
+                SBLog.Debug(SBLogTags.Selection, "非 SceneMarker，清除蓝图选中");
                 _viewModel.Selection.ClearSelection();
                 SceneMarkerSelectionBridge.ClearHighlight();
                 _viewModel.RequestRepaint();

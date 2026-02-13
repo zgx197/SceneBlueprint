@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using UnityEditor;
+using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Runtime.Markers;
 
 namespace SceneBlueprint.Editor.Markers.Pipeline
@@ -77,14 +78,14 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning($"[GizmoPipeline] 无法实例化 Renderer {type.Name}: {ex.Message}");
+                    SBLog.Warn(SBLogTags.Pipeline, $"无法实例化 Renderer {type.Name}: {ex.Message}");
                 }
             }
 
             if (_renderers.Count > 0)
             {
                 var names = string.Join(", ", _renderers.Values.Select(r => r.GetType().Name));
-                Debug.Log($"[GizmoPipeline] 已注册 {_renderers.Count} 个 Renderer: {names}");
+                SBLog.Info(SBLogTags.Pipeline, $"已注册 {_renderers.Count} 个 Renderer: {names}");
             }
         }
 

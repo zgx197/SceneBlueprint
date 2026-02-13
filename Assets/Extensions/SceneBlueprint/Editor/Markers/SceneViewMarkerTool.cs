@@ -4,6 +4,7 @@ using System.Linq;
 using UnityEngine;
 using UnityEditor;
 using SceneBlueprint.Core;
+using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Runtime.Markers;
 
 namespace SceneBlueprint.Editor.Markers
@@ -285,7 +286,7 @@ namespace SceneBlueprint.Editor.Markers
             // 通知蓝图编辑器
             OnMarkerCreated?.Invoke(result);
 
-            Debug.Log($"[SceneMarker] 为 {action.DisplayName} 创建了 {result.CreatedMarkers.Count} 个标记");
+            SBLog.Info(SBLogTags.Marker, $"为 {action.DisplayName} 创建了 {result.CreatedMarkers.Count} 个标记");
         }
 
         /// <summary>
