@@ -81,7 +81,12 @@ namespace SceneBlueprint.Editor.Markers
             }
 
             OnHighlightMarkersRequested?.Invoke(markerIds ?? Array.Empty<string>());
-            SceneView.RepaintAll();
+
+            // 启动/停止持续重绘（脉冲动画需要每帧刷新 Scene View）
+            if (_highlightedMarkerIds.Count > 0)
+                StartContinuousRepaint();
+            else
+                StopContinuousRepaint();
         }
 
         /// <summary>
@@ -96,6 +101,35 @@ namespace SceneBlueprint.Editor.Markers
         public static void ClearHighlight()
         {
             _highlightedMarkerIds.Clear();
+            StopContinuousRepaint();
+        }
+
+        // ─── 持续重绘（脉冲动画） ───
+
+        private static bool _isRepainting;
+
+        private static void StartContinuousRepaint()
+        {
+            if (_isRepainting) return;
+            _isRepainting = true;
+            EditorApplication.update += ContinuousRepaintTick;
+        }
+
+        private static void StopContinuousRepaint()
+        {
+            if (!_isRepainting) return;
+            _isRepainting = false;
+            EditorApplication.update -= ContinuousRepaintTick;
+            SceneView.RepaintAll(); // 最后一帧刷新，恢复原始状态
+        }
+
+        private static void ContinuousRepaintTick()
+        {
+            if (_highlightedMarkerIds.Count == 0)
+            {
+                StopContinuousRepaint();
+                return;
+            }
             SceneView.RepaintAll();
         }
 

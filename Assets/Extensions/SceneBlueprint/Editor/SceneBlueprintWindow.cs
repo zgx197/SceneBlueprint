@@ -729,20 +729,45 @@ namespace SceneBlueprint.Editor
         /// </summary>
         private void RestoreBindingsFromScene()
         {
-            if (_bindingContext == null || _currentAsset == null) return;
+            if (_bindingContext == null || _currentAsset == null || _viewModel == null) return;
 
             _bindingContext.Clear();
 
+            // 策略 1：从 SceneBlueprintManager 恢复（正式流程）
             var manager = Object.FindObjectOfType<SceneBlueprintManager>();
-            if (manager == null || manager.BlueprintAsset != _currentAsset) return;
-
-            foreach (var group in manager.BindingGroups)
+            if (manager != null && manager.BlueprintAsset == _currentAsset)
             {
-                foreach (var binding in group.Bindings)
+                foreach (var group in manager.BindingGroups)
                 {
-                    if (!string.IsNullOrEmpty(binding.BindingKey) && binding.BoundObject != null)
+                    foreach (var binding in group.Bindings)
                     {
-                        _bindingContext.Set(binding.BindingKey, binding.BoundObject);
+                        if (!string.IsNullOrEmpty(binding.BindingKey) && binding.BoundObject != null)
+                        {
+                            _bindingContext.Set(binding.BindingKey, binding.BoundObject);
+                        }
+                    }
+                }
+            }
+
+            // 策略 2：对于未恢复的绑定，尝试用 PropertyBag 中的 GameObject 名称回退查找
+            var registry = SceneBlueprintProfile.CreateActionRegistry();
+            foreach (var node in _viewModel.Graph.Nodes)
+            {
+                if (node.UserData is not Core.ActionNodeData data) continue;
+                if (!registry.TryGet(data.ActionTypeId, out var actionDef)) continue;
+
+                foreach (var prop in actionDef.Properties)
+                {
+                    if (prop.SceneBindingType == null) continue;
+                    if (_bindingContext.Get(prop.Key) != null) continue; // 已恢复，跳过
+
+                    var objName = data.Properties.Get<string>(prop.Key);
+                    if (string.IsNullOrEmpty(objName)) continue;
+
+                    var go = GameObject.Find(objName);
+                    if (go != null)
+                    {
+                        _bindingContext.Set(prop.Key, go);
                     }
                 }
             }
@@ -1207,22 +1232,43 @@ namespace SceneBlueprint.Editor
 
             var markerIds = new List<string>();
             var graph = _viewModel.Graph;
+            var registry = SceneBlueprintProfile.CreateActionRegistry();
 
             foreach (var nodeId in _viewModel.Selection.SelectedNodeIds)
             {
                 var node = graph.FindNode(nodeId);
                 if (node?.UserData is not Core.ActionNodeData data) continue;
 
-                // 从节点属性中收集所有 MarkerId 值
-                foreach (var kvp in data.Properties.All)
+                if (!registry.TryGet(data.ActionTypeId, out var actionDef)) continue;
+
+                foreach (var prop in actionDef.Properties)
                 {
-                    if (kvp.Value is string strVal && !string.IsNullOrEmpty(strVal))
+                    if (prop.SceneBindingType == null) continue;
+
+                    // 策略 1：从 BindingContext 获取 GameObject 引用
+                    GameObject? boundObj = _bindingContext?.Get(prop.Key);
+
+                    // 策略 2：BindingContext 为空时，用 PropertyBag 中的名称回退查找
+                    if (boundObj == null)
                     {
-                        // 检查场景中是否存在该 MarkerId 的标记
-                        var marker = SceneMarkerSelectionBridge.FindMarkerInScene(strVal);
-                        if (marker != null)
-                            markerIds.Add(strVal);
+                        var objName = data.Properties.Get<string>(prop.Key);
+                        if (!string.IsNullOrEmpty(objName))
+                        {
+                            var go = GameObject.Find(objName);
+                            if (go != null)
+                            {
+                                boundObj = go;
+                                // 同时回填到 BindingContext 以便后续使用
+                                _bindingContext?.Set(prop.Key, go);
+                            }
+                        }
                     }
+
+                    if (boundObj == null) continue;
+
+                    var marker = boundObj.GetComponent<SceneMarker>();
+                    if (marker != null && !string.IsNullOrEmpty(marker.MarkerId))
+                        markerIds.Add(marker.MarkerId);
                 }
             }
 
@@ -1236,16 +1282,57 @@ namespace SceneBlueprint.Editor
         {
             if (_viewModel == null) return;
 
-            var nodeIds = SceneMarkerSelectionBridge.FindNodesReferencingMarker(
-                _viewModel.Graph, markerId);
+            // 查找场景中该 MarkerId 对应的 GameObject
+            var selectedMarker = SceneMarkerSelectionBridge.FindMarkerInScene(markerId);
+            if (selectedMarker == null) return;
+
+            var selectedGO = selectedMarker.gameObject;
+            var selectedName = selectedGO.name;
+            var registry = SceneBlueprintProfile.CreateActionRegistry();
+            var nodeIds = new List<string>();
+
+            foreach (var node in _viewModel.Graph.Nodes)
+            {
+                if (node.UserData is not Core.ActionNodeData data) continue;
+                if (!registry.TryGet(data.ActionTypeId, out var actionDef)) continue;
+
+                foreach (var prop in actionDef.Properties)
+                {
+                    if (prop.SceneBindingType == null) continue;
+
+                    // 策略 1：BindingContext 中的 GameObject 引用匹配
+                    var boundObj = _bindingContext?.Get(prop.Key);
+                    if (boundObj == selectedGO)
+                    {
+                        nodeIds.Add(node.Id);
+                        break;
+                    }
+
+                    // 策略 2：PropertyBag 中的 GameObject 名称匹配
+                    if (boundObj == null)
+                    {
+                        var objName = data.Properties.Get<string>(prop.Key);
+                        if (!string.IsNullOrEmpty(objName) && objName == selectedName)
+                        {
+                            nodeIds.Add(node.Id);
+                            break;
+                        }
+                    }
+                }
+            }
 
             if (nodeIds.Count > 0)
             {
-                // 在蓝图中选中这些节点
                 _viewModel.Selection.SelectMultiple(nodeIds);
-                _viewModel.RequestRepaint();
-                Repaint();
             }
+            else
+            {
+                // 未找到引用该标记的节点 → 清除蓝图选中
+                _viewModel.Selection.ClearSelection();
+                SceneMarkerSelectionBridge.ClearHighlight();
+            }
+            _viewModel.RequestRepaint();
+            Repaint();
         }
 
         /// <summary>
@@ -1254,12 +1341,36 @@ namespace SceneBlueprint.Editor
         /// </summary>
         private void OnUnitySelectionChanged()
         {
-            if (Selection.activeGameObject == null) return;
+            if (_viewModel == null) return;
 
-            var marker = Selection.activeGameObject.GetComponent<SceneMarker>();
+            var go = Selection.activeGameObject;
+            Debug.Log($"[联动] OnUnitySelectionChanged: activeGameObject={go?.name ?? "null"}");
+
+            if (go == null)
+            {
+                // 取消选中 → 清除蓝图选中
+                _viewModel.Selection.ClearSelection();
+                SceneMarkerSelectionBridge.ClearHighlight();
+                _viewModel.RequestRepaint();
+                Repaint();
+                return;
+            }
+
+            var marker = go.GetComponent<SceneMarker>();
             if (marker != null && !string.IsNullOrEmpty(marker.MarkerId))
             {
+                // 选中了 SceneMarker → 联动到蓝图
+                Debug.Log($"[联动]   是 SceneMarker: {marker.MarkerId}");
                 SceneMarkerSelectionBridge.NotifySceneMarkerSelected(marker.MarkerId);
+            }
+            else
+            {
+                // 选中了非标记对象 → 清除蓝图中的联动选中
+                Debug.Log($"[联动]   非 SceneMarker，清除蓝图选中");
+                _viewModel.Selection.ClearSelection();
+                SceneMarkerSelectionBridge.ClearHighlight();
+                _viewModel.RequestRepaint();
+                Repaint();
             }
         }
 
