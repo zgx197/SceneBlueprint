@@ -134,6 +134,17 @@ namespace SceneBlueprint.Core
         /// </summary>
         public PropertyDefinition[] Properties { get; set; } = System.Array.Empty<PropertyDefinition>();
 
+        // ─── 场景需求声明 ───
+
+        /// <summary>
+        /// 场景标记需求列表——声明该行动需要什么类型的场景标记。
+        /// <para>
+        /// 为空数组表示该行动不需要场景标记（如 Delay、Branch 等纯逻辑节点）。
+        /// 非空时，Scene View 右键菜单会根据此声明自动创建标记并绑定。
+        /// </para>
+        /// </summary>
+        public MarkerRequirement[] SceneRequirements { get; set; } = System.Array.Empty<MarkerRequirement>();
+
         // ─── 行为标记 ───
 
         /// <summary>

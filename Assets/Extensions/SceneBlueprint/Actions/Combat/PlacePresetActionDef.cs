@@ -38,6 +38,15 @@ namespace SceneBlueprint.Actions.Combat
                 // 预设点组——场景中的一组 Transform 点位，怪物会被放置在这些位置
                 // 使用 BindingType.Transform 因为需要精确的位置和朝向
                 Prop.SceneBinding("presetPoints", "预设点组", BindingType.Transform, order: 1)
+            },
+
+            // ─── 场景标记需求 ───
+            SceneRequirements = new[]
+            {
+                // 放置点位——必需，允许多个点位（Boss 出场点、守卫站位等）
+                new MarkerRequirement("presetPoints", MarkerType.Point, "放置点位",
+                    required: true, allowMultiple: true, minCount: 1,
+                    defaultTag: "Combat.PresetPoint"),
             }
         };
     }

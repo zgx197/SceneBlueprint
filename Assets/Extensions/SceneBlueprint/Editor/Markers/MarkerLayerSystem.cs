@@ -1,0 +1,117 @@
+#nullable enable
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace SceneBlueprint.Editor.Markers
+{
+    /// <summary>
+    /// 标记图层定义——描述一个图层的名称、颜色、Tag 前缀。
+    /// </summary>
+    public readonly struct MarkerLayer
+    {
+        public readonly string Id;           // 图层标识（= Tag 前缀，如 "Combat"）
+        public readonly string DisplayName;  // 中文显示名
+        public readonly Color Color;         // 代表色
+        public readonly string Emoji;        // 面板图标（Unicode）
+
+        public MarkerLayer(string id, string displayName, Color color, string emoji)
+        {
+            Id = id;
+            DisplayName = displayName;
+            Color = color;
+            Emoji = emoji;
+        }
+    }
+
+    /// <summary>
+    /// 标记图层系统——管理图层定义与可见性状态。
+    /// <para>
+    /// 静态单例，由 <see cref="MarkerGizmoDrawer"/> 在绘制时查询可见性，
+    /// 由 <see cref="MarkerLayerOverlay"/> 提供 UI 控制。
+    /// </para>
+    /// <para>
+    /// 图层由 Tag 前缀自动映射：
+    /// Combat → 红色, Trigger → 蓝色, Environment → 黄色, Camera → 绿色, Narrative → 紫色
+    /// </para>
+    /// </summary>
+    public static class MarkerLayerSystem
+    {
+        // ─── 预定义图层 ───
+
+        public static readonly MarkerLayer[] Layers = new[]
+        {
+            new MarkerLayer("Combat",      "战斗",   new Color(0.9f, 0.2f, 0.2f), "●"),
+            new MarkerLayer("Trigger",     "触发",   new Color(0.2f, 0.5f, 0.9f), "●"),
+            new MarkerLayer("Environment", "环境",   new Color(0.9f, 0.8f, 0.2f), "●"),
+            new MarkerLayer("Camera",      "摄像机", new Color(0.2f, 0.8f, 0.4f), "●"),
+            new MarkerLayer("Narrative",   "叙事",   new Color(0.7f, 0.3f, 0.8f), "●"),
+        };
+
+        // ─── 可见性状态（按图层 Id 索引） ───
+
+        private static readonly Dictionary<string, bool> _visibility = new();
+        private static bool _initialized;
+
+        /// <summary>确保状态已初始化（所有图层默认可见）</summary>
+        private static void EnsureInitialized()
+        {
+            if (_initialized) return;
+            foreach (var layer in Layers)
+            {
+                _visibility[layer.Id] = true;
+            }
+            // 未归类标记默认可见
+            _visibility[""] = true;
+            _initialized = true;
+        }
+
+        /// <summary>查询某个图层是否可见</summary>
+        /// <param name="layerId">图层 Id（= Tag 前缀），空字符串表示未归类</param>
+        public static bool IsLayerVisible(string layerId)
+        {
+            EnsureInitialized();
+            if (_visibility.TryGetValue(layerId, out bool v)) return v;
+            return true; // 未注册的图层默认可见
+        }
+
+        /// <summary>设置某个图层的可见性</summary>
+        public static void SetLayerVisible(string layerId, bool visible)
+        {
+            EnsureInitialized();
+            _visibility[layerId] = visible;
+
+            // 通知 Scene View 重绘
+            UnityEditor.SceneView.RepaintAll();
+        }
+
+        /// <summary>
+        /// 根据 SceneMarker 的 Tag 前缀判断该标记是否在可见图层中。
+        /// 供 <see cref="MarkerGizmoDrawer"/> 调用。
+        /// </summary>
+        public static bool IsMarkerVisible(string tagPrefix)
+        {
+            return IsLayerVisible(tagPrefix);
+        }
+
+        /// <summary>设置所有图层为可见</summary>
+        public static void ShowAll()
+        {
+            EnsureInitialized();
+            var keys = new List<string>(_visibility.Keys);
+            foreach (var key in keys)
+                _visibility[key] = true;
+            UnityEditor.SceneView.RepaintAll();
+        }
+
+        /// <summary>设置所有图层为隐藏</summary>
+        public static void HideAll()
+        {
+            EnsureInitialized();
+            var keys = new List<string>(_visibility.Keys);
+            foreach (var key in keys)
+                _visibility[key] = false;
+            UnityEditor.SceneView.RepaintAll();
+        }
+    }
+}

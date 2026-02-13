@@ -73,6 +73,19 @@ namespace SceneBlueprint.Actions.Combat
 
                 // 刷怪区域——场景中的多边形区域，怪物随机刷新在此范围内
                 Prop.SceneBinding("spawnArea", "刷怪区域", BindingType.Area, order: 6)
+            },
+
+            // ─── 场景标记需求 ───
+            SceneRequirements = new[]
+            {
+                // 刷怪区域——必需，一个区域标记
+                new MarkerRequirement("spawnArea", MarkerType.Area, "刷怪区域",
+                    required: true, defaultTag: "Combat.SpawnArea"),
+
+                // 刷怪点——可选，允许多个点位标记
+                new MarkerRequirement("spawnPoints", MarkerType.Point, "刷怪点",
+                    required: false, allowMultiple: true, minCount: 1,
+                    defaultTag: "Combat.SpawnPoint"),
             }
         };
     }

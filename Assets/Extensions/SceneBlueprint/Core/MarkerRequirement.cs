@@ -1,0 +1,92 @@
+#nullable enable
+
+namespace SceneBlueprint.Core
+{
+    /// <summary>
+    /// Action 场景需求声明——描述一个 Action 需要什么类型的场景标记。
+    /// <para>
+    /// 放在 <see cref="ActionDefinition.SceneRequirements"/> 中，驱动：
+    /// <list type="bullet">
+    ///   <item>Scene View 右键菜单：根据 Action 的需求自动创建对应标记</item>
+    ///   <item>Inspector 绑定 UI：自动生成标记绑定字段</item>
+    ///   <item>验证逻辑：检查必需标记是否已绑定</item>
+    ///   <item>多步创建流程：按声明顺序引导设计师逐步放置标记</item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// // Spawn Action 声明需要一个区域和多个点位
+    /// SceneRequirements = new[]
+    /// {
+    ///     new MarkerRequirement("spawnArea", MarkerType.Area, "刷怪区域",
+    ///         required: true, defaultTag: "Combat.SpawnArea"),
+    ///     new MarkerRequirement("spawnPoints", MarkerType.Point, "刷怪点",
+    ///         required: false, allowMultiple: true, minCount: 1,
+    ///         defaultTag: "Combat.SpawnPoint"),
+    /// };
+    /// </code>
+    /// </example>
+    public class MarkerRequirement
+    {
+        /// <summary>
+        /// 绑定键名——与 <see cref="PropertyDefinition.Key"/> 类似，作为绑定映射的 key。
+        /// <para>如 "spawnArea", "spawnPoints", "cameraPosition"</para>
+        /// </summary>
+        public string BindingKey { get; set; } = "";
+
+        /// <summary>
+        /// 需要的标记类型——Point / Area / Entity
+        /// </summary>
+        public MarkerType MarkerType { get; set; }
+
+        /// <summary>
+        /// 显示名称——在 Inspector 和创建菜单中显示。
+        /// <para>如 "刷怪区域", "摄像机位置", "注视目标"</para>
+        /// </summary>
+        public string DisplayName { get; set; } = "";
+
+        /// <summary>
+        /// 是否必需——未绑定时显示警告，阻止导出
+        /// </summary>
+        public bool Required { get; set; }
+
+        /// <summary>
+        /// 是否允许绑定多个标记——如多个刷怪点
+        /// </summary>
+        public bool AllowMultiple { get; set; }
+
+        /// <summary>
+        /// 最少数量——当 <see cref="AllowMultiple"/> 为 true 时有效
+        /// </summary>
+        public int MinCount { get; set; }
+
+        /// <summary>
+        /// 创建标记时的默认 Tag——用于图层映射和分类。
+        /// <para>如 "Combat.SpawnArea", "Camera.Position"</para>
+        /// </summary>
+        public string DefaultTag { get; set; } = "";
+
+        /// <summary>无参构造函数（序列化需要）</summary>
+        public MarkerRequirement() { }
+
+        /// <summary>便捷构造函数</summary>
+        public MarkerRequirement(
+            string bindingKey,
+            MarkerType markerType,
+            string displayName,
+            bool required = false,
+            bool allowMultiple = false,
+            int minCount = 0,
+            string defaultTag = "")
+        {
+            BindingKey = bindingKey;
+            MarkerType = markerType;
+            DisplayName = displayName;
+            Required = required;
+            AllowMultiple = allowMultiple;
+            MinCount = minCount;
+            DefaultTag = defaultTag;
+        }
+    }
+}

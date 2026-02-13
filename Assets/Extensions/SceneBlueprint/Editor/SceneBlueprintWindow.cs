@@ -10,7 +10,9 @@ using NodeGraph.View;
 using NodeGraph.Unity;
 using NodeGraph.Serialization;
 using SceneBlueprint.Editor.Export;
+using SceneBlueprint.Editor.Markers;
 using SceneBlueprint.Runtime;
+using SceneBlueprint.Runtime.Markers;
 
 namespace SceneBlueprint.Editor
 {
@@ -65,6 +67,17 @@ namespace SceneBlueprint.Editor
 
         private void OnDisable()
         {
+            SceneViewMarkerTool.OnMarkerCreated -= OnMarkerCreated;
+            SceneViewMarkerTool.Disable();
+
+            // 取消双向联动订阅
+            if (_viewModel != null)
+                _viewModel.Selection.OnSelectionChanged -= OnBlueprintSelectionChanged;
+            SceneMarkerSelectionBridge.OnHighlightNodesForMarkerRequested -= OnSceneMarkerSelected;
+            SceneMarkerSelectionBridge.OnFrameNodeForMarkerRequested -= OnSceneMarkerDoubleClicked;
+            SceneMarkerSelectionBridge.ClearHighlight();
+            Selection.selectionChanged -= OnUnitySelectionChanged;
+
             _viewModel = null;
             _renderer = null;
             _input = null;
@@ -141,7 +154,22 @@ namespace SceneBlueprint.Editor
             _inspectorDrawer.SetBindingContext(_bindingContext);
             _inspectorDrawer.SetGraph(_viewModel.Graph);
 
-            // 8. 更新窗口标题
+            // 8. 启用 Scene View 标记工具
+            SceneViewMarkerTool.Enable(actionRegistry);
+            SceneViewMarkerTool.OnMarkerCreated -= OnMarkerCreated;
+            SceneViewMarkerTool.OnMarkerCreated += OnMarkerCreated;
+
+            // 9. 双向联动：订阅蓝图选中变化 + 场景侧事件 + Unity 场景选中监听
+            _viewModel.Selection.OnSelectionChanged -= OnBlueprintSelectionChanged;
+            _viewModel.Selection.OnSelectionChanged += OnBlueprintSelectionChanged;
+            SceneMarkerSelectionBridge.OnHighlightNodesForMarkerRequested -= OnSceneMarkerSelected;
+            SceneMarkerSelectionBridge.OnHighlightNodesForMarkerRequested += OnSceneMarkerSelected;
+            SceneMarkerSelectionBridge.OnFrameNodeForMarkerRequested -= OnSceneMarkerDoubleClicked;
+            SceneMarkerSelectionBridge.OnFrameNodeForMarkerRequested += OnSceneMarkerDoubleClicked;
+            Selection.selectionChanged -= OnUnitySelectionChanged;
+            Selection.selectionChanged += OnUnitySelectionChanged;
+
+            // 10. 更新窗口标题
             UpdateTitle();
         }
 
@@ -488,6 +516,9 @@ namespace SceneBlueprint.Editor
 
                 Debug.Log($"[蓝图] 已加载: {AssetDatabase.GetAssetPath(asset)}" +
                     $" (节点: {graph.Nodes.Count}, 连线: {graph.Edges.Count})");
+
+                // 加载后运行绑定一致性验证
+                RunBindingValidation();
             }
             catch (System.Exception ex)
             {
@@ -517,12 +548,25 @@ namespace SceneBlueprint.Editor
 
                 Debug.Log($"[蓝图] 已加载: {AssetDatabase.GetAssetPath(asset)}" +
                     $" (节点: {graph.Nodes.Count}, 连线: {graph.Edges.Count})");
+
+                // 加载后运行绑定一致性验证
+                RunBindingValidation();
             }
             catch (System.Exception ex)
             {
                 EditorUtility.DisplayDialog("加载失败", $"反序列化图数据失败:\n{ex.Message}", "确定");
                 Debug.LogError($"[蓝图] 加载失败: {ex}");
             }
+        }
+
+        /// <summary>加载蓝图后运行标记绑定一致性验证</summary>
+        private void RunBindingValidation()
+        {
+            if (_viewModel == null) return;
+
+            var registry = SceneBlueprintProfile.CreateActionRegistry();
+            var report = MarkerBindingValidator.Validate(_viewModel.Graph, registry);
+            MarkerBindingValidator.LogReport(report);
         }
 
         private void CenterView()
@@ -1115,6 +1159,135 @@ namespace SceneBlueprint.Editor
             }
 
             menu.ShowAsContext();
+        }
+
+        // ── Scene View 标记创建回调 ──
+
+        /// <summary>
+        /// Scene View 中创建标记后的回调。
+        /// 在蓝图中自动创建对应 Action 节点（暂不自动绑定，后续接入）。
+        /// </summary>
+        private void OnMarkerCreated(MarkerCreationResult result)
+        {
+            if (_viewModel == null || _profile == null) return;
+
+            // 在画布中心位置创建对应 Action 节点
+            var graph = _viewModel.Graph;
+            var nodeType = graph.Settings.NodeTypes.GetDefinition(result.ActionTypeId);
+            if (nodeType == null)
+            {
+                Debug.LogWarning($"[SceneMarker] 未找到 Action 类型: {result.ActionTypeId}");
+                return;
+            }
+
+            // 计算画布中心位置
+            var canvasCenter = new Vec2(
+                (-_viewModel.PanOffset.X + position.width / 2f) / _viewModel.ZoomLevel,
+                (-_viewModel.PanOffset.Y + position.height / 2f) / _viewModel.ZoomLevel);
+
+            var cmd = new AddNodeCommand(result.ActionTypeId, canvasCenter);
+            _viewModel.Commands.Execute(cmd);
+
+            Debug.Log($"[SceneMarker] 已为 {result.ActionDisplayName} 创建蓝图节点，" +
+                $"关联 {result.CreatedMarkers.Count} 个标记");
+
+            _viewModel.RequestRepaint();
+            Repaint();
+        }
+
+        // ── 双向联动回调 ──
+
+        /// <summary>
+        /// 蓝图编辑器中选中节点变化时的回调。
+        /// 收集选中节点关联的 MarkerId，通知 Scene View 高亮。
+        /// </summary>
+        private void OnBlueprintSelectionChanged()
+        {
+            if (_viewModel == null) return;
+
+            var markerIds = new List<string>();
+            var graph = _viewModel.Graph;
+
+            foreach (var nodeId in _viewModel.Selection.SelectedNodeIds)
+            {
+                var node = graph.FindNode(nodeId);
+                if (node?.UserData is not Core.ActionNodeData data) continue;
+
+                // 从节点属性中收集所有 MarkerId 值
+                foreach (var kvp in data.Properties.All)
+                {
+                    if (kvp.Value is string strVal && !string.IsNullOrEmpty(strVal))
+                    {
+                        // 检查场景中是否存在该 MarkerId 的标记
+                        var marker = SceneMarkerSelectionBridge.FindMarkerInScene(strVal);
+                        if (marker != null)
+                            markerIds.Add(strVal);
+                    }
+                }
+            }
+
+            SceneMarkerSelectionBridge.NotifyBlueprintSelectionChanged(markerIds);
+        }
+
+        /// <summary>
+        /// 场景中选中标记时的回调——在蓝图中高亮引用该标记的节点。
+        /// </summary>
+        private void OnSceneMarkerSelected(string markerId)
+        {
+            if (_viewModel == null) return;
+
+            var nodeIds = SceneMarkerSelectionBridge.FindNodesReferencingMarker(
+                _viewModel.Graph, markerId);
+
+            if (nodeIds.Count > 0)
+            {
+                // 在蓝图中选中这些节点
+                _viewModel.Selection.SelectMultiple(nodeIds);
+                _viewModel.RequestRepaint();
+                Repaint();
+            }
+        }
+
+        /// <summary>
+        /// Unity 编辑器中选中对象变化时的回调。
+        /// 如果选中的是 SceneMarker，通知 Bridge 触发蓝图侧高亮。
+        /// </summary>
+        private void OnUnitySelectionChanged()
+        {
+            if (Selection.activeGameObject == null) return;
+
+            var marker = Selection.activeGameObject.GetComponent<SceneMarker>();
+            if (marker != null && !string.IsNullOrEmpty(marker.MarkerId))
+            {
+                SceneMarkerSelectionBridge.NotifySceneMarkerSelected(marker.MarkerId);
+            }
+        }
+
+        /// <summary>
+        /// 场景中双击标记时的回调——在蓝图中聚焦到引用该标记的节点。
+        /// </summary>
+        private void OnSceneMarkerDoubleClicked(string markerId)
+        {
+            if (_viewModel == null) return;
+
+            var nodeIds = SceneMarkerSelectionBridge.FindNodesReferencingMarker(
+                _viewModel.Graph, markerId);
+
+            if (nodeIds.Count == 0) return;
+
+            // 选中并聚焦到第一个节点
+            _viewModel.Selection.Select(nodeIds[0]);
+            var node = _viewModel.Graph.FindNode(nodeIds[0]);
+            if (node != null)
+            {
+                // 将画布平移到节点位置
+                _viewModel.PanOffset = new Vec2(
+                    position.width / 2f - node.Position.X * _viewModel.ZoomLevel,
+                    position.height / 2f - node.Position.Y * _viewModel.ZoomLevel);
+            }
+
+            _viewModel.RequestRepaint();
+            Repaint();
         }
 
         // ── 辅助方法 ──
