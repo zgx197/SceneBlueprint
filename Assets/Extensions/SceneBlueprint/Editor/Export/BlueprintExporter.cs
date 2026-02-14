@@ -6,6 +6,7 @@ using System.Linq;
 using NodeGraph.Core;
 using SceneBlueprint.Core;
 using SceneBlueprint.Core.Export;
+using SceneBlueprint.Editor;
 using SceneBlueprint.Editor.Templates;
 using SceneBlueprint.Runtime.Templates;
 
@@ -25,13 +26,24 @@ namespace SceneBlueprint.Editor.Export
     public static class BlueprintExporter
     {
         /// <summary>
+        /// 导出选项。
+        /// </summary>
+        public sealed class ExportOptions
+        {
+            /// <summary>空间适配器类型标识（C2 默认 Unity3D）。</summary>
+            public string AdapterType = "Unity3D";
+        }
+
+        /// <summary>
         /// 场景绑定数据（由调用方从 Manager 或 BindingContext 提供）。
         /// </summary>
         public class SceneBindingData
         {
             public string BindingKey = "";
             public string BindingType = "";
-            public string SceneObjectName = "";
+            public string StableObjectId = "";
+            public string AdapterType = "";
+            public string SpatialPayloadJson = "";
             public string SourceSubGraph = "";
             public string SourceActionTypeId = "";
         }
@@ -45,7 +57,7 @@ namespace SceneBlueprint.Editor.Export
             string? blueprintId = null,
             string? blueprintName = null)
         {
-            return Export(graph, registry, null, blueprintId, blueprintName);
+            return Export(graph, registry, null, blueprintId, blueprintName, null);
         }
 
         /// <summary>
@@ -61,9 +73,11 @@ namespace SceneBlueprint.Editor.Export
             ActionRegistry registry,
             List<SceneBindingData>? sceneBindings,
             string? blueprintId = null,
-            string? blueprintName = null)
+            string? blueprintName = null,
+            ExportOptions? options = null)
         {
             var messages = new List<ValidationMessage>();
+            var exportOptions = options ?? new ExportOptions();
 
             // ── Step 0: 收集边界节点 ID（用于展平过滤）──
             var boundaryNodeIds = new HashSet<string>();
@@ -79,7 +93,7 @@ namespace SceneBlueprint.Editor.Export
             {
                 if (boundaryNodeIds.Contains(node.Id)) continue;
 
-                var entry = ExportNode(node, registry, messages);
+                var entry = ExportNode(node, registry, messages, exportOptions);
                 if (entry != null)
                     actions.Add(entry);
             }
@@ -87,11 +101,13 @@ namespace SceneBlueprint.Editor.Export
             // ── Step 2: 展平连线（合并穿过边界节点的连线）──
             var transitions = ExportEdgesFlattened(graph, boundaryNodeIds, messages);
 
-            // ── Step 3: 合并场景绑定 ──
-            if (sceneBindings != null && sceneBindings.Count > 0)
-            {
-                MergeSceneBindings(actions, sceneBindings, messages);
-            }
+            // ── Step 3: 合并场景绑定（同时将 bindingKey 统一升级为 scoped key）──
+            MergeSceneBindings(
+                actions,
+                sceneBindings ?? new List<SceneBindingData>(),
+                messages,
+                exportOptions,
+                graph);
 
             // ── Step 4: 验证 ──
             Validate(graph, registry, actions, boundaryNodeIds, messages);
@@ -115,7 +131,10 @@ namespace SceneBlueprint.Editor.Export
         // ══════════════════════════════════════
 
         private static ActionEntry? ExportNode(
-            Node node, ActionRegistry registry, List<ValidationMessage> messages)
+            Node node,
+            ActionRegistry registry,
+            List<ValidationMessage> messages,
+            ExportOptions options)
         {
             var nodeData = node.UserData as ActionNodeData;
             if (nodeData == null)
@@ -149,7 +168,12 @@ namespace SceneBlueprint.Editor.Export
                             {
                                 BindingKey = prop.Key,
                                 BindingType = prop.SceneBindingType?.ToString() ?? "Transform",
-                                SceneObjectId = value
+                                // 节点属性里的值通常是业务侧标识（如 MarkerId），
+                                // C2 起同时作为稳定 ID 回退值。
+                                SceneObjectId = value,
+                                StableObjectId = value,
+                                AdapterType = options.AdapterType,
+                                SpatialPayloadJson = "{}"
                             });
                         }
                     }
@@ -385,7 +409,9 @@ namespace SceneBlueprint.Editor.Export
         private static void MergeSceneBindings(
             List<ActionEntry> actions,
             List<SceneBindingData> sceneBindings,
-            List<ValidationMessage> messages)
+            List<ValidationMessage> messages,
+            ExportOptions options,
+            Graph graph)
         {
             // 建立 bindingKey → data 索引
             var bindingMap = new Dictionary<string, SceneBindingData>();
@@ -395,6 +421,8 @@ namespace SceneBlueprint.Editor.Export
                     bindingMap[bd.BindingKey] = bd;
             }
 
+            var actionScopeMap = BuildActionScopeMap(graph);
+
             // 更新每个 ActionEntry 中已存在的 SceneBindingEntry
             foreach (var action in actions)
             {
@@ -402,19 +430,82 @@ namespace SceneBlueprint.Editor.Export
 
                 foreach (var sb in action.SceneBindings)
                 {
-                    if (bindingMap.TryGetValue(sb.BindingKey, out var data))
+                    string rawBindingKey = sb.BindingKey;
+                    string scopeId = actionScopeMap.TryGetValue(action.Id, out var mappedScope)
+                        ? mappedScope
+                        : BindingScopeUtility.TopLevelScopeId;
+                    string scopedBindingKey = BindingScopeUtility.BuildScopedKey(scopeId, rawBindingKey, action.Id);
+
+                    // 导出统一使用 scopedBindingKey（C5）
+                    sb.BindingKey = scopedBindingKey;
+
+                    if (bindingMap.TryGetValue(scopedBindingKey, out var data)
+                        || bindingMap.TryGetValue(rawBindingKey, out data))
                     {
-                        sb.SceneObjectId = data.SceneObjectName;
+                        // 仅使用 V2 语义：StableObjectId 作为唯一绑定标识。
+                        var stableId = data.StableObjectId;
+                        if (string.IsNullOrEmpty(stableId))
+                            stableId = sb.StableObjectId;
+
+                        sb.StableObjectId = stableId;
+                        sb.AdapterType = !string.IsNullOrEmpty(data.AdapterType)
+                            ? data.AdapterType
+                            : options.AdapterType;
+                        sb.SpatialPayloadJson = !string.IsNullOrEmpty(data.SpatialPayloadJson)
+                            ? data.SpatialPayloadJson
+                            : "{}";
+
+                        // 为兼容运行时消费端，SceneObjectId 同步写入稳定 ID。
+                        sb.SceneObjectId = stableId;
+
                         sb.SourceSubGraph = data.SourceSubGraph;
                         sb.SourceActionTypeId = data.SourceActionTypeId;
+
+                        if (string.IsNullOrEmpty(stableId))
+                        {
+                            messages.Add(ValidationMessage.Warning(
+                                $"场景绑定 '{sb.BindingKey}' (Action: {action.Id}) 未配置场景对象"));
+                        }
                     }
-                    else if (string.IsNullOrEmpty(sb.SceneObjectId))
+                    else
                     {
-                        messages.Add(ValidationMessage.Warning(
-                            $"场景绑定 '{sb.BindingKey}' (Action: {action.Id}) 未配置场景对象"));
+                        // 无 Manager 绑定时，沿用节点导出的 StableObjectId，并补齐字段。
+                        sb.SceneObjectId = sb.StableObjectId;
+
+                        if (string.IsNullOrEmpty(sb.AdapterType))
+                            sb.AdapterType = options.AdapterType;
+
+                        if (string.IsNullOrEmpty(sb.SpatialPayloadJson))
+                            sb.SpatialPayloadJson = "{}";
+
+                        if (string.IsNullOrEmpty(sb.StableObjectId))
+                        {
+                            messages.Add(ValidationMessage.Warning(
+                                $"场景绑定 '{sb.BindingKey}' (Action: {action.Id}) 未配置场景对象"));
+                        }
                     }
                 }
             }
+        }
+
+        private static Dictionary<string, string> BuildActionScopeMap(Graph graph)
+        {
+            var map = new Dictionary<string, string>();
+
+            foreach (var node in graph.Nodes)
+            {
+                map[node.Id] = BindingScopeUtility.TopLevelScopeId;
+            }
+
+            foreach (var sgf in graph.SubGraphFrames)
+            {
+                foreach (var nodeId in sgf.ContainedNodeIds)
+                {
+                    map[nodeId] = sgf.Id;
+                }
+            }
+
+            return map;
         }
 
         // ══════════════════════════════════════

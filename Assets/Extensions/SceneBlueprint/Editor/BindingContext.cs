@@ -10,8 +10,9 @@ namespace SceneBlueprint.Editor
     /// 绑定数据不存储在 PropertyBag（Core 层无 Unity 引用）中，
     /// 而是由此上下文持有，保存时写入 SceneBlueprintManager，加载时从 Manager 恢复。
     /// 
-    /// 键格式："bindingKey"（同一蓝图内同名 binding 共享同一个 GameObject）。
-    /// 后续如需按子蓝图隔离，可扩展为 "subGraphId/bindingKey"。
+    /// 键格式："scopedBindingKey"（subGraphId/bindingKey）。
+    /// C5 起同名 bindingKey 在不同子图内隔离存储，避免覆盖。
+    /// 旧数据中的纯 bindingKey 在恢复链路中会被归一化到 scoped 形式。
     /// </summary>
     public class BindingContext
     {

@@ -6,6 +6,7 @@ using UnityEditor;
 using SceneBlueprint.Core;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers.Definitions;
+using SceneBlueprint.Editor.SpatialModes;
 using SceneBlueprint.Editor.Templates;
 using SceneBlueprint.Runtime.Markers;
 using SceneBlueprint.Runtime.Templates;
@@ -34,6 +35,7 @@ namespace SceneBlueprint.Editor.Markers
         private static bool _enabled;
         private static IActionRegistry? _registry;
         private static Vector3 _lastRightClickWorldPos;
+        private static ISpatialModeDescriptor? _spatialMode;
 
         /// <summary>标记创建完成时的回调——蓝图编辑器订阅此事件来创建节点并绑定</summary>
         public static event System.Action<MarkerCreationResult>? OnMarkerCreated;
@@ -45,8 +47,11 @@ namespace SceneBlueprint.Editor.Markers
         /// <para>由蓝图编辑器窗口在打开时调用。</para>
         /// </summary>
         /// <param name="registry">Action 注册表（用于获取 SceneRequirements）</param>
-        public static void Enable(IActionRegistry registry)
+        public static void Enable(
+            IActionRegistry registry,
+            ISpatialModeDescriptor spatialMode)
         {
+            _spatialMode = spatialMode ?? throw new System.ArgumentNullException(nameof(spatialMode));
             if (_enabled) return;
             _registry = registry;
             _enabled = true;
@@ -62,6 +67,7 @@ namespace SceneBlueprint.Editor.Markers
             if (!_enabled) return;
             _enabled = false;
             _registry = null;
+            _spatialMode = null;
             SceneView.duringSceneGui -= OnSceneGUI;
         }
 
@@ -69,12 +75,12 @@ namespace SceneBlueprint.Editor.Markers
 
         private static void OnSceneGUI(SceneView sceneView)
         {
-            if (!_enabled || _registry == null) return;
+            if (!_enabled || _registry == null || _spatialMode == null) return;
 
             var evt = Event.current;
 
-            // 右键点击（MouseUp 避免与 Unity 原生右键冲突）
-            if (evt.type == EventType.MouseDown && evt.button == 1 && evt.modifiers == EventModifiers.Shift)
+            // 右键点击（MouseUp 避免与 Unity 原生右键按下阶段冲突）
+            if (evt.type == EventType.MouseUp && evt.button == 1 && (evt.modifiers & EventModifiers.Shift) != 0)
             {
                 // Shift + 右键 → 标记创建菜单（避免覆盖 Unity 原生右键菜单）
                 if (TryRaycastGround(evt.mousePosition, sceneView, out var worldPos))
@@ -87,56 +93,18 @@ namespace SceneBlueprint.Editor.Markers
         }
 
         /// <summary>
-        /// 从鼠标位置射线投射到场景几何体，获取世界坐标。
-        /// <para>
-        /// 三层检测策略（兼容无 Collider 的白模地形）：
-        /// 1. Physics.Raycast — 有 Collider 的物体优先
-        /// 2. HandleUtility.PickGameObject + Renderer bounds — 无 Collider 的 MeshRenderer
-        /// 3. Y=0 平面回退 — 最终兜底
-        /// </para>
+        /// 从鼠标位置获取世界坐标。
+        /// 实现已下沉到 Adapter 层，此处仅保留按运行时空间的分发。
         /// </summary>
         private static bool TryRaycastGround(Vector2 mousePos, SceneView sceneView, out Vector3 worldPos)
         {
-            var ray = HandleUtility.GUIPointToWorldRay(mousePos);
-
-            // 策略 1：优先检测有 Collider 的物体
-            if (Physics.Raycast(ray, out var hit, 1000f))
+            if (_spatialMode == null)
             {
-                worldPos = hit.point;
-                return true;
+                worldPos = Vector3.zero;
+                return false;
             }
 
-            // 策略 2：检测无 Collider 的 MeshRenderer（白模地形等）
-            //   使用 HandleUtility.PickGameObject 找到鼠标下的可见物体，
-            //   然后用射线与该物体 Renderer bounds 的顶面 Y 平面求交，
-            //   得到一个近似的表面位置。
-            var pickedGO = HandleUtility.PickGameObject(mousePos, false);
-            if (pickedGO != null)
-            {
-                var renderer = pickedGO.GetComponent<Renderer>();
-                if (renderer != null)
-                {
-                    // 用 bounds 顶面 Y 作为"地面高度"
-                    float surfaceY = renderer.bounds.max.y;
-                    var surfacePlane = new Plane(Vector3.up, new Vector3(0, surfaceY, 0));
-                    if (surfacePlane.Raycast(ray, out float surfaceEnter))
-                    {
-                        worldPos = ray.GetPoint(surfaceEnter);
-                        return true;
-                    }
-                }
-            }
-
-            // 策略 3：回退到 Y=0 平面
-            var plane = new Plane(Vector3.up, Vector3.zero);
-            if (plane.Raycast(ray, out float enter))
-            {
-                worldPos = ray.GetPoint(enter);
-                return true;
-            }
-
-            worldPos = Vector3.zero;
-            return false;
+            return _spatialMode.TryGetSceneViewPlacement(mousePos, sceneView, out worldPos);
         }
 
         // ─── 右键菜单 ───

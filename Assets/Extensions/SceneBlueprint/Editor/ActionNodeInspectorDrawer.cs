@@ -114,7 +114,7 @@ namespace SceneBlueprint.Editor
                     continue;
                 }
 
-                if (DrawPropertyField(prop, data.Properties))
+                if (DrawPropertyField(prop, data.Properties, node.Id))
                     changed = true;
             }
 
@@ -134,7 +134,7 @@ namespace SceneBlueprint.Editor
                             continue;
                     }
 
-                    if (DrawPropertyField(prop, data.Properties))
+                    if (DrawPropertyField(prop, data.Properties, node.Id))
                         changed = true;
                 }
             }
@@ -144,7 +144,7 @@ namespace SceneBlueprint.Editor
 
         // ── 属性控件绘制（使用 EditorGUILayout 自动布局）──
 
-        private bool DrawPropertyField(PropertyDefinition prop, PropertyBag bag)
+        private bool DrawPropertyField(PropertyDefinition prop, PropertyBag bag, string ownerNodeId)
         {
             bool changed = false;
 
@@ -175,7 +175,7 @@ namespace SceneBlueprint.Editor
                     break;
 
                 case PropertyType.SceneBinding:
-                    changed = DrawSceneBindingField(prop, bag);
+                    changed = DrawSceneBindingField(prop, bag, ownerNodeId);
                     break;
 
                 case PropertyType.Tag:
@@ -253,9 +253,10 @@ namespace SceneBlueprint.Editor
             return false;
         }
 
-        private bool DrawSceneBindingField(PropertyDefinition prop, PropertyBag bag)
+        private bool DrawSceneBindingField(PropertyDefinition prop, PropertyBag bag, string ownerNodeId)
         {
             string bindingTypeStr = prop.SceneBindingType?.ToString() ?? "Unknown";
+            string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(_currentGraph, ownerNodeId, prop.Key);
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
@@ -267,13 +268,13 @@ namespace SceneBlueprint.Editor
             if (_bindingContext != null)
             {
                 // 从 BindingContext 读取当前绑定
-                var current = _bindingContext.Get(prop.Key);
+                var current = _bindingContext.Get(scopedBindingKey);
                 var result = (GameObject?)EditorGUILayout.ObjectField(
                     "场景对象", current, typeof(GameObject), true);
 
                 if (result != current)
                 {
-                    _bindingContext.Set(prop.Key, result);
+                    _bindingContext.Set(scopedBindingKey, result);
                     // PropertyBag 中存储 MarkerId（稳定唯一标识，不怕改名）
                     var marker = result != null ? result.GetComponent<SceneMarker>() : null;
                     bag.Set(prop.Key, marker != null ? marker.MarkerId : "");
@@ -358,9 +359,9 @@ namespace SceneBlueprint.Editor
                 EditorGUILayout.LabelField("── 场景绑定汇总 ──", EditorStyles.boldLabel);
 
                 bool changed = false;
-                foreach (var (prop, nodeData) in bindings)
+                foreach (var (prop, nodeData, nodeId) in bindings)
                 {
-                    if (DrawSceneBindingField(prop, nodeData.Properties))
+                    if (DrawSceneBindingField(prop, nodeData.Properties, nodeId))
                         changed = true;
                 }
                 return changed;
@@ -370,9 +371,9 @@ namespace SceneBlueprint.Editor
         }
 
         /// <summary>收集子蓝图内所有 SceneBinding 属性</summary>
-        private List<(PropertyDefinition prop, ActionNodeData data)> CollectSubGraphBindings(SubGraphFrame sgf)
+        private List<(PropertyDefinition prop, ActionNodeData data, string nodeId)> CollectSubGraphBindings(SubGraphFrame sgf)
         {
-            var result = new List<(PropertyDefinition, ActionNodeData)>();
+            var result = new List<(PropertyDefinition, ActionNodeData, string)>();
             if (_currentGraph == null) return result;
 
             foreach (var nodeId in sgf.ContainedNodeIds)
@@ -384,7 +385,7 @@ namespace SceneBlueprint.Editor
                 foreach (var prop in def.Properties)
                 {
                     if (prop.Type == PropertyType.SceneBinding)
-                        result.Add((prop, data));
+                        result.Add((prop, data, node.Id));
                 }
             }
             return result;
@@ -423,9 +424,10 @@ namespace SceneBlueprint.Editor
 
                     if (_bindingContext != null)
                     {
-                        foreach (var (prop, _) in bindings)
+                        foreach (var (prop, _, nodeId) in bindings)
                         {
-                            if (_bindingContext.Get(prop.Key) != null) bound++;
+                            string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(_currentGraph, nodeId, prop.Key);
+                            if (_bindingContext.Get(scopedBindingKey) != null) bound++;
                         }
                     }
 
@@ -441,15 +443,16 @@ namespace SceneBlueprint.Editor
             // ── 全部未绑定项 ──
             if (_bindingContext != null)
             {
-                var allUnbound = new List<(string subGraphTitle, PropertyDefinition prop)>();
+                var allUnbound = new List<(string subGraphTitle, PropertyDefinition prop, string nodeId)>();
 
                 foreach (var sgf in graph.SubGraphFrames)
                 {
                     var bindings = CollectSubGraphBindings(sgf);
-                    foreach (var (prop, _) in bindings)
+                    foreach (var (prop, _, nodeId) in bindings)
                     {
-                        if (_bindingContext.Get(prop.Key) == null)
-                            allUnbound.Add((sgf.Title, prop));
+                        string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(_currentGraph, nodeId, prop.Key);
+                        if (_bindingContext.Get(scopedBindingKey) == null)
+                            allUnbound.Add((sgf.Title, prop, nodeId));
                     }
                 }
 
@@ -458,19 +461,20 @@ namespace SceneBlueprint.Editor
                     EditorGUILayout.Space(8);
                     EditorGUILayout.LabelField("── 未绑定项 ──", EditorStyles.boldLabel);
 
-                    foreach (var (title, prop) in allUnbound)
+                    foreach (var (title, prop, nodeId) in allUnbound)
                     {
                         string bindingType = prop.SceneBindingType?.ToString() ?? "?";
+                        string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(_currentGraph, nodeId, prop.Key);
                         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                        EditorGUILayout.LabelField($"\u26A0\uFE0F {title} / {prop.DisplayName} ({bindingType})",
+                        EditorGUILayout.LabelField($"⚠️ {title} / {prop.DisplayName} ({bindingType})",
                             EditorStyles.miniLabel);
 
-                        var current = _bindingContext.Get(prop.Key);
+                        var current = _bindingContext.Get(scopedBindingKey);
                         var result = (GameObject?)EditorGUILayout.ObjectField(
                             "", current, typeof(GameObject), true);
                         if (result != current)
                         {
-                            _bindingContext.Set(prop.Key, result);
+                            _bindingContext.Set(scopedBindingKey, result);
                         }
                         EditorGUILayout.EndVertical();
                     }

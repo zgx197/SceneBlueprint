@@ -12,9 +12,11 @@ using NodeGraph.Serialization;
 using SceneBlueprint.Editor.Export;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers;
+using SceneBlueprint.Editor.SpatialModes;
 using SceneBlueprint.Editor.Templates;
 using SceneBlueprint.Runtime;
 using SceneBlueprint.Runtime.Markers;
+using SceneBlueprint.Runtime.Templates;
 
 namespace SceneBlueprint.Editor
 {
@@ -49,9 +51,114 @@ namespace SceneBlueprint.Editor
         private const float MinInspectorWidth = 200f;
         private const float MaxInspectorWidth = 500f;
         private const float DefaultInspectorWidth = 280f;
+        private const float MinWorkbenchWidth = 220f;
+        private const float MaxWorkbenchWidth = 520f;
+        private const float DefaultWorkbenchWidth = 300f;
         private const float SplitterWidth = 4f;
+        private const float MinCanvasWidth = 260f;
+        private const int MaxIssueRenderCount = 300;
+        private const int MaxRelationGroupRenderCount = 200;
+        private const int MaxRelationUsageRenderCountPerGroup = 120;
+        private const string WorkbenchVisiblePrefsKey = "SceneBlueprint.Workbench.Visible";
+        private const string WorkbenchWidthPrefsKey = "SceneBlueprint.Workbench.Width";
+        private const string WorkbenchTabPrefsKey = "SceneBlueprint.Workbench.Tab";
+        private const string WorkbenchIssueSeverityFilterPrefsKey = "SceneBlueprint.Workbench.Issue.SeverityFilter";
+        private const string WorkbenchIssueKindFilterPrefsKey = "SceneBlueprint.Workbench.Issue.KindFilter";
+        private const string WorkbenchIssueGroupExpandedPrefsPrefix = "SceneBlueprint.Workbench.Issue.GroupExpanded.";
         private float _inspectorWidth = DefaultInspectorWidth;
+        private float _workbenchWidth = DefaultWorkbenchWidth;
         private bool _isDraggingSplitter;
+        private bool _isDraggingWorkbenchSplitter;
+        private bool _showWorkbench = true;
+        private Vector2 _guideScroll;
+        private Vector2 _issueScroll;
+        private Vector2 _relationScroll;
+        private WorkbenchTab _workbenchTab = WorkbenchTab.Guide;
+        private IssueSeverityFilter _issueSeverityFilter = IssueSeverityFilter.All;
+        private IssueKindFilter _issueKindFilter = IssueKindFilter.All;
+        private readonly List<WorkbenchIssue> _workbenchIssues = new List<WorkbenchIssue>();
+        private readonly Dictionary<IssueSourceGroup, bool> _issueGroupExpandedState =
+            new Dictionary<IssueSourceGroup, bool>();
+        private readonly List<WorkbenchRelationGroup> _workbenchRelationGroups = new List<WorkbenchRelationGroup>();
+        private bool _workbenchIssuesDirty = true;
+        private bool _workbenchRelationsDirty = true;
+        private bool _hasWorkbenchIssueScan;
+        private Core.ActionRegistry? _actionRegistryCache;
+        private ISpatialModeDescriptor? _spatialModeDescriptor;
+
+        private enum WorkbenchTab
+        {
+            Guide,
+            Issues,
+            Relations
+        }
+
+        private enum WorkbenchIssueKind
+        {
+            MissingBinding,
+            MissingRequiredProperty,
+            BrokenReference,
+            Other
+        }
+
+        private enum WorkbenchIssueSeverity
+        {
+            Info,
+            Warning,
+            Error
+        }
+
+        private enum IssueSeverityFilter
+        {
+            All,
+            Error,
+            Warning,
+            Info
+        }
+
+        private enum IssueKindFilter
+        {
+            All,
+            MissingBinding,
+            MissingRequiredProperty,
+            BrokenReference,
+            Other
+        }
+
+        private enum IssueSourceGroup
+        {
+            MarkerValidator,
+            Exporter,
+            Rule,
+            Other
+        }
+
+        private sealed class WorkbenchIssue
+        {
+            public WorkbenchIssueKind Kind;
+            public WorkbenchIssueSeverity Severity;
+            public string Message = "";
+            public string Source = "";
+            public string? NodeId;
+            public string? MarkerId;
+        }
+
+        private sealed class WorkbenchRelationUsage
+        {
+            public string ActionTypeId = "";
+            public string ActionDisplayName = "";
+            public string BindingKey = "";
+            public string? NodeId;
+            public bool FromCurrentGraph;
+        }
+
+        private sealed class WorkbenchRelationGroup
+        {
+            public string PresetId = "";
+            public string Title = "";
+            public bool HasPresetAsset;
+            public List<WorkbenchRelationUsage> Usages = new List<WorkbenchRelationUsage>();
+        }
 
         [MenuItem("SceneBlueprint/蓝图编辑器 &B")]
         public static void Open()
@@ -64,11 +171,35 @@ namespace SceneBlueprint.Editor
 
         private void OnEnable()
         {
+            _spatialModeDescriptor = SpatialModeRegistry.GetProjectModeDescriptor();
+
+            _showWorkbench = EditorPrefs.GetBool(WorkbenchVisiblePrefsKey, true);
+            _workbenchWidth = EditorPrefs.GetFloat(WorkbenchWidthPrefsKey, DefaultWorkbenchWidth);
+            _workbenchTab = ReadEnumPref(WorkbenchTabPrefsKey, WorkbenchTab.Guide);
+            _issueSeverityFilter = ReadEnumPref(WorkbenchIssueSeverityFilterPrefsKey, IssueSeverityFilter.All);
+            _issueKindFilter = ReadEnumPref(WorkbenchIssueKindFilterPrefsKey, IssueKindFilter.All);
+            _workbenchIssuesDirty = true;
+            _workbenchRelationsDirty = true;
+
+            EditorApplication.hierarchyChanged -= OnEditorHierarchyChanged;
+            EditorApplication.hierarchyChanged += OnEditorHierarchyChanged;
+            EditorApplication.projectChanged -= OnEditorProjectChanged;
+            EditorApplication.projectChanged += OnEditorProjectChanged;
+
             InitializeIfNeeded();
         }
 
         private void OnDisable()
         {
+            EditorPrefs.SetBool(WorkbenchVisiblePrefsKey, _showWorkbench);
+            EditorPrefs.SetFloat(WorkbenchWidthPrefsKey, _workbenchWidth);
+            EditorPrefs.SetInt(WorkbenchTabPrefsKey, (int)_workbenchTab);
+            EditorPrefs.SetInt(WorkbenchIssueSeverityFilterPrefsKey, (int)_issueSeverityFilter);
+            EditorPrefs.SetInt(WorkbenchIssueKindFilterPrefsKey, (int)_issueKindFilter);
+
+            EditorApplication.hierarchyChanged -= OnEditorHierarchyChanged;
+            EditorApplication.projectChanged -= OnEditorProjectChanged;
+
             SceneViewMarkerTool.OnMarkerCreated -= OnMarkerCreated;
             SceneViewMarkerTool.Disable();
 
@@ -90,6 +221,7 @@ namespace SceneBlueprint.Editor
             _inspectorDrawer = null;
             _currentAsset = null;
             _bindingContext = null;
+            _actionRegistryCache = null;
         }
 
         /// <summary>初始化所有 NodeGraph 组件（仅首次或丢失引用时）</summary>
@@ -157,7 +289,7 @@ namespace SceneBlueprint.Editor
             _inspectorDrawer.SetGraph(_viewModel.Graph);
 
             // 8. 启用 Scene View 标记工具
-            SceneViewMarkerTool.Enable(actionRegistry);
+            SceneViewMarkerTool.Enable(actionRegistry, EnsureSpatialModeDescriptor());
             SceneViewMarkerTool.OnMarkerCreated -= OnMarkerCreated;
             SceneViewMarkerTool.OnMarkerCreated += OnMarkerCreated;
 
@@ -204,15 +336,46 @@ namespace SceneBlueprint.Editor
             // ── 计算分栏布局 ──
             float contentTop = ToolbarHeight;
             float contentHeight = position.height - contentTop;
-            float canvasWidth = position.width - _inspectorWidth - SplitterWidth;
+            float splitterCount = _showWorkbench ? 2f : 1f;
+            float workbenchWidth = 0f;
+            if (_showWorkbench)
+            {
+                float maxWorkbenchWidth = Mathf.Min(
+                    MaxWorkbenchWidth,
+                    position.width - MinInspectorWidth - MinCanvasWidth - SplitterWidth * splitterCount);
+                if (maxWorkbenchWidth < MinWorkbenchWidth)
+                    maxWorkbenchWidth = MinWorkbenchWidth;
+                workbenchWidth = Mathf.Clamp(_workbenchWidth, MinWorkbenchWidth, maxWorkbenchWidth);
+                _workbenchWidth = workbenchWidth;
+            }
 
-            var graphRect = new Rect(0, contentTop, canvasWidth, contentHeight);
-            var splitterRect = new Rect(canvasWidth, contentTop, SplitterWidth, contentHeight);
-            var inspectorRect = new Rect(canvasWidth + SplitterWidth, contentTop,
+            float maxInspectorWidth = Mathf.Min(
+                MaxInspectorWidth,
+                position.width - workbenchWidth - MinCanvasWidth - SplitterWidth * splitterCount);
+            if (maxInspectorWidth < MinInspectorWidth)
+                maxInspectorWidth = MinInspectorWidth;
+
+            _inspectorWidth = Mathf.Clamp(_inspectorWidth, MinInspectorWidth, maxInspectorWidth);
+            float canvasWidth = Mathf.Max(
+                MinCanvasWidth,
+                position.width - workbenchWidth - _inspectorWidth - SplitterWidth * splitterCount);
+
+            var workbenchRect = new Rect(0, contentTop, workbenchWidth, contentHeight);
+            var workbenchSplitterRect = new Rect(workbenchWidth, contentTop, SplitterWidth, contentHeight);
+            float graphX = _showWorkbench ? workbenchRect.xMax + SplitterWidth : 0f;
+            var graphRect = new Rect(graphX, contentTop, canvasWidth, contentHeight);
+            var splitterRect = new Rect(graphRect.xMax, contentTop, SplitterWidth, contentHeight);
+            var inspectorRect = new Rect(splitterRect.xMax, contentTop,
                 _inspectorWidth, contentHeight);
 
             // ── 分栏拖拽 ──
-            HandleSplitter(splitterRect, evt);
+            if (_showWorkbench)
+                HandleWorkbenchSplitter(workbenchSplitterRect, evt);
+            HandleSplitter(splitterRect, evt, workbenchWidth);
+
+            // ── 左侧工作台 ──
+            if (_showWorkbench)
+                DrawWorkbenchPanel(workbenchRect);
 
             // ── 画布区域 ──
             _coordinateHelper.SetGraphAreaRect(graphRect);
@@ -223,6 +386,15 @@ namespace SceneBlueprint.Editor
 
             if (evt.type == EventType.Repaint)
             {
+                if (_showWorkbench)
+                {
+                    var dividerRect = new Rect(workbenchRect.xMax - 1f, contentTop, 1f, contentHeight);
+                    EditorGUI.DrawRect(dividerRect, new Color(0.13f, 0.13f, 0.13f, 1f));
+
+                    // 工作台与画布之间的分栏条
+                    EditorGUI.DrawRect(workbenchSplitterRect, new Color(0.15f, 0.15f, 0.15f, 1f));
+                }
+
                 // 绘制分栏条
                 EditorGUI.DrawRect(splitterRect, new Color(0.15f, 0.15f, 0.15f, 1f));
 
@@ -247,6 +419,10 @@ namespace SceneBlueprint.Editor
                 _viewModel.PreUpdateNodeSizes();
                 _viewModel.ProcessInput(_input);
 
+                // 仅在可能修改图数据的输入后标记为脏，避免纯导航/缩放导致关系与问题缓存失效
+                if (evt.type == EventType.KeyDown || evt.type == EventType.MouseUp)
+                    MarkWorkbenchDataDirty();
+
                 // 标记事件已消费，防止 Unity IMGUI 将事件继续传播到
                 // Inspector 面板等其他控件，避免焦点抢夺和拖拽序列追踪失效
                 evt.Use();
@@ -257,6 +433,7 @@ namespace SceneBlueprint.Editor
             {
                 // 属性被修改，刷新画布摘要显示
                 _viewModel.RequestRepaint();
+                MarkWorkbenchDataDirty();
             }
 
             // 请求重绘
@@ -266,7 +443,48 @@ namespace SceneBlueprint.Editor
 
         // ── 分栏拖拽 ──
 
-        private void HandleSplitter(Rect splitterRect, Event evt)
+        private void HandleWorkbenchSplitter(Rect splitterRect, Event evt)
+        {
+            EditorGUIUtility.AddCursorRect(splitterRect, MouseCursor.ResizeHorizontal);
+
+            switch (evt.type)
+            {
+                case EventType.MouseDown:
+                    if (splitterRect.Contains(evt.mousePosition))
+                    {
+                        _isDraggingWorkbenchSplitter = true;
+                        evt.Use();
+                    }
+                    break;
+
+                case EventType.MouseDrag:
+                    if (_isDraggingWorkbenchSplitter)
+                    {
+                        float nextWidth = evt.mousePosition.x - SplitterWidth * 0.5f;
+                        float maxWorkbenchWidth = Mathf.Min(
+                            MaxWorkbenchWidth,
+                            position.width - _inspectorWidth - MinCanvasWidth - SplitterWidth * 2f);
+                        if (maxWorkbenchWidth < MinWorkbenchWidth)
+                            maxWorkbenchWidth = MinWorkbenchWidth;
+
+                        _workbenchWidth = Mathf.Clamp(nextWidth, MinWorkbenchWidth, maxWorkbenchWidth);
+                        Repaint();
+                        evt.Use();
+                    }
+                    break;
+
+                case EventType.MouseUp:
+                    if (_isDraggingWorkbenchSplitter)
+                    {
+                        _isDraggingWorkbenchSplitter = false;
+                        EditorPrefs.SetFloat(WorkbenchWidthPrefsKey, _workbenchWidth);
+                        evt.Use();
+                    }
+                    break;
+            }
+        }
+
+        private void HandleSplitter(Rect splitterRect, Event evt, float workbenchWidth)
         {
             EditorGUIUtility.AddCursorRect(splitterRect, MouseCursor.ResizeHorizontal);
 
@@ -283,8 +501,15 @@ namespace SceneBlueprint.Editor
                 case EventType.MouseDrag:
                     if (_isDraggingSplitter)
                     {
-                        _inspectorWidth = position.width - evt.mousePosition.x - SplitterWidth * 0.5f;
-                        _inspectorWidth = Mathf.Clamp(_inspectorWidth, MinInspectorWidth, MaxInspectorWidth);
+                        float nextWidth = position.width - evt.mousePosition.x - SplitterWidth * 0.5f;
+                        float splitterCount = _showWorkbench ? 2f : 1f;
+                        float maxInspectorWidth = Mathf.Min(
+                            MaxInspectorWidth,
+                            position.width - workbenchWidth - MinCanvasWidth - SplitterWidth * splitterCount);
+                        if (maxInspectorWidth < MinInspectorWidth)
+                            maxInspectorWidth = MinInspectorWidth;
+
+                        _inspectorWidth = Mathf.Clamp(nextWidth, MinInspectorWidth, maxInspectorWidth);
                         Repaint();
                         evt.Use();
                     }
@@ -297,6 +522,45 @@ namespace SceneBlueprint.Editor
                         evt.Use();
                     }
                     break;
+            }
+        }
+
+        private void AppendBrokenReferenceIssues(
+            List<WorkbenchIssue> issues,
+            HashSet<string> dedupe,
+            Core.ActionRegistry registry,
+            Dictionary<string, MarkerPresetSO> presetById)
+        {
+            if (_viewModel == null)
+                return;
+
+            foreach (var node in _viewModel.Graph.Nodes)
+            {
+                if (node.UserData is not Core.ActionNodeData actionData)
+                    continue;
+                if (!registry.TryGet(actionData.ActionTypeId, out var actionDef))
+                    continue;
+
+                foreach (var req in actionDef.SceneRequirements)
+                {
+                    if (string.IsNullOrEmpty(req.PresetId))
+                        continue;
+
+                    if (presetById.ContainsKey(req.PresetId))
+                        continue;
+
+                    string message =
+                        $"节点 '{node.Id}' (TypeId: {actionData.ActionTypeId}) 引用了不存在的 PresetId: {req.PresetId} (BindingKey: {req.BindingKey})";
+                    AddWorkbenchIssue(
+                        issues,
+                        dedupe,
+                        WorkbenchIssueKind.BrokenReference,
+                        WorkbenchIssueSeverity.Error,
+                        message,
+                        "PresetReference",
+                        node.Id,
+                        null);
+                }
             }
         }
 
@@ -319,6 +583,20 @@ namespace SceneBlueprint.Editor
             if (GUILayout.Button("加载", EditorStyles.toolbarButton, GUILayout.Width(40)))
             {
                 LoadBlueprint();
+            }
+
+            GUILayout.Space(6);
+
+            bool showWorkbench = GUILayout.Toggle(
+                _showWorkbench,
+                new GUIContent("工作台", "显示 C6 工作台（向导 / 问题中心 / 关系面板）"),
+                EditorStyles.toolbarButton,
+                GUILayout.Width(52));
+            if (showWorkbench != _showWorkbench)
+            {
+                _showWorkbench = showWorkbench;
+                EditorPrefs.SetBool(WorkbenchVisiblePrefsKey, _showWorkbench);
+                Repaint();
             }
 
             GUILayout.Space(6);
@@ -361,6 +639,14 @@ namespace SceneBlueprint.Editor
                     : $"节点: {nodeCount}  连线: {edgeCount}  {bindingInfo}";
 
                 GUILayout.Label(statusText, EditorStyles.miniLabel);
+
+                if (_showWorkbench)
+                {
+                    int issueErrors = _workbenchIssues.Count(i => i.Severity == WorkbenchIssueSeverity.Error);
+                    int issueWarnings = _workbenchIssues.Count(i => i.Severity == WorkbenchIssueSeverity.Warning);
+                    string pending = _workbenchIssuesDirty ? "*" : "";
+                    GUILayout.Label($"问题: {issueErrors}E/{issueWarnings}W{pending}", EditorStyles.miniLabel);
+                }
             }
 
             GUILayout.Space(6);
@@ -389,12 +675,1035 @@ namespace SceneBlueprint.Editor
 
             GUILayout.Space(6);
 
-            if (GUILayout.Button("配置", EditorStyles.toolbarButton, GUILayout.Width(40)))
+            GUILayout.EndHorizontal();
+        }
+
+        // ── C6 工作台面板 ──
+
+        private void DrawWorkbenchPanel(Rect panelRect)
+        {
+            if (_viewModel == null)
+                return;
+
+            GUILayout.BeginArea(panelRect);
             {
-                Templates.ConfigurationWindow.ShowWindow();
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandHeight(true));
+                {
+                    DrawWorkbenchTabs();
+
+                    switch (_workbenchTab)
+                    {
+                        case WorkbenchTab.Guide:
+                            DrawWorkbenchGuide();
+                            break;
+                        case WorkbenchTab.Issues:
+                            DrawWorkbenchIssues();
+                            break;
+                        case WorkbenchTab.Relations:
+                            DrawWorkbenchRelations();
+                            break;
+                    }
+                }
+                EditorGUILayout.EndVertical();
+            }
+            GUILayout.EndArea();
+        }
+
+        private void DrawWorkbenchTabs()
+        {
+            WorkbenchTab prevTab = _workbenchTab;
+
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            {
+                if (GUILayout.Toggle(_workbenchTab == WorkbenchTab.Guide, "向导", EditorStyles.toolbarButton))
+                    _workbenchTab = WorkbenchTab.Guide;
+
+                if (GUILayout.Toggle(_workbenchTab == WorkbenchTab.Issues, "问题中心", EditorStyles.toolbarButton))
+                    _workbenchTab = WorkbenchTab.Issues;
+
+                if (GUILayout.Toggle(_workbenchTab == WorkbenchTab.Relations, "关系面板", EditorStyles.toolbarButton))
+                    _workbenchTab = WorkbenchTab.Relations;
+
+                GUILayout.FlexibleSpace();
+
+                if (GUILayout.Button("刷新", EditorStyles.toolbarButton, GUILayout.Width(40)))
+                {
+                    if (_workbenchTab == WorkbenchTab.Relations)
+                        RefreshWorkbenchRelations();
+                    else
+                        RefreshWorkbenchIssues(includeExportValidation: false);
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            if (prevTab != _workbenchTab)
+            {
+                EditorPrefs.SetInt(WorkbenchTabPrefsKey, (int)_workbenchTab);
+            }
+        }
+
+        private void OnEditorHierarchyChanged()
+        {
+            MarkWorkbenchIssuesDirty();
+        }
+
+        private void OnEditorProjectChanged()
+        {
+            _actionRegistryCache = null;
+            MarkWorkbenchDataDirty();
+        }
+
+        private void DrawWorkbenchGuide()
+        {
+            if (_viewModel == null)
+                return;
+
+            bool hasNodes = _viewModel.Graph.Nodes.Count > 0;
+            bool hasSavedAsset = _currentAsset != null;
+            bool hasSyncedScene = HasSyncedManager();
+            int blockingIssues = _workbenchIssues.Count(i => i.Severity == WorkbenchIssueSeverity.Error);
+
+            EditorGUILayout.HelpBox("按以下步骤可在单窗口完成“新建玩法 → 导出”闭环。", MessageType.Info);
+
+            _guideScroll = EditorGUILayout.BeginScrollView(_guideScroll);
+            {
+                DrawGuideStep(
+                    1,
+                    "创建玩法骨架",
+                    hasNodes,
+                    hasNodes ? "图中已有节点，可继续配置。" : "建议先新建图并保留默认 Start/End。",
+                    NewGraph,
+                    hasNodes ? "重建" : "开始");
+
+                DrawGuideStep(
+                    2,
+                    "保存蓝图资产",
+                    hasSavedAsset,
+                    hasSavedAsset ? "已保存到 BlueprintAsset。" : "未保存时无法同步到场景。",
+                    SaveBlueprint,
+                    "保存");
+
+                DrawGuideStep(
+                    3,
+                    "同步到场景",
+                    hasSyncedScene,
+                    hasSyncedScene ? "SceneBlueprintManager 已绑定当前蓝图。" : "将作用域绑定写入场景 Manager。",
+                    SyncToScene,
+                    "同步");
+
+                DrawGuideStep(
+                    4,
+                    "运行问题检查",
+                    _hasWorkbenchIssueScan,
+                    blockingIssues > 0
+                        ? $"当前有 {blockingIssues} 个阻塞问题。"
+                        : "当前无阻塞错误，可继续导出。",
+                    () =>
+                    {
+                        RefreshWorkbenchIssues(includeExportValidation: true);
+                        _workbenchTab = WorkbenchTab.Issues;
+                    },
+                    "检查");
+
+                DrawGuideStep(
+                    5,
+                    "导出运行时 JSON",
+                    hasSavedAsset && hasSyncedScene && blockingIssues == 0,
+                    "导出前建议先清空问题中心中的 Error。",
+                    ExportBlueprint,
+                    "导出");
+            }
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawGuideStep(
+            int index,
+            string title,
+            bool done,
+            string detail,
+            System.Action action,
+            string actionLabel)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            {
+                EditorGUILayout.BeginHorizontal();
+                {
+                    string status = done ? "[x]" : "[ ]";
+                    EditorGUILayout.LabelField($"{status} Step {index}: {title}", EditorStyles.boldLabel);
+                    GUILayout.FlexibleSpace();
+                    if (GUILayout.Button(actionLabel, GUILayout.Width(52)))
+                        action();
+                }
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.LabelField(detail, EditorStyles.wordWrappedMiniLabel);
+            }
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawWorkbenchIssues()
+        {
+            int missingBinding = _workbenchIssues.Count(i => i.Kind == WorkbenchIssueKind.MissingBinding);
+            int missingRequired = _workbenchIssues.Count(i => i.Kind == WorkbenchIssueKind.MissingRequiredProperty);
+            int brokenReference = _workbenchIssues.Count(i => i.Kind == WorkbenchIssueKind.BrokenReference);
+
+            EditorGUILayout.HelpBox(
+                $"缺失绑定: {missingBinding}   必填缺失: {missingRequired}   引用失效: {brokenReference}",
+                MessageType.None);
+
+            if (_workbenchIssuesDirty)
+            {
+                EditorGUILayout.HelpBox(
+                    "问题数据已变更。为避免切页卡顿，默认不自动重算，请点击“刷新问题”或“深度校验”。",
+                    MessageType.Info);
             }
 
-            GUILayout.EndHorizontal();
+            EditorGUILayout.BeginHorizontal();
+            {
+                if (GUILayout.Button("刷新问题", GUILayout.Width(72)))
+                    RefreshWorkbenchIssues(includeExportValidation: false);
+
+                if (GUILayout.Button("深度校验", GUILayout.Width(72)))
+                    RefreshWorkbenchIssues(includeExportValidation: true);
+
+                GUILayout.FlexibleSpace();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            IssueSeverityFilter prevSeverityFilter = _issueSeverityFilter;
+            IssueKindFilter prevKindFilter = _issueKindFilter;
+
+            EditorGUILayout.BeginHorizontal();
+            {
+                _issueSeverityFilter = (IssueSeverityFilter)EditorGUILayout.EnumPopup(
+                    "级别",
+                    _issueSeverityFilter,
+                    GUILayout.Width(150));
+
+                _issueKindFilter = (IssueKindFilter)EditorGUILayout.EnumPopup(
+                    "类型",
+                    _issueKindFilter,
+                    GUILayout.Width(220));
+
+                GUILayout.FlexibleSpace();
+
+                if (GUILayout.Button("清空筛选", GUILayout.Width(64)))
+                {
+                    _issueSeverityFilter = IssueSeverityFilter.All;
+                    _issueKindFilter = IssueKindFilter.All;
+                    EditorPrefs.SetInt(WorkbenchIssueSeverityFilterPrefsKey, (int)_issueSeverityFilter);
+                    EditorPrefs.SetInt(WorkbenchIssueKindFilterPrefsKey, (int)_issueKindFilter);
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            if (prevSeverityFilter != _issueSeverityFilter)
+                EditorPrefs.SetInt(WorkbenchIssueSeverityFilterPrefsKey, (int)_issueSeverityFilter);
+            if (prevKindFilter != _issueKindFilter)
+                EditorPrefs.SetInt(WorkbenchIssueKindFilterPrefsKey, (int)_issueKindFilter);
+
+            var filteredIssues = _workbenchIssues.Where(PassIssueFilters).ToList();
+            var renderedIssues = filteredIssues.Count > MaxIssueRenderCount
+                ? filteredIssues.Take(MaxIssueRenderCount).ToList()
+                : filteredIssues;
+            EditorGUILayout.LabelField(
+                $"显示 {filteredIssues.Count}/{_workbenchIssues.Count} 条",
+                EditorStyles.miniLabel);
+
+            if (filteredIssues.Count > renderedIssues.Count)
+            {
+                EditorGUILayout.HelpBox(
+                    $"问题较多，仅渲染前 {renderedIssues.Count} 条以提升性能。请使用筛选缩小范围。",
+                    MessageType.Info);
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            {
+                if (GUILayout.Button("仅错误", GUILayout.Width(56)))
+                {
+                    _issueSeverityFilter = IssueSeverityFilter.Error;
+                    EditorPrefs.SetInt(WorkbenchIssueSeverityFilterPrefsKey, (int)_issueSeverityFilter);
+                }
+
+                if (GUILayout.Button("定位首个阻塞", GUILayout.Width(88)))
+                {
+                    FocusFirstBlockingIssue(filteredIssues);
+                }
+
+                if (GUILayout.Button("复制摘要", GUILayout.Width(64)))
+                {
+                    EditorGUIUtility.systemCopyBuffer = BuildIssueSummary(filteredIssues);
+                }
+
+                if (GUILayout.Button("展开全部", GUILayout.Width(64)))
+                {
+                    SetAllIssueGroupExpanded(true);
+                }
+
+                if (GUILayout.Button("折叠全部", GUILayout.Width(64)))
+                {
+                    SetAllIssueGroupExpanded(false);
+                }
+
+                GUILayout.FlexibleSpace();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            var groupedIssues = renderedIssues
+                .GroupBy(i => GetIssueSourceGroup(i.Source))
+                .OrderBy(g => GetIssueSourceOrder(g.Key))
+                .ToList();
+
+            _issueScroll = EditorGUILayout.BeginScrollView(_issueScroll);
+            {
+                if (filteredIssues.Count == 0)
+                {
+                    EditorGUILayout.HelpBox("暂无问题。", MessageType.Info);
+                }
+                else
+                {
+                    foreach (var group in groupedIssues)
+                    {
+                        var issuesInGroup = group.ToList();
+                        var nodeIds = issuesInGroup
+                            .Select(i => i.NodeId)
+                            .Where(id => !string.IsNullOrEmpty(id))
+                            .Select(id => id!)
+                            .Distinct()
+                            .ToList();
+                        var markerIds = issuesInGroup
+                            .Select(i => i.MarkerId)
+                            .Where(id => !string.IsNullOrEmpty(id))
+                            .Select(id => id!)
+                            .Distinct()
+                            .ToList();
+                        int errorCount = issuesInGroup.Count(i => i.Severity == WorkbenchIssueSeverity.Error);
+                        int warningCount = issuesInGroup.Count(i => i.Severity == WorkbenchIssueSeverity.Warning);
+                        bool expanded = GetIssueGroupExpanded(group.Key);
+
+                        EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
+                        {
+                            expanded = EditorGUILayout.Foldout(
+                                expanded,
+                                $"来源组：{GetIssueSourceGroupLabel(group.Key)} ({issuesInGroup.Count})  E:{errorCount} W:{warningCount}",
+                                true);
+                            SetIssueGroupExpanded(group.Key, expanded);
+
+                            GUILayout.FlexibleSpace();
+
+                            if (nodeIds.Count > 0
+                                && GUILayout.Button($"批量定位节点 ({nodeIds.Count})", GUILayout.Width(120)))
+                            {
+                                NavigateToNodesBatch(nodeIds);
+                            }
+
+                            if (markerIds.Count > 0
+                                && GUILayout.Button($"批量定位标记 ({markerIds.Count})", GUILayout.Width(120)))
+                            {
+                                FocusMarkersBatch(markerIds);
+                            }
+                        }
+                        EditorGUILayout.EndHorizontal();
+
+                        if (!expanded)
+                            continue;
+
+                        foreach (var issue in issuesInGroup)
+                        {
+                            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                            {
+                                EditorGUILayout.BeginHorizontal();
+                                {
+                                    string severity = issue.Severity switch
+                                    {
+                                        WorkbenchIssueSeverity.Error => "Error",
+                                        WorkbenchIssueSeverity.Warning => "Warn",
+                                        _ => "Info"
+                                    };
+                                    EditorGUILayout.LabelField(
+                                        $"[{severity}] {GetIssueKindLabel(issue.Kind)}",
+                                        EditorStyles.boldLabel);
+                                    GUILayout.FlexibleSpace();
+
+                                    if (!string.IsNullOrEmpty(issue.NodeId)
+                                        && GUILayout.Button("定位节点", GUILayout.Width(60)))
+                                    {
+                                        NavigateToNode(issue.NodeId!);
+                                    }
+
+                                    if (!string.IsNullOrEmpty(issue.MarkerId)
+                                        && GUILayout.Button("定位标记", GUILayout.Width(60)))
+                                    {
+                                        FocusMarker(issue.MarkerId!);
+                                    }
+                                }
+                                EditorGUILayout.EndHorizontal();
+
+                                EditorGUILayout.LabelField(issue.Message, EditorStyles.wordWrappedLabel);
+                                EditorGUILayout.LabelField($"来源: {issue.Source}", EditorStyles.miniLabel);
+                            }
+                            EditorGUILayout.EndVertical();
+                        }
+                    }
+                }
+            }
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawWorkbenchRelations()
+        {
+            if (_viewModel == null)
+                return;
+
+            if (_workbenchRelationsDirty)
+            {
+                EditorGUILayout.HelpBox(
+                    "关系数据已变更。为避免切页卡顿，默认不自动重算，请点击顶部“刷新”。",
+                    MessageType.Info);
+            }
+
+            _relationScroll = EditorGUILayout.BeginScrollView(_relationScroll);
+            {
+                if (_workbenchRelationGroups.Count == 0)
+                {
+                    EditorGUILayout.HelpBox("未找到 Preset 引用。", MessageType.Info);
+                }
+                else
+                {
+                    int renderedGroupCount = 0;
+                    foreach (var group in _workbenchRelationGroups)
+                    {
+                        if (renderedGroupCount >= MaxRelationGroupRenderCount)
+                            break;
+                        renderedGroupCount++;
+
+                        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                        {
+                            EditorGUILayout.LabelField(group.Title, EditorStyles.boldLabel);
+                            EditorGUILayout.LabelField($"PresetId: {group.PresetId}", EditorStyles.miniLabel);
+
+                            if (!group.HasPresetAsset)
+                                EditorGUILayout.HelpBox("该 PresetId 在项目中不存在。", MessageType.Error);
+
+                            if (group.Usages.Count == 0)
+                            {
+                                EditorGUILayout.HelpBox("未被任何 Action 引用。", MessageType.Warning);
+                            }
+                            else
+                            {
+                                int usageRenderCount = 0;
+                                foreach (var usage in group.Usages)
+                                {
+                                    if (usageRenderCount >= MaxRelationUsageRenderCountPerGroup)
+                                        break;
+                                    usageRenderCount++;
+
+                                    EditorGUILayout.BeginHorizontal();
+                                    {
+                                        string scopeLabel = usage.FromCurrentGraph ? "当前图" : "定义";
+                                        EditorGUILayout.LabelField(
+                                            $"- [{scopeLabel}] {usage.ActionDisplayName} ({usage.ActionTypeId}) · {usage.BindingKey}",
+                                            EditorStyles.wordWrappedMiniLabel);
+
+                                        if (!string.IsNullOrEmpty(usage.NodeId)
+                                            && GUILayout.Button("定位节点", GUILayout.Width(60)))
+                                        {
+                                            NavigateToNode(usage.NodeId!);
+                                        }
+                                    }
+                                    EditorGUILayout.EndHorizontal();
+                                }
+
+                                if (group.Usages.Count > MaxRelationUsageRenderCountPerGroup)
+                                {
+                                    EditorGUILayout.LabelField(
+                                        $"... 其余 {group.Usages.Count - MaxRelationUsageRenderCountPerGroup} 条引用已省略（性能保护）",
+                                        EditorStyles.miniLabel);
+                                }
+                            }
+                        }
+                        EditorGUILayout.EndVertical();
+                    }
+
+                    if (_workbenchRelationGroups.Count > MaxRelationGroupRenderCount)
+                    {
+                        EditorGUILayout.HelpBox(
+                            $"关系组较多，仅渲染前 {MaxRelationGroupRenderCount} 组（性能保护）。",
+                            MessageType.Info);
+                    }
+                }
+            }
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void RefreshWorkbenchRelations()
+        {
+            if (_viewModel == null)
+                return;
+
+            var registry = GetActionRegistry();
+            var presets = MarkerPresetRegistry.GetAll();
+            var presetById = BuildPresetLookup(presets);
+            var relationMap = new Dictionary<string, List<WorkbenchRelationUsage>>(System.StringComparer.OrdinalIgnoreCase);
+
+            foreach (var actionDef in registry.GetAll())
+            {
+                foreach (var req in actionDef.SceneRequirements)
+                {
+                    if (string.IsNullOrEmpty(req.PresetId))
+                        continue;
+
+                    if (!relationMap.TryGetValue(req.PresetId, out var list))
+                    {
+                        list = new List<WorkbenchRelationUsage>();
+                        relationMap[req.PresetId] = list;
+                    }
+
+                    list.Add(new WorkbenchRelationUsage
+                    {
+                        ActionTypeId = actionDef.TypeId,
+                        ActionDisplayName = actionDef.DisplayName,
+                        BindingKey = req.BindingKey,
+                        NodeId = null,
+                        FromCurrentGraph = false
+                    });
+                }
+            }
+
+            foreach (var node in _viewModel.Graph.Nodes)
+            {
+                if (node.UserData is not Core.ActionNodeData actionData)
+                    continue;
+                if (!registry.TryGet(actionData.ActionTypeId, out var actionDef))
+                    continue;
+
+                foreach (var req in actionDef.SceneRequirements)
+                {
+                    if (string.IsNullOrEmpty(req.PresetId))
+                        continue;
+
+                    if (!relationMap.TryGetValue(req.PresetId, out var list))
+                    {
+                        list = new List<WorkbenchRelationUsage>();
+                        relationMap[req.PresetId] = list;
+                    }
+
+                    list.Add(new WorkbenchRelationUsage
+                    {
+                        ActionTypeId = actionDef.TypeId,
+                        ActionDisplayName = actionDef.DisplayName,
+                        BindingKey = req.BindingKey,
+                        NodeId = node.Id,
+                        FromCurrentGraph = true
+                    });
+                }
+            }
+
+            var orderedPresetIds = relationMap.Keys
+                .Concat(presetById.Keys)
+                .Distinct(System.StringComparer.OrdinalIgnoreCase)
+                .OrderBy(id => id)
+                .ToList();
+
+            _workbenchRelationGroups.Clear();
+            foreach (var presetId in orderedPresetIds)
+            {
+                relationMap.TryGetValue(presetId, out var refs);
+                bool hasPresetAsset = presetById.TryGetValue(presetId, out var preset);
+
+                var group = new WorkbenchRelationGroup
+                {
+                    PresetId = presetId,
+                    Title = hasPresetAsset ? preset!.DisplayName : "(缺失预设资产)",
+                    HasPresetAsset = hasPresetAsset,
+                    Usages = refs == null
+                        ? new List<WorkbenchRelationUsage>()
+                        : refs
+                            .OrderByDescending(v => v.FromCurrentGraph)
+                            .ThenBy(v => v.ActionDisplayName)
+                            .ThenBy(v => v.ActionTypeId)
+                            .ThenBy(v => v.BindingKey)
+                            .ToList()
+                };
+
+                _workbenchRelationGroups.Add(group);
+            }
+
+            _workbenchRelationsDirty = false;
+        }
+
+        private void RefreshWorkbenchIssues(bool includeExportValidation = false)
+        {
+            if (_viewModel == null)
+                return;
+
+            var nextIssues = new List<WorkbenchIssue>();
+            var dedupe = new HashSet<string>();
+            var registry = GetActionRegistry();
+            var presetById = BuildPresetLookup(MarkerPresetRegistry.GetAll());
+
+            var markerReport = MarkerBindingValidator.Validate(_viewModel.Graph, registry);
+            foreach (var entry in markerReport.Entries)
+            {
+                var severity = entry.Level switch
+                {
+                    ValidationEntry.Severity.Error => WorkbenchIssueSeverity.Error,
+                    ValidationEntry.Severity.Warning => WorkbenchIssueSeverity.Warning,
+                    _ => WorkbenchIssueSeverity.Info
+                };
+
+                AddWorkbenchIssue(
+                    nextIssues,
+                    dedupe,
+                    ClassifyIssue(entry.Message),
+                    severity,
+                    entry.Message,
+                    "MarkerValidator",
+                    entry.NodeId,
+                    entry.MarkerId);
+            }
+
+            AppendRequiredPropertyIssues(nextIssues, dedupe);
+            AppendBrokenReferenceIssues(nextIssues, dedupe, registry, presetById);
+
+            if (includeExportValidation)
+            {
+                var exportOptions = new BlueprintExporter.ExportOptions
+                {
+                    AdapterType = GetCurrentAdapterType()
+                };
+
+                var exportResult = BlueprintExporter.Export(
+                    _viewModel.Graph,
+                    registry,
+                    CollectSceneBindingsForExport(),
+                    blueprintId: _currentAsset?.BlueprintId,
+                    blueprintName: _currentAsset?.BlueprintName,
+                    options: exportOptions);
+
+                foreach (var msg in exportResult.Messages)
+                {
+                    if (msg.Level == ValidationLevel.Info)
+                        continue;
+
+                    var severity = msg.Level switch
+                    {
+                        ValidationLevel.Error => WorkbenchIssueSeverity.Error,
+                        ValidationLevel.Warning => WorkbenchIssueSeverity.Warning,
+                        _ => WorkbenchIssueSeverity.Info
+                    };
+
+                    AddWorkbenchIssue(
+                        nextIssues,
+                        dedupe,
+                        ClassifyIssue(msg.Message),
+                        severity,
+                        msg.Message,
+                        "BlueprintExporter",
+                        TryExtractNodeIdFromMessage(msg.Message),
+                        null);
+                }
+            }
+
+            _workbenchIssues.Clear();
+            _workbenchIssues.AddRange(nextIssues
+                .OrderByDescending(i => i.Severity)
+                .ThenBy(i => i.Kind)
+                .ThenBy(i => i.Source));
+            _workbenchIssuesDirty = false;
+            _hasWorkbenchIssueScan = true;
+        }
+
+        private void MarkWorkbenchIssuesDirty()
+        {
+            _workbenchIssuesDirty = true;
+            _hasWorkbenchIssueScan = false;
+        }
+
+        private void MarkWorkbenchRelationsDirty()
+        {
+            _workbenchRelationsDirty = true;
+        }
+
+        private void MarkWorkbenchDataDirty()
+        {
+            MarkWorkbenchIssuesDirty();
+            MarkWorkbenchRelationsDirty();
+        }
+
+        private Core.ActionRegistry GetActionRegistry()
+        {
+            _actionRegistryCache ??= SceneBlueprintProfile.CreateActionRegistry();
+            return _actionRegistryCache;
+        }
+
+        private void AppendRequiredPropertyIssues(List<WorkbenchIssue> issues, HashSet<string> dedupe)
+        {
+            if (_viewModel == null)
+                return;
+
+            var rules = ValidationRuleRegistry.GetEnabled()
+                .Where(r => r.Type == ValidationType.PropertyRequired)
+                .ToList();
+
+            if (rules.Count == 0)
+                return;
+
+            foreach (var node in _viewModel.Graph.Nodes)
+            {
+                if (node.UserData is not Core.ActionNodeData actionData)
+                    continue;
+
+                foreach (var rule in rules)
+                {
+                    if (!string.Equals(rule.TargetActionTypeId, actionData.ActionTypeId, System.StringComparison.Ordinal))
+                        continue;
+
+                    string key = rule.TargetPropertyKey;
+                    if (string.IsNullOrEmpty(key))
+                        continue;
+
+                    object? raw = actionData.Properties.GetRaw(key);
+                    bool missing = raw == null
+                        || (raw is string s && string.IsNullOrWhiteSpace(s));
+
+                    if (!missing)
+                        continue;
+
+                    string message =
+                        $"节点 '{node.Id}' (TypeId: {actionData.ActionTypeId}) 缺少必填属性: {key}";
+                    AddWorkbenchIssue(
+                        issues,
+                        dedupe,
+                        WorkbenchIssueKind.MissingRequiredProperty,
+                        rule.Severity == ValidationSeverity.Error
+                            ? WorkbenchIssueSeverity.Error
+                            : WorkbenchIssueSeverity.Warning,
+                        message,
+                        "ValidationRule",
+                        node.Id,
+                        null);
+                }
+            }
+        }
+
+        private static void AddWorkbenchIssue(
+            List<WorkbenchIssue> issues,
+            HashSet<string> dedupe,
+            WorkbenchIssueKind kind,
+            WorkbenchIssueSeverity severity,
+            string message,
+            string source,
+            string? nodeId,
+            string? markerId)
+        {
+            string key = $"{kind}|{severity}|{source}|{nodeId}|{markerId}|{message}";
+            if (dedupe.Contains(key))
+                return;
+
+            dedupe.Add(key);
+            issues.Add(new WorkbenchIssue
+            {
+                Kind = kind,
+                Severity = severity,
+                Message = message,
+                Source = source,
+                NodeId = nodeId,
+                MarkerId = markerId
+            });
+        }
+
+        private static string? TryExtractNodeIdFromMessage(string message)
+        {
+            if (string.IsNullOrEmpty(message))
+                return null;
+
+            const string token = "节点 '";
+            int idx = message.IndexOf(token, System.StringComparison.Ordinal);
+            if (idx < 0)
+                return null;
+
+            int start = idx + token.Length;
+            int end = message.IndexOf('\'', start);
+            if (end <= start)
+                return null;
+
+            return message.Substring(start, end - start);
+        }
+
+        private static WorkbenchIssueKind ClassifyIssue(string message)
+        {
+            if (string.IsNullOrEmpty(message))
+                return WorkbenchIssueKind.Other;
+
+            if (message.IndexOf("缺少必需绑定", System.StringComparison.Ordinal) >= 0
+                || message.IndexOf("未配置场景对象", System.StringComparison.Ordinal) >= 0)
+            {
+                return WorkbenchIssueKind.MissingBinding;
+            }
+
+            if (message.IndexOf("缺少必填属性", System.StringComparison.Ordinal) >= 0
+                || message.IndexOf("不能为空", System.StringComparison.Ordinal) >= 0
+                || message.IndexOf("PropertyRequired", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return WorkbenchIssueKind.MissingRequiredProperty;
+            }
+
+            if (message.IndexOf("不存在", System.StringComparison.Ordinal) >= 0
+                || message.IndexOf("未找到", System.StringComparison.Ordinal) >= 0
+                || message.IndexOf("失效", System.StringComparison.Ordinal) >= 0)
+            {
+                return WorkbenchIssueKind.BrokenReference;
+            }
+
+            return WorkbenchIssueKind.Other;
+        }
+
+        private static string GetIssueKindLabel(WorkbenchIssueKind kind)
+        {
+            return kind switch
+            {
+                WorkbenchIssueKind.MissingBinding => "缺失绑定",
+                WorkbenchIssueKind.MissingRequiredProperty => "缺失必填属性",
+                WorkbenchIssueKind.BrokenReference => "引用失效",
+                _ => "其他"
+            };
+        }
+
+        private static Dictionary<string, MarkerPresetSO> BuildPresetLookup(IReadOnlyList<MarkerPresetSO> presets)
+        {
+            var map = new Dictionary<string, MarkerPresetSO>(System.StringComparer.OrdinalIgnoreCase);
+            foreach (var preset in presets)
+            {
+                if (string.IsNullOrEmpty(preset.PresetId))
+                    continue;
+
+                if (!map.ContainsKey(preset.PresetId))
+                    map[preset.PresetId] = preset;
+            }
+
+            return map;
+        }
+
+        private bool PassIssueFilters(WorkbenchIssue issue)
+        {
+            if (_issueSeverityFilter != IssueSeverityFilter.All)
+            {
+                if (_issueSeverityFilter == IssueSeverityFilter.Error
+                    && issue.Severity != WorkbenchIssueSeverity.Error)
+                    return false;
+                if (_issueSeverityFilter == IssueSeverityFilter.Warning
+                    && issue.Severity != WorkbenchIssueSeverity.Warning)
+                    return false;
+                if (_issueSeverityFilter == IssueSeverityFilter.Info
+                    && issue.Severity != WorkbenchIssueSeverity.Info)
+                    return false;
+            }
+
+            if (_issueKindFilter != IssueKindFilter.All)
+            {
+                if (_issueKindFilter == IssueKindFilter.MissingBinding
+                    && issue.Kind != WorkbenchIssueKind.MissingBinding)
+                    return false;
+                if (_issueKindFilter == IssueKindFilter.MissingRequiredProperty
+                    && issue.Kind != WorkbenchIssueKind.MissingRequiredProperty)
+                    return false;
+                if (_issueKindFilter == IssueKindFilter.BrokenReference
+                    && issue.Kind != WorkbenchIssueKind.BrokenReference)
+                    return false;
+                if (_issueKindFilter == IssueKindFilter.Other
+                    && issue.Kind != WorkbenchIssueKind.Other)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static IssueSourceGroup GetIssueSourceGroup(string source)
+        {
+            if (string.Equals(source, "MarkerValidator", System.StringComparison.Ordinal))
+                return IssueSourceGroup.MarkerValidator;
+
+            if (string.Equals(source, "BlueprintExporter", System.StringComparison.Ordinal))
+                return IssueSourceGroup.Exporter;
+
+            if (string.Equals(source, "ValidationRule", System.StringComparison.Ordinal)
+                || string.Equals(source, "PresetReference", System.StringComparison.Ordinal))
+            {
+                return IssueSourceGroup.Rule;
+            }
+
+            return IssueSourceGroup.Other;
+        }
+
+        private static int GetIssueSourceOrder(IssueSourceGroup group)
+        {
+            return group switch
+            {
+                IssueSourceGroup.MarkerValidator => 0,
+                IssueSourceGroup.Exporter => 1,
+                IssueSourceGroup.Rule => 2,
+                _ => 3
+            };
+        }
+
+        private static string GetIssueSourceGroupLabel(IssueSourceGroup group)
+        {
+            return group switch
+            {
+                IssueSourceGroup.MarkerValidator => "MarkerValidator",
+                IssueSourceGroup.Exporter => "Exporter",
+                IssueSourceGroup.Rule => "Rule",
+                _ => "Other"
+            };
+        }
+
+        private bool GetIssueGroupExpanded(IssueSourceGroup group)
+        {
+            if (_issueGroupExpandedState.TryGetValue(group, out bool expanded))
+                return expanded;
+
+            string prefKey = BuildIssueGroupExpandedPrefKey(group);
+            expanded = EditorPrefs.GetBool(prefKey, true);
+            _issueGroupExpandedState[group] = expanded;
+            return expanded;
+        }
+
+        private void SetIssueGroupExpanded(IssueSourceGroup group, bool expanded)
+        {
+            _issueGroupExpandedState[group] = expanded;
+            EditorPrefs.SetBool(BuildIssueGroupExpandedPrefKey(group), expanded);
+        }
+
+        private void SetAllIssueGroupExpanded(bool expanded)
+        {
+            foreach (IssueSourceGroup group in System.Enum.GetValues(typeof(IssueSourceGroup)))
+            {
+                SetIssueGroupExpanded(group, expanded);
+            }
+        }
+
+        private static string BuildIssueGroupExpandedPrefKey(IssueSourceGroup group)
+        {
+            return WorkbenchIssueGroupExpandedPrefsPrefix + group;
+        }
+
+        private static TEnum ReadEnumPref<TEnum>(string key, TEnum fallback) where TEnum : struct
+        {
+            if (!typeof(TEnum).IsEnum)
+                return fallback;
+
+            int raw = EditorPrefs.GetInt(key, System.Convert.ToInt32(fallback));
+            if (!System.Enum.IsDefined(typeof(TEnum), raw))
+                return fallback;
+
+            return (TEnum)System.Enum.ToObject(typeof(TEnum), raw);
+        }
+
+        private void FocusFirstBlockingIssue(IReadOnlyList<WorkbenchIssue> issues)
+        {
+            var firstError = issues.FirstOrDefault(i => i.Severity == WorkbenchIssueSeverity.Error);
+            if (firstError == null)
+                return;
+
+            if (!string.IsNullOrEmpty(firstError.NodeId))
+            {
+                NavigateToNode(firstError.NodeId);
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(firstError.MarkerId))
+                FocusMarker(firstError.MarkerId);
+        }
+
+        private string BuildIssueSummary(IReadOnlyList<WorkbenchIssue> issues)
+        {
+            if (issues.Count == 0)
+                return "问题中心：暂无问题";
+
+            int errors = issues.Count(i => i.Severity == WorkbenchIssueSeverity.Error);
+            int warnings = issues.Count(i => i.Severity == WorkbenchIssueSeverity.Warning);
+            int infos = issues.Count(i => i.Severity == WorkbenchIssueSeverity.Info);
+
+            string groupSummary = string.Join("  ", issues
+                .GroupBy(i => GetIssueSourceGroup(i.Source))
+                .OrderBy(g => GetIssueSourceOrder(g.Key))
+                .Select(g => $"{GetIssueSourceGroupLabel(g.Key)}:{g.Count()}"));
+
+            return $"问题中心共 {issues.Count} 条（E:{errors} W:{warnings} I:{infos}）  {groupSummary}";
+        }
+
+        private void NavigateToNodesBatch(IReadOnlyList<string> nodeIds)
+        {
+            if (_viewModel == null || nodeIds.Count == 0)
+                return;
+
+            var validNodeIds = nodeIds
+                .Where(id => !string.IsNullOrEmpty(id) && _viewModel.Graph.FindNode(id) != null)
+                .Distinct()
+                .ToList();
+            if (validNodeIds.Count == 0)
+                return;
+
+            _viewModel.Selection.SelectMultiple(validNodeIds);
+            _viewModel.FocusNodes(validNodeIds);
+            _viewModel.RequestRepaint();
+            Repaint();
+        }
+
+        private static void FocusMarkersBatch(IReadOnlyList<string> markerIds)
+        {
+            if (markerIds.Count == 0)
+                return;
+
+            var markerObjects = markerIds
+                .Where(id => !string.IsNullOrEmpty(id))
+                .Select(SceneMarkerSelectionBridge.FindMarkerInScene)
+                .Where(m => m != null)
+                .Select(m => m!.gameObject)
+                .Distinct()
+                .Cast<Object>()
+                .ToArray();
+            if (markerObjects.Length == 0)
+                return;
+
+            Selection.objects = markerObjects;
+            SceneView.lastActiveSceneView?.FrameSelected();
+        }
+
+        private void NavigateToNode(string nodeId)
+        {
+            if (_viewModel == null || string.IsNullOrEmpty(nodeId))
+                return;
+
+            _viewModel.Selection.Select(nodeId);
+            _viewModel.FocusNodes(new[] { nodeId });
+            _viewModel.RequestRepaint();
+            Repaint();
+        }
+
+        private static void FocusMarker(string markerId)
+        {
+            if (string.IsNullOrEmpty(markerId))
+                return;
+
+            var marker = SceneMarkerSelectionBridge.FindMarkerInScene(markerId);
+            if (marker == null)
+                return;
+
+            Selection.activeObject = marker.gameObject;
+            SceneView.lastActiveSceneView?.FrameSelected();
+        }
+
+        private bool HasSyncedManager()
+        {
+            if (_currentAsset == null)
+                return false;
+
+            var manager = Object.FindObjectOfType<SceneBlueprintManager>();
+            if (manager == null)
+                return false;
+
+            return manager.BlueprintAsset == _currentAsset;
         }
 
         // ── 操作方法 ──
@@ -413,6 +1722,7 @@ namespace SceneBlueprint.Editor
                 _bindingContext?.Clear();
                 InitializeIfNeeded();
                 AddDefaultNodes();
+                MarkWorkbenchDataDirty();
                 Repaint();
             }
         }
@@ -521,6 +1831,7 @@ namespace SceneBlueprint.Editor
                 InitializeWithGraph(graph);
                 RestoreBindingsFromScene();
                 CenterView();
+                MarkWorkbenchDataDirty();
                 Repaint();
 
                 SBLog.Info(SBLogTags.Blueprint, $"已加载: {AssetDatabase.GetAssetPath(asset)}" +
@@ -553,6 +1864,7 @@ namespace SceneBlueprint.Editor
                 InitializeWithGraph(graph);
                 RestoreBindingsFromScene();
                 CenterView();
+                MarkWorkbenchDataDirty();
                 Repaint();
 
                 SBLog.Info(SBLogTags.Blueprint, $"已加载: {AssetDatabase.GetAssetPath(asset)}" +
@@ -621,9 +1933,15 @@ namespace SceneBlueprint.Editor
             string bpName = _currentAsset != null ? _currentAsset.BlueprintName : "场景蓝图";
             string? bpId = _currentAsset != null ? _currentAsset.BlueprintId : null;
 
+            var exportOptions = new BlueprintExporter.ExportOptions
+            {
+                AdapterType = GetCurrentAdapterType()
+            };
+
             var result = BlueprintExporter.Export(
                 _viewModel.Graph, registry, sceneBindings,
-                blueprintId: bpId, blueprintName: bpName);
+                blueprintId: bpId, blueprintName: bpName,
+                options: exportOptions);
 
             // 输出验证消息
             foreach (var msg in result.Messages)
@@ -674,7 +1992,7 @@ namespace SceneBlueprint.Editor
                     foreach (var sb in a.SceneBindings)
                     {
                         totalBindings++;
-                        if (!string.IsNullOrEmpty(sb.SceneObjectId)) boundBindings++;
+                        if (!string.IsNullOrEmpty(sb.StableObjectId)) boundBindings++;
                     }
                 }
 
@@ -726,6 +2044,7 @@ namespace SceneBlueprint.Editor
             _viewModel.Commands.Execute(
                 new CreateSubGraphCommand(emptySource, title, canvasCenter, boundaryPorts));
 
+            MarkWorkbenchDataDirty();
             _viewModel.RequestRepaint();
             Repaint();
 
@@ -750,9 +2069,13 @@ namespace SceneBlueprint.Editor
                 {
                     foreach (var binding in group.Bindings)
                     {
-                        if (!string.IsNullOrEmpty(binding.BindingKey) && binding.BoundObject != null)
+                        string scopedBindingKey = BindingScopeUtility.NormalizeManagerBindingKey(
+                            binding.BindingKey,
+                            group.SubGraphFrameId);
+
+                        if (!string.IsNullOrEmpty(scopedBindingKey) && binding.BoundObject != null)
                         {
-                            _bindingContext.Set(binding.BindingKey, binding.BoundObject);
+                            _bindingContext.Set(scopedBindingKey, binding.BoundObject);
                         }
                     }
                 }
@@ -768,7 +2091,8 @@ namespace SceneBlueprint.Editor
                 foreach (var prop in actionDef.Properties)
                 {
                     if (prop.SceneBindingType == null) continue;
-                    if (_bindingContext.Get(prop.Key) != null) continue; // 已恢复，跳过
+                    string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(_viewModel.Graph, node.Id, prop.Key);
+                    if (_bindingContext.Get(scopedBindingKey) != null) continue; // 已恢复，跳过
 
                     var storedId = data.Properties.Get<string>(prop.Key);
                     if (string.IsNullOrEmpty(storedId)) continue;
@@ -777,7 +2101,7 @@ namespace SceneBlueprint.Editor
                     var marker = SceneMarkerSelectionBridge.FindMarkerInScene(storedId);
                     if (marker != null)
                     {
-                        _bindingContext.Set(prop.Key, marker.gameObject);
+                        _bindingContext.Set(scopedBindingKey, marker.gameObject);
                     }
                 }
             }
@@ -787,6 +2111,8 @@ namespace SceneBlueprint.Editor
             {
                 SBLog.Info(SBLogTags.Binding, $"已从场景恢复 {restored} 个绑定");
             }
+
+            MarkWorkbenchIssuesDirty();
         }
 
         private void CollapseAllSubGraphs(bool collapse)
@@ -859,16 +2185,17 @@ namespace SceneBlueprint.Editor
                     foreach (var prop in actionDef.Properties)
                     {
                         if (prop.Type != Core.PropertyType.SceneBinding) continue;
-                        if (seenKeys.Contains(prop.Key)) continue;
-                        seenKeys.Add(prop.Key);
+                        string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(graph, node.Id, prop.Key);
+                        if (seenKeys.Contains(scopedBindingKey)) continue;
+                        seenKeys.Add(scopedBindingKey);
 
                         var slot = new SceneBindingSlot
                         {
-                            BindingKey = prop.Key,
+                            BindingKey = scopedBindingKey,
                             BindingType = prop.SceneBindingType ?? Core.BindingType.Transform,
                             DisplayName = prop.DisplayName,
                             SourceActionTypeId = actionData.ActionTypeId,
-                            BoundObject = _bindingContext.Get(prop.Key)
+                            BoundObject = _bindingContext.Get(scopedBindingKey)
                         };
                         group.Bindings.Add(slot);
                     }
@@ -899,11 +2226,15 @@ namespace SceneBlueprint.Editor
             SBLog.Info(SBLogTags.Binding, $"已同步到场景: " +
                 $"子蓝图分组: {manager.BindingGroups.Count}, " +
                 $"绑定: {boundBindings}/{totalBindings}");
+
+            MarkWorkbenchIssuesDirty();
         }
 
         /// <summary>从场景 Manager 或 BindingContext 收集绑定数据供导出使用</summary>
         private List<BlueprintExporter.SceneBindingData>? CollectSceneBindingsForExport()
         {
+            var registry = SceneBlueprintProfile.CreateActionRegistry();
+
             // 优先从场景 Manager 读取（持久化数据）
             var manager = Object.FindObjectOfType<SceneBlueprintManager>();
             if (manager != null && manager.BlueprintAsset == _currentAsset && manager.BindingGroups.Count > 0)
@@ -913,11 +2244,24 @@ namespace SceneBlueprint.Editor
                 {
                     foreach (var binding in group.Bindings)
                     {
+                        string scopedBindingKey = BindingScopeUtility.NormalizeManagerBindingKey(
+                            binding.BindingKey,
+                            group.SubGraphFrameId);
+
+                        EncodeBindingForExport(
+                            binding.BoundObject,
+                            binding.BindingType,
+                            out var stableObjectId,
+                            out var adapterType,
+                            out var spatialPayloadJson);
+
                         list.Add(new BlueprintExporter.SceneBindingData
                         {
-                            BindingKey = binding.BindingKey,
+                            BindingKey = scopedBindingKey,
                             BindingType = binding.BindingType.ToString(),
-                            SceneObjectName = binding.BoundObject != null ? binding.BoundObject.name : "",
+                            StableObjectId = stableObjectId,
+                            AdapterType = adapterType,
+                            SpatialPayloadJson = spatialPayloadJson,
                             SourceSubGraph = group.SubGraphTitle,
                             SourceActionTypeId = binding.SourceActionTypeId
                         });
@@ -929,19 +2273,113 @@ namespace SceneBlueprint.Editor
             // 降级：从 BindingContext 读取（编辑器内存数据）
             if (_bindingContext != null && _bindingContext.Count > 0)
             {
+                var bindingTypeMap = BuildBindingTypeMapFromGraph(registry);
                 var list = new List<BlueprintExporter.SceneBindingData>();
                 foreach (var kvp in _bindingContext.All)
                 {
+                    string resolvedBindingKey = ResolveBindingKeyForExport(kvp.Key, bindingTypeMap);
+                    var bindingType = bindingTypeMap.TryGetValue(resolvedBindingKey, out var resolvedType)
+                        ? resolvedType
+                        : Core.BindingType.Transform;
+
+                    EncodeBindingForExport(
+                        kvp.Value,
+                        bindingType,
+                        out var stableObjectId,
+                        out var adapterType,
+                        out var spatialPayloadJson);
+
                     list.Add(new BlueprintExporter.SceneBindingData
                     {
-                        BindingKey = kvp.Key,
-                        SceneObjectName = kvp.Value != null ? kvp.Value.name : ""
+                        BindingKey = resolvedBindingKey,
+                        StableObjectId = stableObjectId,
+                        AdapterType = adapterType,
+                        SpatialPayloadJson = spatialPayloadJson
                     });
                 }
                 return list.Count > 0 ? list : null;
             }
 
             return null;
+        }
+
+        private Dictionary<string, Core.BindingType> BuildBindingTypeMapFromGraph(Core.ActionRegistry registry)
+        {
+            var map = new Dictionary<string, Core.BindingType>();
+            if (_viewModel == null) return map;
+
+            foreach (var node in _viewModel.Graph.Nodes)
+            {
+                if (node.UserData is not Core.ActionNodeData actionData) continue;
+                if (!registry.TryGet(actionData.ActionTypeId, out var actionDef)) continue;
+
+                foreach (var prop in actionDef.Properties)
+                {
+                    if (prop.Type != Core.PropertyType.SceneBinding) continue;
+                    if (string.IsNullOrEmpty(prop.Key)) continue;
+                    string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(
+                        _viewModel.Graph,
+                        node.Id,
+                        prop.Key);
+                    map[scopedBindingKey] = prop.SceneBindingType ?? Core.BindingType.Transform;
+                }
+            }
+
+            return map;
+        }
+
+        private static string ResolveBindingKeyForExport(
+            string contextBindingKey,
+            Dictionary<string, Core.BindingType> bindingTypeMap)
+        {
+            if (string.IsNullOrEmpty(contextBindingKey))
+                return contextBindingKey;
+
+            if (BindingScopeUtility.IsScopedKey(contextBindingKey))
+                return contextBindingKey;
+
+            string? matchedScopedKey = null;
+            foreach (var scopedKey in bindingTypeMap.Keys)
+            {
+                if (BindingScopeUtility.ExtractRawBindingKey(scopedKey) != contextBindingKey)
+                    continue;
+
+                if (matchedScopedKey != null)
+                {
+                    // 同名 raw key 出现多个作用域时，不做猜测，保持原值并由上游提示修复。
+                    return contextBindingKey;
+                }
+
+                matchedScopedKey = scopedKey;
+            }
+
+            return matchedScopedKey ?? contextBindingKey;
+        }
+
+        private string GetCurrentAdapterType()
+        {
+            return EnsureSpatialModeDescriptor().AdapterType;
+        }
+
+        private void EncodeBindingForExport(
+            GameObject? sceneObject,
+            Core.BindingType bindingType,
+            out string stableObjectId,
+            out string adapterType,
+            out string spatialPayloadJson)
+        {
+            EnsureSpatialModeDescriptor().EncodeBinding(
+                sceneObject,
+                bindingType,
+                out stableObjectId,
+                out adapterType,
+                out spatialPayloadJson);
+        }
+
+        private ISpatialModeDescriptor EnsureSpatialModeDescriptor()
+        {
+            _spatialModeDescriptor ??= SpatialModeRegistry.GetProjectModeDescriptor();
+            return _spatialModeDescriptor;
         }
 
         /// <summary>收集顶层（不在任何子蓝图内）节点的 SceneBinding</summary>
@@ -971,16 +2409,17 @@ namespace SceneBlueprint.Editor
                 foreach (var prop in actionDef.Properties)
                 {
                     if (prop.Type != Core.PropertyType.SceneBinding) continue;
-                    if (seenKeys.Contains(prop.Key)) continue;
-                    seenKeys.Add(prop.Key);
+                    string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(graph, node.Id, prop.Key);
+                    if (seenKeys.Contains(scopedBindingKey)) continue;
+                    seenKeys.Add(scopedBindingKey);
 
                     var slot = new SceneBindingSlot
                     {
-                        BindingKey = prop.Key,
+                        BindingKey = scopedBindingKey,
                         BindingType = prop.SceneBindingType ?? Core.BindingType.Transform,
                         DisplayName = prop.DisplayName,
                         SourceActionTypeId = actionData.ActionTypeId,
-                        BoundObject = _bindingContext?.Get(prop.Key)
+                        BoundObject = _bindingContext?.Get(scopedBindingKey)
                     };
                     group.Bindings.Add(slot);
                 }
@@ -1272,8 +2711,10 @@ namespace SceneBlueprint.Editor
                 {
                     foreach (var entry in result.CreatedMarkers)
                     {
+                        string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(graph, node.Id, entry.BindingKey);
+
                         // BindingContext 持有 GameObject 引用
-                        _bindingContext.Set(entry.BindingKey, entry.MarkerGameObject);
+                        _bindingContext.Set(scopedBindingKey, entry.MarkerGameObject);
                         // PropertyBag 存储 MarkerId（稳定唯一标识）
                         data.Properties.Set(entry.BindingKey, entry.MarkerId);
                     }
@@ -1286,6 +2727,7 @@ namespace SceneBlueprint.Editor
             SBLog.Info(SBLogTags.Marker, $"已为 {result.ActionDisplayName} 创建蓝图节点，" +
                 $"关联 {result.CreatedMarkers.Count} 个标记");
 
+            MarkWorkbenchDataDirty();
             _viewModel.RequestRepaint();
             Repaint();
         }
@@ -1315,8 +2757,10 @@ namespace SceneBlueprint.Editor
                 {
                     if (prop.SceneBindingType == null) continue;
 
+                    string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(graph, node.Id, prop.Key);
+
                     // 策略 1：从 BindingContext 获取 GameObject 引用
-                    GameObject? boundObj = _bindingContext?.Get(prop.Key);
+                    GameObject? boundObj = _bindingContext?.Get(scopedBindingKey);
 
                     // 策略 2：BindingContext 为空时，用 PropertyBag 中的 MarkerId 回退查找
                     if (boundObj == null)
@@ -1329,7 +2773,7 @@ namespace SceneBlueprint.Editor
                             {
                                 boundObj = marker.gameObject;
                                 // 回填到 BindingContext 以便后续使用
-                                _bindingContext?.Set(prop.Key, boundObj);
+                                _bindingContext?.Set(scopedBindingKey, boundObj);
                             }
                         }
                     }

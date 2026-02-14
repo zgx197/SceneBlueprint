@@ -70,7 +70,20 @@ namespace SceneBlueprint.Core.Export
     {
         public string BindingKey = "";
         public string BindingType = "";
+        /// <summary>
+        /// 绑定对象标识（V2 统一语义）：与 <see cref="StableObjectId"/> 保持一致。
+        /// </summary>
         public string SceneObjectId = "";
+
+        /// <summary>V2 字段：稳定对象 ID（抗重命名）。</summary>
+        public string StableObjectId = "";
+
+        /// <summary>V2 字段：导出时使用的空间适配器类型（如 Unity3D / Unity2D）。</summary>
+        public string AdapterType = "";
+
+        /// <summary>V2 字段：空间扩展载荷（JSON 字符串，C2 先占位）。</summary>
+        public string SpatialPayloadJson = "";
+
         public string SourceSubGraph = "";
         public string SourceActionTypeId = "";
     }

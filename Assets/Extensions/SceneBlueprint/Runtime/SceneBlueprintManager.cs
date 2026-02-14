@@ -60,12 +60,63 @@ namespace SceneBlueprint.Runtime
         /// <summary>根据 bindingKey 在所有分组中查找绑定</summary>
         public SceneBindingSlot? FindBinding(string bindingKey)
         {
+            if (string.IsNullOrEmpty(bindingKey))
+                return null;
+
+            // C5：优先按 scopedBindingKey 的 scope 定位分组，避免跨子图同名 key 冲突。
+            if (TryExtractScopeId(bindingKey, out var scopeId))
+            {
+                var scopedGroup = FindBindingGroup(scopeId);
+                if (scopedGroup != null)
+                {
+                    var scopedSlot = scopedGroup.FindBinding(bindingKey);
+                    if (scopedSlot != null)
+                        return scopedSlot;
+                }
+            }
+
+            // 兼容旧调用：raw key 仅在唯一命中时返回；多命中视为歧义并返回 null。
+            string rawBindingKey = ExtractRawBindingKey(bindingKey);
+            SceneBindingSlot? matched = null;
             foreach (var group in _bindingGroups)
             {
-                var slot = group.FindBinding(bindingKey);
-                if (slot != null) return slot;
+                var slot = group.FindBinding(rawBindingKey);
+                if (slot == null)
+                    continue;
+
+                if (matched != null)
+                    return null;
+
+                matched = slot;
             }
-            return null;
+
+            return matched;
+        }
+
+        private static bool TryExtractScopeId(string scopedOrRawKey, out string scopeId)
+        {
+            scopeId = "";
+            if (string.IsNullOrEmpty(scopedOrRawKey))
+                return false;
+
+            int idx = scopedOrRawKey.IndexOf('/');
+            if (idx <= 0)
+                return false;
+
+            scopeId = scopedOrRawKey.Substring(0, idx);
+            return true;
+        }
+
+        private static string ExtractRawBindingKey(string scopedOrRawKey)
+        {
+            if (string.IsNullOrEmpty(scopedOrRawKey))
+                return "";
+
+            int idx = scopedOrRawKey.IndexOf('/');
+            if (idx < 0 || idx + 1 >= scopedOrRawKey.Length)
+                return scopedOrRawKey;
+
+            return scopedOrRawKey[(idx + 1)..];
         }
     }
 }

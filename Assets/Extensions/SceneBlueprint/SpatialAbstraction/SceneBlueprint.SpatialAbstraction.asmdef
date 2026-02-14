@@ -1,0 +1,17 @@
+{
+    "name": "SceneBlueprint.SpatialAbstraction",
+    "rootNamespace": "SceneBlueprint.SpatialAbstraction",
+    "references": [
+        "SceneBlueprint.Core",
+        "SceneBlueprint.Domain"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

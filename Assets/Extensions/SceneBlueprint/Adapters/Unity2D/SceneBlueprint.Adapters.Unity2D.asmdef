@@ -1,0 +1,20 @@
+{
+    "name": "SceneBlueprint.Adapters.Unity2D",
+    "rootNamespace": "SceneBlueprint.Adapters.Unity2D",
+    "references": [
+        "SceneBlueprint.Core",
+        "SceneBlueprint.Runtime",
+        "SceneBlueprint.SpatialAbstraction"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

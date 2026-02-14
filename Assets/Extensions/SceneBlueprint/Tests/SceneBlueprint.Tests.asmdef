@@ -4,6 +4,7 @@
     "references": [
         "SceneBlueprint.Core",
         "SceneBlueprint.Actions",
+        "SceneBlueprint.Runtime",
         "NodeGraph.Math"
     ],
     "includePlatforms": [
