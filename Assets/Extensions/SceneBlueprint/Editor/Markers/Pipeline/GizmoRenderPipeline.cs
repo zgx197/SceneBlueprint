@@ -6,6 +6,8 @@ using System.Reflection;
 using UnityEngine;
 using UnityEditor;
 using SceneBlueprint.Editor.Logging;
+using SceneBlueprint.Editor.Markers;
+using SceneBlueprint.Editor.Markers.Pipeline.Interaction;
 using SceneBlueprint.Runtime.Markers;
 
 namespace SceneBlueprint.Editor.Markers.Pipeline
@@ -29,6 +31,17 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
     [InitializeOnLoad]
     public static class GizmoRenderPipeline
     {
+        /// <summary>
+        /// SceneView 标记交互模式。
+        /// Edit：不接管鼠标事件，完全让位给 Unity 原生变换工具。
+        /// Pick：启用自定义拾取逻辑（点击 Gizmo 选中标记）。
+        /// </summary>
+        public enum MarkerInteractionMode
+        {
+            Edit = 0,
+            Pick = 1
+        }
+
         // ─── 渲染器注册表 ───
         private static readonly Dictionary<Type, IMarkerGizmoRenderer> _renderers = new();
 
@@ -36,9 +49,15 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
         private static readonly List<GizmoDrawContext> _drawList = new();
         private static readonly HashSet<SceneMarker> _interactiveSet = new();
 
-        // ─── 拾取状态 ───
-        private static int _pickControlId;
-        private static bool _pendingPick;
+        // ─── 交互服务（M2 拆分）───
+        private static readonly IMarkerHitTestService _hitTestService = new DefaultMarkerHitTestService();
+        private static readonly IMarkerSelectionController _selectionController = new DefaultMarkerSelectionController();
+        private static readonly IMarkerOverlayPresenter _overlayPresenter = new SceneStatusOverlayPresenter();
+
+        private static MarkerInteractionMode _interactionMode = MarkerInteractionMode.Edit;
+
+        /// <summary>当前标记交互模式。</summary>
+        public static MarkerInteractionMode InteractionMode => _interactionMode;
 
         static GizmoRenderPipeline()
         {
@@ -57,6 +76,19 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
 
         /// <summary>获取已注册的 Renderer 数量（调试用）</summary>
         public static int RendererCount => _renderers.Count;
+
+        /// <summary>
+        /// 设置标记交互模式。
+        /// </summary>
+        public static void SetInteractionMode(MarkerInteractionMode mode)
+        {
+            if (_interactionMode == mode)
+                return;
+
+            _interactionMode = mode;
+            _selectionController.ResetState();
+            SceneView.RepaintAll();
+        }
 
         /// <summary>反射自动发现并注册当前程序集中所有 IMarkerGizmoRenderer 实现</summary>
         private static void AutoDiscoverRenderers()
@@ -93,10 +125,21 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
 
         private static void OnSceneGUI(SceneView sceneView)
         {
+            _ = sceneView;
+            _overlayPresenter.Draw(_interactionMode, SceneViewMarkerTool.IsEnabled);
+
             // 获取缓存的标记列表
             var allMarkers = MarkerCache.GetAll();
-            if (allMarkers.Count == 0) return;
-            if (_renderers.Count == 0) return;
+            if (allMarkers.Count == 0)
+            {
+                _selectionController.ResetState();
+                return;
+            }
+            if (_renderers.Count == 0)
+            {
+                _selectionController.ResetState();
+                return;
+            }
 
             // 预计算公共时间和脉冲值
             float time = (float)EditorApplication.timeSinceStartup;
@@ -124,7 +167,11 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
                 _drawList.Add(BuildContext(marker, pulseScale, pulseAlpha));
             }
 
-            if (_drawList.Count == 0) return;
+            if (_drawList.Count == 0)
+            {
+                _selectionController.ResetState();
+                return;
+            }
 
             // ── Phase 3 Interactive 先行执行（记录接管标记集合）───
             _interactiveSet.Clear();
@@ -222,61 +269,12 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
 
         private static void HandlePicking()
         {
-            _pickControlId = GUIUtility.GetControlID(FocusType.Passive);
-            var evt = Event.current;
-
-            switch (evt.type)
-            {
-                case EventType.Layout:
-                    if (GUIUtility.hotControl == 0)
-                        HandleUtility.AddDefaultControl(_pickControlId);
-                    break;
-
-                case EventType.MouseDown:
-                    if (evt.button != 0 || evt.shift || evt.control || evt.alt) break;
-
-                    var picked = FindClosestMarker(evt.mousePosition);
-                    if (picked != null)
-                    {
-                        GUIUtility.hotControl = _pickControlId;
-                        Selection.activeGameObject = picked.gameObject;
-                        _pendingPick = true;
-                        evt.Use();
-                    }
-                    break;
-
-                case EventType.MouseUp:
-                    if (_pendingPick && evt.button == 0)
-                    {
-                        GUIUtility.hotControl = 0;
-                        _pendingPick = false;
-                        evt.Use();
-                    }
-                    break;
-            }
-        }
-
-        private static SceneMarker? FindClosestMarker(Vector2 mousePos)
-        {
-            SceneMarker? best = null;
-            float bestDist = float.MaxValue;
-
-            foreach (var ctx in _drawList)
-            {
-                if (!_renderers.TryGetValue(ctx.Marker.GetType(), out var renderer))
-                    continue;
-
-                var pickBounds = renderer.GetPickBounds(in ctx);
-                float dist = HandleUtility.DistanceToCircle(pickBounds.Center, pickBounds.Radius);
-
-                if (dist < GizmoStyleConstants.PickDistanceThreshold && dist < bestDist)
-                {
-                    bestDist = dist;
-                    best = ctx.Marker;
-                }
-            }
-
-            return best;
+            _selectionController.Handle(
+                Event.current,
+                _interactionMode,
+                _hitTestService,
+                _drawList,
+                _renderers);
         }
 
         // ─── Bounds 计算 ───

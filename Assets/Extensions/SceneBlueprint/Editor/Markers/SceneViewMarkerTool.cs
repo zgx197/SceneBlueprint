@@ -37,6 +37,9 @@ namespace SceneBlueprint.Editor.Markers
         private static Vector3 _lastRightClickWorldPos;
         private static IEditorSpatialModeDescriptor? _spatialMode;
 
+        /// <summary>当前是否已启用标记创建工具。</summary>
+        public static bool IsEnabled => _enabled;
+
         /// <summary>标记创建完成时的回调——蓝图编辑器订阅此事件来创建节点并绑定</summary>
         public static event System.Action<MarkerCreationResult>? OnMarkerCreated;
 

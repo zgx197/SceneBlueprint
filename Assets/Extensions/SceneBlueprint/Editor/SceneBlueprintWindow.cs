@@ -12,6 +12,7 @@ using NodeGraph.Serialization;
 using SceneBlueprint.Editor.Export;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers;
+using SceneBlueprint.Editor.Markers.Pipeline;
 using SceneBlueprint.Editor.SpatialModes;
 using SceneBlueprint.Editor.Templates;
 using SceneBlueprint.Runtime;
@@ -85,6 +86,8 @@ namespace SceneBlueprint.Editor
         private bool _hasWorkbenchIssueScan;
         private Core.ActionRegistry? _actionRegistryCache;
         private IEditorSpatialModeDescriptor? _spatialModeDescriptor;
+        private GizmoRenderPipeline.MarkerInteractionMode _markerInteractionMode =
+            GizmoRenderPipeline.MarkerInteractionMode.Edit;
         private readonly ISceneBindingStore _sceneBindingStore = new SceneManagerBindingStore();
 
         private enum WorkbenchTab
@@ -179,6 +182,7 @@ namespace SceneBlueprint.Editor
             _workbenchTab = ReadEnumPref(WorkbenchTabPrefsKey, WorkbenchTab.Guide);
             _issueSeverityFilter = ReadEnumPref(WorkbenchIssueSeverityFilterPrefsKey, IssueSeverityFilter.All);
             _issueKindFilter = ReadEnumPref(WorkbenchIssueKindFilterPrefsKey, IssueKindFilter.All);
+            SetMarkerInteractionMode(MarkerInteractionModeSettings.Load(), persist: false);
             _workbenchIssuesDirty = true;
             _workbenchRelationsDirty = true;
 
@@ -197,6 +201,7 @@ namespace SceneBlueprint.Editor
             EditorPrefs.SetInt(WorkbenchTabPrefsKey, (int)_workbenchTab);
             EditorPrefs.SetInt(WorkbenchIssueSeverityFilterPrefsKey, (int)_issueSeverityFilter);
             EditorPrefs.SetInt(WorkbenchIssueKindFilterPrefsKey, (int)_issueKindFilter);
+            MarkerInteractionModeSettings.Save(_markerInteractionMode);
 
             EditorApplication.hierarchyChanged -= OnEditorHierarchyChanged;
             EditorApplication.projectChanged -= OnEditorProjectChanged;
@@ -622,6 +627,27 @@ namespace SceneBlueprint.Editor
             // 显示已注册的节点类型数量
             int typeCount = _profile?.NodeTypes?.GetAll()?.Count() ?? 0;
             GUILayout.Label($"已注册 {typeCount} 种行动类型", EditorStyles.miniLabel);
+
+            GUILayout.Space(8);
+
+            // 交互模式切换：
+            // 编辑模式 = 完全使用 Unity 原生变换（推荐用于摆放/调参）
+            // 拾取模式 = 启用 SceneBlueprint 自定义拾取（推荐用于快速点选 marker）
+            bool editMode = GUILayout.Toggle(
+                _markerInteractionMode == GizmoRenderPipeline.MarkerInteractionMode.Edit,
+                new GUIContent("编辑", "编辑模式：让位给 Unity 原生 Move/Rotate/Scale"),
+                EditorStyles.toolbarButton,
+                GUILayout.Width(42));
+            bool pickMode = GUILayout.Toggle(
+                _markerInteractionMode == GizmoRenderPipeline.MarkerInteractionMode.Pick,
+                new GUIContent("拾取", "拾取模式：点击 Gizmo 轮廓快速选中标记"),
+                EditorStyles.toolbarButton,
+                GUILayout.Width(42));
+
+            if (editMode && _markerInteractionMode != GizmoRenderPipeline.MarkerInteractionMode.Edit)
+                SetMarkerInteractionMode(GizmoRenderPipeline.MarkerInteractionMode.Edit);
+            else if (pickMode && _markerInteractionMode != GizmoRenderPipeline.MarkerInteractionMode.Pick)
+                SetMarkerInteractionMode(GizmoRenderPipeline.MarkerInteractionMode.Pick);
 
             GUILayout.FlexibleSpace();
 
@@ -1597,6 +1623,21 @@ namespace SceneBlueprint.Editor
                 return fallback;
 
             return (TEnum)System.Enum.ToObject(typeof(TEnum), raw);
+        }
+
+        /// <summary>
+        /// 切换 SceneView 交互模式并持久化。
+        /// 该模式只影响“点击选中 marker”的输入仲裁，不影响 Shift+右键创建。
+        /// </summary>
+        private void SetMarkerInteractionMode(
+            GizmoRenderPipeline.MarkerInteractionMode mode,
+            bool persist = true)
+        {
+            _markerInteractionMode = mode;
+            GizmoRenderPipeline.SetInteractionMode(mode);
+
+            if (persist)
+                MarkerInteractionModeSettings.Save(mode);
         }
 
         private void FocusFirstBlockingIssue(IReadOnlyList<WorkbenchIssue> issues)

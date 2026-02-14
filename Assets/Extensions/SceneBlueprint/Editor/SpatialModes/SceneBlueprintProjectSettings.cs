@@ -69,8 +69,7 @@ namespace SceneBlueprint.Editor.SpatialModes
 
                     if (EditorGUI.EndChangeCheck())
                     {
-                        settings.SpatialModeId = modeIds[nextIndex];
-                        settings.Save(true);
+                        SceneBlueprintProjectSettings.SetSpatialModeId(modeIds[nextIndex]);
                     }
                 },
                 keywords = new System.Collections.Generic.HashSet<string>(new[]
