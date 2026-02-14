@@ -84,7 +84,8 @@ namespace SceneBlueprint.Editor
         private bool _workbenchRelationsDirty = true;
         private bool _hasWorkbenchIssueScan;
         private Core.ActionRegistry? _actionRegistryCache;
-        private ISpatialModeDescriptor? _spatialModeDescriptor;
+        private IEditorSpatialModeDescriptor? _spatialModeDescriptor;
+        private readonly ISceneBindingStore _sceneBindingStore = new SceneManagerBindingStore();
 
         private enum WorkbenchTab
         {
@@ -755,12 +756,11 @@ namespace SceneBlueprint.Editor
 
         private void DrawWorkbenchGuide()
         {
-            if (_viewModel == null)
-                return;
+            if (_viewModel == null) return;
 
             bool hasNodes = _viewModel.Graph.Nodes.Count > 0;
             bool hasSavedAsset = _currentAsset != null;
-            bool hasSyncedScene = HasSyncedManager();
+            bool hasSyncedScene = HasSyncedSceneBindings();
             int blockingIssues = _workbenchIssues.Count(i => i.Severity == WorkbenchIssueSeverity.Error);
 
             EditorGUILayout.HelpBox("按以下步骤可在单窗口完成“新建玩法 → 导出”闭环。", MessageType.Info);
@@ -787,7 +787,7 @@ namespace SceneBlueprint.Editor
                     3,
                     "同步到场景",
                     hasSyncedScene,
-                    hasSyncedScene ? "SceneBlueprintManager 已绑定当前蓝图。" : "将作用域绑定写入场景 Manager。",
+                    hasSyncedScene ? "场景绑定存储已关联当前蓝图。" : "将作用域绑定写入场景绑定存储。",
                     SyncToScene,
                     "同步");
 
@@ -1694,16 +1694,12 @@ namespace SceneBlueprint.Editor
             SceneView.lastActiveSceneView?.FrameSelected();
         }
 
-        private bool HasSyncedManager()
+        private bool HasSyncedSceneBindings()
         {
             if (_currentAsset == null)
                 return false;
 
-            var manager = Object.FindObjectOfType<SceneBlueprintManager>();
-            if (manager == null)
-                return false;
-
-            return manager.BlueprintAsset == _currentAsset;
+            return _sceneBindingStore.IsBoundToBlueprint(_currentAsset);
         }
 
         // ── 操作方法 ──
@@ -1927,7 +1923,7 @@ namespace SceneBlueprint.Editor
 
             var registry = SceneBlueprintProfile.CreateActionRegistry();
 
-            // 从场景 Manager 收集绑定数据
+            // 从场景绑定存储收集绑定数据
             var sceneBindings = CollectSceneBindingsForExport();
 
             string bpName = _currentAsset != null ? _currentAsset.BlueprintName : "场景蓝图";
@@ -2052,7 +2048,7 @@ namespace SceneBlueprint.Editor
         }
 
         /// <summary>
-        /// 从场景中的 SceneBlueprintManager 恢复绑定数据到 BindingContext。
+        /// 从场景绑定存储恢复绑定数据到 BindingContext。
         /// 在加载蓝图后调用。
         /// </summary>
         private void RestoreBindingsFromScene()
@@ -2061,11 +2057,10 @@ namespace SceneBlueprint.Editor
 
             _bindingContext.Clear();
 
-            // 策略 1：从 SceneBlueprintManager 恢复（正式流程）
-            var manager = Object.FindObjectOfType<SceneBlueprintManager>();
-            if (manager != null && manager.BlueprintAsset == _currentAsset)
+            // 策略 1：从场景绑定存储恢复（正式流程）
+            if (_sceneBindingStore.TryLoadBindingGroups(_currentAsset, out var bindingGroups))
             {
-                foreach (var group in manager.BindingGroups)
+                foreach (var group in bindingGroups)
                 {
                     foreach (var binding in group.Bindings)
                     {
@@ -2138,33 +2133,27 @@ namespace SceneBlueprint.Editor
         {
             if (_viewModel == null || _bindingContext == null) return;
 
+            var currentAsset = _currentAsset;
+
             // 1. 先保存蓝图（确保 SO 数据是最新的）
-            if (_currentAsset == null)
+            if (currentAsset == null)
             {
                 EditorUtility.DisplayDialog("同步失败", "请先保存蓝图资产后再同步到场景。", "确定");
                 return;
             }
 
             SaveBlueprint();
-
-            // 2. 查找或创建场景中的 SceneBlueprintManager
-            var manager = Object.FindObjectOfType<SceneBlueprintManager>();
-            if (manager == null)
+            currentAsset = _currentAsset;
+            if (currentAsset == null)
             {
-                var go = new GameObject("SceneBlueprintManager");
-                manager = go.AddComponent<SceneBlueprintManager>();
-                Undo.RegisterCreatedObjectUndo(go, "创建场景蓝图管理器");
-                SBLog.Info(SBLogTags.Binding, "已在场景中创建 SceneBlueprintManager");
+                EditorUtility.DisplayDialog("同步失败", "蓝图资产保存失败，请重试。", "确定");
+                return;
             }
 
-            // 3. 设置蓝图资产引用
-            Undo.RecordObject(manager, "同步蓝图到场景");
-            manager.BlueprintAsset = _currentAsset;
-
-            // 4. 按子蓝图分组写入绑定数据
+            // 2. 按子蓝图分组构建绑定数据
             var graph = _viewModel.Graph;
             var registry = SceneBlueprintProfile.CreateActionRegistry();
-            manager.BindingGroups.Clear();
+            var bindingGroups = new List<SubGraphBindingGroup>();
 
             foreach (var sgf in graph.SubGraphFrames)
             {
@@ -2202,19 +2191,20 @@ namespace SceneBlueprint.Editor
                 }
 
                 if (group.Bindings.Count > 0)
-                    manager.BindingGroups.Add(group);
+                    bindingGroups.Add(group);
             }
 
-            // 5. 收集顶层（非子蓝图内）节点的绑定
+            // 3. 收集顶层（非子蓝图内）节点的绑定
             var topLevelGroup = CollectTopLevelBindings(graph, registry);
             if (topLevelGroup != null && topLevelGroup.Bindings.Count > 0)
-                manager.BindingGroups.Add(topLevelGroup);
+                bindingGroups.Add(topLevelGroup);
 
-            EditorUtility.SetDirty(manager);
+            // 4. 持久化绑定分组
+            _sceneBindingStore.SaveBindingGroups(currentAsset, bindingGroups);
 
             int totalBindings = 0;
             int boundBindings = 0;
-            foreach (var g in manager.BindingGroups)
+            foreach (var g in bindingGroups)
             {
                 foreach (var b in g.Bindings)
                 {
@@ -2224,23 +2214,25 @@ namespace SceneBlueprint.Editor
             }
 
             SBLog.Info(SBLogTags.Binding, $"已同步到场景: " +
-                $"子蓝图分组: {manager.BindingGroups.Count}, " +
+                $"子蓝图分组: {bindingGroups.Count}, " +
                 $"绑定: {boundBindings}/{totalBindings}");
 
             MarkWorkbenchIssuesDirty();
         }
 
-        /// <summary>从场景 Manager 或 BindingContext 收集绑定数据供导出使用</summary>
+        /// <summary>从场景绑定存储或 BindingContext 收集绑定数据供导出使用</summary>
         private List<BlueprintExporter.SceneBindingData>? CollectSceneBindingsForExport()
         {
             var registry = SceneBlueprintProfile.CreateActionRegistry();
+            var currentAsset = _currentAsset;
 
-            // 优先从场景 Manager 读取（持久化数据）
-            var manager = Object.FindObjectOfType<SceneBlueprintManager>();
-            if (manager != null && manager.BlueprintAsset == _currentAsset && manager.BindingGroups.Count > 0)
+            // 优先从场景绑定存储读取（持久化数据）
+            if (currentAsset != null
+                && _sceneBindingStore.TryLoadBindingGroups(currentAsset, out var bindingGroups)
+                && bindingGroups.Count > 0)
             {
                 var list = new List<BlueprintExporter.SceneBindingData>();
-                foreach (var group in manager.BindingGroups)
+                foreach (var group in bindingGroups)
                 {
                     foreach (var binding in group.Bindings)
                     {
@@ -2368,15 +2360,27 @@ namespace SceneBlueprint.Editor
             out string adapterType,
             out string spatialPayloadJson)
         {
-            EnsureSpatialModeDescriptor().EncodeBinding(
-                sceneObject,
-                bindingType,
-                out stableObjectId,
-                out adapterType,
-                out spatialPayloadJson);
+            var descriptor = EnsureSpatialModeDescriptor();
+
+            if (sceneObject == null)
+            {
+                stableObjectId = "";
+                adapterType = descriptor.AdapterType;
+                spatialPayloadJson = "{}";
+                return;
+            }
+
+            var payload = descriptor.BindingCodec.Encode(sceneObject, bindingType);
+            stableObjectId = payload.StableObjectId;
+            adapterType = string.IsNullOrEmpty(payload.AdapterType)
+                ? descriptor.AdapterType
+                : payload.AdapterType;
+            spatialPayloadJson = string.IsNullOrEmpty(payload.SerializedSpatialData)
+                ? "{}"
+                : payload.SerializedSpatialData;
         }
 
-        private ISpatialModeDescriptor EnsureSpatialModeDescriptor()
+        private IEditorSpatialModeDescriptor EnsureSpatialModeDescriptor()
         {
             _spatialModeDescriptor ??= SpatialModeRegistry.GetProjectModeDescriptor();
             return _spatialModeDescriptor;

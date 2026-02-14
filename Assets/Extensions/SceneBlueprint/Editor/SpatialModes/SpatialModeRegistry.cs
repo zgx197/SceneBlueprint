@@ -5,44 +5,20 @@ using System.Linq;
 using System.Reflection;
 using SceneBlueprint.Adapters.Unity2D;
 using SceneBlueprint.Adapters.Unity3D;
-using SceneBlueprint.Core;
 using SceneBlueprint.Editor.Logging;
+using SceneBlueprint.SpatialAbstraction;
 using UnityEditor;
 using UnityEngine;
 
 namespace SceneBlueprint.Editor.SpatialModes
 {
     /// <summary>
-    /// 空间模式描述器。
-    /// 描述 SceneView 放置策略与导出绑定编码策略。
+    /// 编辑器扩展的空间模式描述器。
+    /// 在核心契约之上补充 SceneView 放置能力。
     /// </summary>
-    public interface ISpatialModeDescriptor
+    public interface IEditorSpatialModeDescriptor : ISpatialModeDescriptor
     {
-        string ModeId { get; }
-        string DisplayName { get; }
-        string AdapterType { get; }
-
         bool TryGetSceneViewPlacement(Vector2 mousePos, SceneView sceneView, out Vector3 worldPos);
-
-        void EncodeBinding(
-            GameObject? sceneObject,
-            BindingType bindingType,
-            out string stableObjectId,
-            out string adapterType,
-            out string spatialPayloadJson);
-    }
-
-    /// <summary>
-    /// 项目级空间模式配置。
-    /// 不通过窗口切换，项目固定使用一个 ModeId。
-    /// </summary>
-    public static class SpatialModeProjectSettings
-    {
-        /// <summary>
-        /// 项目固定空间模式 ID。
-        /// 可选：Unity3D / Unity2D / 其他自定义描述器 ModeId。
-        /// </summary>
-        public const string ProjectModeId = "Unity3D";
     }
 
     /// <summary>
@@ -51,39 +27,41 @@ namespace SceneBlueprint.Editor.SpatialModes
     /// </summary>
     public static class SpatialModeRegistry
     {
-        private static readonly Dictionary<string, ISpatialModeDescriptor> _descriptors =
-            new Dictionary<string, ISpatialModeDescriptor>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, IEditorSpatialModeDescriptor> _descriptors =
+            new Dictionary<string, IEditorSpatialModeDescriptor>(StringComparer.OrdinalIgnoreCase);
 
         private static bool _initialized;
 
-        public static IReadOnlyList<ISpatialModeDescriptor> GetAll()
+        public static IReadOnlyList<IEditorSpatialModeDescriptor> GetAll()
         {
             EnsureInitialized();
             return _descriptors.Values.ToList();
         }
 
-        public static bool TryGet(string modeId, out ISpatialModeDescriptor descriptor)
+        public static bool TryGet(string modeId, out IEditorSpatialModeDescriptor descriptor)
         {
             EnsureInitialized();
             return _descriptors.TryGetValue(modeId, out descriptor!);
         }
 
-        public static ISpatialModeDescriptor GetProjectModeDescriptor()
+        public static IEditorSpatialModeDescriptor GetProjectModeDescriptor()
         {
             EnsureInitialized();
 
-            if (TryGet(SpatialModeProjectSettings.ProjectModeId, out var descriptor))
+            string configuredModeId = SceneBlueprintProjectSettings.GetSpatialModeId();
+
+            if (TryGet(configuredModeId, out var descriptor))
                 return descriptor;
 
             if (_descriptors.Count > 0)
             {
                 var fallback = _descriptors.Values.First();
                 SBLog.Warn(SBLogTags.Registry,
-                    $"未找到空间模式 '{SpatialModeProjectSettings.ProjectModeId}'，回退到 '{fallback.ModeId}'。");
+                    $"未找到空间模式 '{configuredModeId}'，回退到 '{fallback.ModeId}'。");
                 return fallback;
             }
 
-            throw new InvalidOperationException("未发现任何 ISpatialModeDescriptor 实现。请检查模式描述器注册。");
+            throw new InvalidOperationException("未发现任何 IEditorSpatialModeDescriptor 实现。请检查模式描述器注册。");
         }
 
         private static void EnsureInitialized()
@@ -91,7 +69,7 @@ namespace SceneBlueprint.Editor.SpatialModes
             if (_initialized) return;
             _initialized = true;
 
-            var descriptorType = typeof(ISpatialModeDescriptor);
+            var descriptorType = typeof(IEditorSpatialModeDescriptor);
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 var assemblyName = assembly.GetName().Name ?? "";
@@ -120,7 +98,7 @@ namespace SceneBlueprint.Editor.SpatialModes
 
                     try
                     {
-                        var descriptor = (ISpatialModeDescriptor)Activator.CreateInstance(type)!;
+                        var descriptor = (IEditorSpatialModeDescriptor)Activator.CreateInstance(type)!;
                         if (string.IsNullOrWhiteSpace(descriptor.ModeId))
                             continue;
 
@@ -146,58 +124,30 @@ namespace SceneBlueprint.Editor.SpatialModes
     }
 
     /// <summary>内置 Unity3D 空间模式描述器。</summary>
-    public sealed class Unity3DSpatialModeDescriptor : ISpatialModeDescriptor
+    public sealed class Unity3DSpatialModeDescriptor : IEditorSpatialModeDescriptor
     {
         public string ModeId => "Unity3D";
         public string DisplayName => "Unity 3D";
         public string AdapterType => Unity3DAdapterServices.AdapterType;
+        public ISpatialBindingCodec BindingCodec => Unity3DAdapterServices.BindingCodec;
 
         public bool TryGetSceneViewPlacement(Vector2 mousePos, SceneView sceneView, out Vector3 worldPos)
         {
             return Unity3DAdapterServices.TryGetSceneViewPlacement(mousePos, sceneView, out worldPos);
         }
-
-        public void EncodeBinding(
-            GameObject? sceneObject,
-            BindingType bindingType,
-            out string stableObjectId,
-            out string adapterType,
-            out string spatialPayloadJson)
-        {
-            Unity3DAdapterServices.EncodeBinding(
-                sceneObject,
-                bindingType,
-                out stableObjectId,
-                out adapterType,
-                out spatialPayloadJson);
-        }
     }
 
     /// <summary>内置 Unity2D 空间模式描述器。</summary>
-    public sealed class Unity2DSpatialModeDescriptor : ISpatialModeDescriptor
+    public sealed class Unity2DSpatialModeDescriptor : IEditorSpatialModeDescriptor
     {
         public string ModeId => "Unity2D";
         public string DisplayName => "Unity 2D";
         public string AdapterType => Unity2DAdapterServices.AdapterType;
+        public ISpatialBindingCodec BindingCodec => Unity2DAdapterServices.BindingCodec;
 
         public bool TryGetSceneViewPlacement(Vector2 mousePos, SceneView sceneView, out Vector3 worldPos)
         {
             return Unity2DAdapterServices.TryGetSceneViewPlacement(mousePos, sceneView, out worldPos);
-        }
-
-        public void EncodeBinding(
-            GameObject? sceneObject,
-            BindingType bindingType,
-            out string stableObjectId,
-            out string adapterType,
-            out string spatialPayloadJson)
-        {
-            Unity2DAdapterServices.EncodeBinding(
-                sceneObject,
-                bindingType,
-                out stableObjectId,
-                out adapterType,
-                out spatialPayloadJson);
         }
     }
 }

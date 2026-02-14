@@ -18,6 +18,8 @@ namespace SceneBlueprint.Adapters.Unity3D
         private static readonly ISceneObjectIdentityService IdentityServiceInstance = new Unity3DSceneObjectIdentityService();
         private static readonly ISpatialBindingCodec BindingCodecInstance = new Unity3DSpatialBindingCodec(IdentityServiceInstance);
 
+        public static ISpatialBindingCodec BindingCodec => BindingCodecInstance;
+
         public static bool TryGetSceneViewPlacement(Vector2 mousePos, SceneView sceneView, out Vector3 worldPos)
         {
             _ = sceneView;

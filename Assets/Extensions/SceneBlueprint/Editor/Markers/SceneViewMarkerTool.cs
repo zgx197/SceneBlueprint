@@ -35,7 +35,7 @@ namespace SceneBlueprint.Editor.Markers
         private static bool _enabled;
         private static IActionRegistry? _registry;
         private static Vector3 _lastRightClickWorldPos;
-        private static ISpatialModeDescriptor? _spatialMode;
+        private static IEditorSpatialModeDescriptor? _spatialMode;
 
         /// <summary>标记创建完成时的回调——蓝图编辑器订阅此事件来创建节点并绑定</summary>
         public static event System.Action<MarkerCreationResult>? OnMarkerCreated;
@@ -49,7 +49,7 @@ namespace SceneBlueprint.Editor.Markers
         /// <param name="registry">Action 注册表（用于获取 SceneRequirements）</param>
         public static void Enable(
             IActionRegistry registry,
-            ISpatialModeDescriptor spatialMode)
+            IEditorSpatialModeDescriptor spatialMode)
         {
             _spatialMode = spatialMode ?? throw new System.ArgumentNullException(nameof(spatialMode));
             if (_enabled) return;
@@ -123,10 +123,10 @@ namespace SceneBlueprint.Editor.Markers
 
             foreach (var group in actionsWithMarkers)
             {
-                string categoryIcon = GetCategoryIcon(group.Key);
+                string categoryPrefix = GetCategoryMenuPrefix(group.Key);
                 foreach (var action in group)
                 {
-                    string menuPath = $"{categoryIcon} {group.Key}/{action.DisplayName}";
+                    string menuPath = $"{categoryPrefix}/{action.DisplayName}";
                     var actionCopy = action; // 闭包捕获
                     menu.AddItem(new GUIContent(menuPath), false, () =>
                     {
@@ -162,46 +162,40 @@ namespace SceneBlueprint.Editor.Markers
                 menu.AddSeparator("仅创建标记/");
             }
 
-            // 基础标记类型（无预设的裸创建）
-            menu.AddItem(new GUIContent("仅创建标记/空白 Point"), false, () =>
+            // 基础标记类型（无预设裸创建）
+            var markerDefinitions = MarkerDefinitionRegistry.GetAll()
+                .OrderBy(d => d.DisplayName)
+                .ThenBy(d => d.TypeId)
+                .ToList();
+
+            foreach (var definition in markerDefinitions)
             {
-                CreateStandaloneMarker<PointMarker>("新点位", worldPos, "");
-            });
-            menu.AddItem(new GUIContent("仅创建标记/空白 Area (Box)"), false, () =>
-            {
-                var marker = CreateStandaloneMarker<AreaMarker>("新区域", worldPos, "");
-                marker.Shape = AreaShape.Box;
-            });
-            menu.AddItem(new GUIContent("仅创建标记/空白 Entity"), false, () =>
-            {
-                CreateStandaloneMarker<EntityMarker>("新实体", worldPos, "");
-            });
+                string displayName = string.IsNullOrEmpty(definition.DisplayName)
+                    ? definition.TypeId
+                    : definition.DisplayName;
+                string label = $"仅创建标记/空白 {displayName}";
+                var definitionCopy = definition;
+                menu.AddItem(new GUIContent(label), false, () =>
+                {
+                    CreateStandaloneMarkerFromDefinition(definitionCopy, worldPos);
+                });
+            }
 
             menu.ShowAsContext();
         }
 
-        private static string GetCategoryIcon(string category)
+        private static string GetCategoryMenuPrefix(string category)
         {
-            return category switch
-            {
-                "Combat" => "⚔️",
-                "Trigger" => "🎯",
-                "Presentation" => "🎬",
-                "Environment" => "💡",
-                _ => "📍"
-            };
+            string displayName = CategoryRegistry.GetDisplayName(category);
+            string icon = CategoryRegistry.GetIcon(category);
+            return string.IsNullOrEmpty(icon)
+                ? displayName
+                : $"{icon} {displayName}";
         }
 
         private static int GetCategoryOrder(string category)
         {
-            return category switch
-            {
-                "Combat" => 0,
-                "Trigger" => 1,
-                "Presentation" => 2,
-                "Environment" => 3,
-                _ => 99
-            };
+            return CategoryRegistry.GetSortOrder(category);
         }
 
         // ─── 标记创建 ───
@@ -372,6 +366,24 @@ namespace SceneBlueprint.Editor.Markers
             EditorGUIUtility.PingObject(marker.gameObject);
 
             SBLog.Info(SBLogTags.Marker, $"从预设 '{preset.DisplayName}' 创建了独立标记");
+        }
+
+        private static void CreateStandaloneMarkerFromDefinition(MarkerDefinition markerDef, Vector3 position)
+        {
+            string displayName = string.IsNullOrEmpty(markerDef.DisplayName)
+                ? markerDef.TypeId
+                : markerDef.DisplayName;
+
+            string markerName = $"新{displayName}";
+            var marker = MarkerHierarchyManager.CreateMarker(
+                markerDef.ComponentType,
+                markerName,
+                position,
+                tag: "");
+
+            markerDef.Initializer?.Invoke(marker);
+            Selection.activeGameObject = marker.gameObject;
+            EditorGUIUtility.PingObject(marker.gameObject);
         }
 
         /// <summary>

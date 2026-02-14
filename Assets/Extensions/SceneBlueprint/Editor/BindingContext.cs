@@ -8,7 +8,7 @@ namespace SceneBlueprint.Editor
     /// 场景绑定上下文——在编辑器内存中维护 SceneBinding 属性到 GameObject 的映射。
     /// 
     /// 绑定数据不存储在 PropertyBag（Core 层无 Unity 引用）中，
-    /// 而是由此上下文持有，保存时写入 SceneBlueprintManager，加载时从 Manager 恢复。
+    /// 而是由此上下文持有，保存时写入场景绑定存储，加载时从存储恢复。
     /// 
     /// 键格式："scopedBindingKey"（subGraphId/bindingKey）。
     /// C5 起同名 bindingKey 在不同子图内隔离存储，避免覆盖。

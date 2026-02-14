@@ -69,6 +69,15 @@ namespace SceneBlueprint.Editor.Templates
             return so?.ThemeColor;
         }
 
+        /// <summary>
+        /// 获取分类图标。有 SO 时使用 Icon，无 SO 时返回空字符串。
+        /// </summary>
+        public static string GetIcon(string categoryId)
+        {
+            var so = Find(categoryId);
+            return so?.Icon ?? "";
+        }
+
         private static void EnsureLoaded()
         {
             if (!_dirty && _cache != null) return;
