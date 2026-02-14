@@ -6,6 +6,8 @@ using System.Linq;
 using NodeGraph.Core;
 using SceneBlueprint.Core;
 using SceneBlueprint.Core.Export;
+using SceneBlueprint.Editor.Templates;
+using SceneBlueprint.Runtime.Templates;
 
 namespace SceneBlueprint.Editor.Export
 {
@@ -483,6 +485,124 @@ namespace SceneBlueprint.Editor.Export
                     $"展平了 {graph.SubGraphFrames.Count} 个子蓝图，" +
                     $"跳过了 {boundaryNodeIds.Count} 个边界节点"));
             }
+
+            // 规则 6：执行 SO 配置的验证规则
+            ValidateSOPRules(graph, registry, actions, boundaryNodeIds, messages);
+        }
+
+        /// <summary>
+        /// 执行通过 ValidationRuleSO 配置的验证规则。
+        /// 与 C# 内置规则合并，补充业务层面的验证。
+        /// </summary>
+        private static void ValidateSOPRules(
+            Graph graph, ActionRegistry registry,
+            List<ActionEntry> actions, HashSet<string> boundaryNodeIds,
+            List<ValidationMessage> messages)
+        {
+            var rules = ValidationRuleRegistry.GetEnabled();
+            if (rules.Count == 0) return;
+
+            foreach (var rule in rules)
+            {
+                switch (rule.Type)
+                {
+                    case ValidationType.PropertyRequired:
+                        ValidatePropertyRequired(rule, graph, registry, messages);
+                        break;
+                    case ValidationType.BindingRequired:
+                        ValidateBindingRequired(rule, graph, registry, messages);
+                        break;
+                    case ValidationType.MinNodesInSubGraph:
+                        ValidateMinNodesInSubGraph(rule, graph, boundaryNodeIds, messages);
+                        break;
+                }
+            }
+        }
+
+        /// <summary>PropertyRequired：指定 Action 的指定属性必须非空</summary>
+        private static void ValidatePropertyRequired(
+            ValidationRuleSO rule, Graph graph, ActionRegistry registry,
+            List<ValidationMessage> messages)
+        {
+            if (string.IsNullOrEmpty(rule.TargetActionTypeId) || string.IsNullOrEmpty(rule.TargetPropertyKey))
+                return;
+
+            foreach (var node in graph.Nodes)
+            {
+                if (node.UserData is not ActionNodeData data) continue;
+                if (data.ActionTypeId != rule.TargetActionTypeId) continue;
+
+                var raw = data.Properties.GetRaw(rule.TargetPropertyKey);
+                bool isEmpty = raw == null || (raw is string s && string.IsNullOrWhiteSpace(s));
+
+                if (isEmpty)
+                {
+                    var msg = $"[{rule.RuleId}] 节点 '{node.Id}' ({data.ActionTypeId}) 的属性 '{rule.TargetPropertyKey}' 不能为空";
+                    if (!string.IsNullOrEmpty(rule.Description)) msg += $" — {rule.Description}";
+                    messages.Add(ToMessage(rule.Severity, msg));
+                }
+            }
+        }
+
+        /// <summary>BindingRequired：指定 Action 的所有 SceneBinding 必须已配置</summary>
+        private static void ValidateBindingRequired(
+            ValidationRuleSO rule, Graph graph, ActionRegistry registry,
+            List<ValidationMessage> messages)
+        {
+            if (string.IsNullOrEmpty(rule.TargetActionTypeId)) return;
+            if (!registry.TryGet(rule.TargetActionTypeId, out var actionDef)) return;
+
+            foreach (var node in graph.Nodes)
+            {
+                if (node.UserData is not ActionNodeData data) continue;
+                if (data.ActionTypeId != rule.TargetActionTypeId) continue;
+
+                foreach (var req in actionDef.SceneRequirements)
+                {
+                    var val = data.Properties.Get<string>(req.BindingKey);
+                    if (string.IsNullOrEmpty(val))
+                    {
+                        var msg = $"[{rule.RuleId}] 节点 '{node.Id}' ({data.ActionTypeId}) 缺少场景绑定: {req.DisplayName}";
+                        if (!string.IsNullOrEmpty(rule.Description)) msg += $" — {rule.Description}";
+                        messages.Add(ToMessage(rule.Severity, msg));
+                    }
+                }
+            }
+        }
+
+        /// <summary>MinNodesInSubGraph：子蓝图内至少 N 个节点</summary>
+        private static void ValidateMinNodesInSubGraph(
+            ValidationRuleSO rule, Graph graph, HashSet<string> boundaryNodeIds,
+            List<ValidationMessage> messages)
+        {
+            foreach (var frame in graph.SubGraphFrames)
+            {
+                // 统计非边界节点的子图内节点数
+                int count = 0;
+                foreach (var node in graph.Nodes)
+                {
+                    if (frame.ContainedNodeIds.Contains(node.Id) && !boundaryNodeIds.Contains(node.Id))
+                        count++;
+                }
+
+                if (count < rule.MinNodeCount)
+                {
+                    var msg = $"[{rule.RuleId}] 子蓝图 '{frame.Title}' 只有 {count} 个节点，最少需要 {rule.MinNodeCount} 个";
+                    if (!string.IsNullOrEmpty(rule.Description)) msg += $" — {rule.Description}";
+                    messages.Add(ToMessage(rule.Severity, msg));
+                }
+            }
+        }
+
+        /// <summary>将 ValidationSeverity 转为 ValidationMessage</summary>
+        private static ValidationMessage ToMessage(ValidationSeverity severity, string msg)
+        {
+            return severity switch
+            {
+                ValidationSeverity.Error => ValidationMessage.Error(msg),
+                ValidationSeverity.Warning => ValidationMessage.Warning(msg),
+                _ => ValidationMessage.Info(msg)
+            };
         }
     }
 

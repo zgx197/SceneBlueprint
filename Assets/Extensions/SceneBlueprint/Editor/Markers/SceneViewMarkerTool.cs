@@ -6,7 +6,9 @@ using UnityEditor;
 using SceneBlueprint.Core;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers.Definitions;
+using SceneBlueprint.Editor.Templates;
 using SceneBlueprint.Runtime.Markers;
+using SceneBlueprint.Runtime.Templates;
 
 namespace SceneBlueprint.Editor.Markers
 {
@@ -168,17 +170,41 @@ namespace SceneBlueprint.Editor.Markers
             // 分隔线
             menu.AddSeparator("");
 
-            // 仅创建标记（不创建蓝图节点）
-            menu.AddItem(new GUIContent("仅创建标记/点位标记"), false, () =>
+            // 仅创建标记——按预设分组显示
+            var presets = MarkerPresetRegistry.GetAll();
+            if (presets.Count > 0)
+            {
+                var grouped = presets
+                    .GroupBy(p => string.IsNullOrEmpty(p.Category) ? "未分类" : p.Category)
+                    .OrderBy(g => g.Key);
+
+                foreach (var group in grouped)
+                {
+                    foreach (var preset in group.OrderBy(p => p.DisplayName))
+                    {
+                        string label = $"仅创建标记/{group.Key}/{preset.DisplayName} ({preset.BaseMarkerTypeId})";
+                        var presetCopy = preset;
+                        menu.AddItem(new GUIContent(label), false, () =>
+                        {
+                            CreateStandaloneMarkerFromPreset(presetCopy, worldPos);
+                        });
+                    }
+                }
+
+                menu.AddSeparator("仅创建标记/");
+            }
+
+            // 基础标记类型（无预设的裸创建）
+            menu.AddItem(new GUIContent("仅创建标记/空白 Point"), false, () =>
             {
                 CreateStandaloneMarker<PointMarker>("新点位", worldPos, "");
             });
-            menu.AddItem(new GUIContent("仅创建标记/区域标记 (Box)"), false, () =>
+            menu.AddItem(new GUIContent("仅创建标记/空白 Area (Box)"), false, () =>
             {
                 var marker = CreateStandaloneMarker<AreaMarker>("新区域", worldPos, "");
                 marker.Shape = AreaShape.Box;
             });
-            menu.AddItem(new GUIContent("仅创建标记/实体标记"), false, () =>
+            menu.AddItem(new GUIContent("仅创建标记/空白 Entity"), false, () =>
             {
                 CreateStandaloneMarker<EntityMarker>("新实体", worldPos, "");
             });
@@ -234,6 +260,9 @@ namespace SceneBlueprint.Editor.Markers
             {
                 int count = req.AllowMultiple ? System.Math.Max(req.MinCount, 1) : 1;
 
+                // 优先按 PresetId 精确查找，回退到 Tag 模糊匹配
+                var preset = ResolvePreset(req);
+
                 var markerDef = MarkerDefinitionRegistry.Get(req.MarkerTypeId);
                 if (markerDef == null)
                 {
@@ -245,12 +274,23 @@ namespace SceneBlueprint.Editor.Markers
                 for (int i = 0; i < count; i++)
                 {
                     var markerPos = basePos + Vector3.right * offset;
+
+                    // 名称优先级：PresetSO.NamePrefix > PresetSO.DisplayName > req.DisplayName > 标记类型
+                    string baseName = ResolveDisplayName(req, preset);
                     string markerName = count > 1
-                        ? $"{req.DisplayName}_{i + 1:D2}"
-                        : req.DisplayName;
+                        ? $"{baseName}_{i + 1:D2}"
+                        : baseName;
+
+                    // Tag 优先级：PresetSO.DefaultTag > req.DefaultTag
+                    string tag = !string.IsNullOrEmpty(preset?.DefaultTag)
+                        ? preset!.DefaultTag
+                        : req.DefaultTag;
 
                     var marker = MarkerHierarchyManager.CreateMarker(
-                        markerDef.ComponentType, markerName, markerPos, tag: req.DefaultTag);
+                        markerDef.ComponentType, markerName, markerPos, tag: tag);
+
+                    // 应用预设默认值（颜色、尺寸等）
+                    ApplyPreset(marker, preset);
 
                     markerDef.Initializer?.Invoke(marker);
                     offset += markerDef.DefaultSpacing;
@@ -270,6 +310,100 @@ namespace SceneBlueprint.Editor.Markers
             OnMarkerCreated?.Invoke(result);
 
             SBLog.Info(SBLogTags.Marker, $"为 {action.DisplayName} 创建了 {result.CreatedMarkers.Count} 个标记");
+        }
+
+        /// <summary>
+        /// 解析标记预设：优先 PresetId 精确匹配，回退到 (MarkerTypeId, DefaultTag) 模糊匹配。
+        /// </summary>
+        private static MarkerPresetSO? ResolvePreset(MarkerRequirement req)
+        {
+            // 优先按 PresetId 精确查找
+            if (!string.IsNullOrEmpty(req.PresetId))
+            {
+                var preset = MarkerPresetRegistry.FindByPresetId(req.PresetId);
+                if (preset != null) return preset;
+                SBLog.Warn(SBLogTags.Template,
+                    $"未找到预设 '{req.PresetId}'（BindingKey='{req.BindingKey}'），尝试 Tag 匹配回退");
+            }
+
+            // 回退：按 Tag 模糊匹配
+            return MarkerPresetRegistry.FindMatch(req.MarkerTypeId, req.DefaultTag);
+        }
+
+        /// <summary>
+        /// 解析标记显示名称：PresetSO > MarkerRequirement > 默认
+        /// </summary>
+        private static string ResolveDisplayName(MarkerRequirement req, MarkerPresetSO? preset)
+        {
+            if (preset != null)
+            {
+                if (!string.IsNullOrEmpty(preset.NamePrefix)) return preset.NamePrefix;
+                if (!string.IsNullOrEmpty(preset.DisplayName)) return preset.DisplayName;
+            }
+            if (!string.IsNullOrEmpty(req.DisplayName)) return req.DisplayName;
+            return req.MarkerTypeId;
+        }
+
+        /// <summary>
+        /// 将预设默认值应用到刚创建的标记上。
+        /// <para>预设为 null 时不做任何操作。</para>
+        /// </summary>
+        private static void ApplyPreset(SceneMarker marker, MarkerPresetSO? preset)
+        {
+            if (preset == null) return;
+
+            // 颜色覆盖：记录到 marker 上，供 Gizmo 渲染阶段直接读取。
+            marker.UseCustomGizmoColor = preset.UseGizmoColor;
+            if (preset.UseGizmoColor)
+                marker.CustomGizmoColor = preset.GizmoColor;
+
+            // Area 特有属性
+            if (marker is AreaMarker area)
+            {
+                area.Shape = preset.DefaultAreaShape;
+                area.BoxSize = preset.DefaultBoxSize;
+                area.Height = preset.DefaultHeight;
+            }
+
+            // Entity 特有属性
+            if (marker is EntityMarker entity && preset.DefaultPrefab != null)
+            {
+                entity.PrefabRef = preset.DefaultPrefab;
+            }
+
+            SBLog.Debug(SBLogTags.Template,
+                $"应用预设 '{preset.DisplayName}' 到标记 '{marker.MarkerName}'");
+        }
+
+        /// <summary>
+        /// 根据预设创建独立标记（不关联 Action 节点）。
+        /// </summary>
+        private static void CreateStandaloneMarkerFromPreset(MarkerPresetSO preset, Vector3 position)
+        {
+            var markerDef = MarkerDefinitionRegistry.Get(preset.BaseMarkerTypeId);
+            if (markerDef == null)
+            {
+                SBLog.Warn(SBLogTags.Marker,
+                    $"未找到标记类型定义: {preset.BaseMarkerTypeId}，跳过创建");
+                return;
+            }
+
+            string name = !string.IsNullOrEmpty(preset.NamePrefix) ? preset.NamePrefix
+                : !string.IsNullOrEmpty(preset.DisplayName) ? preset.DisplayName
+                : preset.BaseMarkerTypeId;
+
+            string tag = !string.IsNullOrEmpty(preset.DefaultTag) ? preset.DefaultTag : "";
+
+            var marker = MarkerHierarchyManager.CreateMarker(
+                markerDef.ComponentType, name, position, tag: tag);
+
+            ApplyPreset(marker, preset);
+            markerDef.Initializer?.Invoke(marker);
+
+            Selection.activeGameObject = marker.gameObject;
+            EditorGUIUtility.PingObject(marker.gameObject);
+
+            SBLog.Info(SBLogTags.Marker, $"从预设 '{preset.DisplayName}' 创建了独立标记");
         }
 
         /// <summary>

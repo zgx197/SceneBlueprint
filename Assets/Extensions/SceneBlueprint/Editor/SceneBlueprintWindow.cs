@@ -12,6 +12,7 @@ using NodeGraph.Serialization;
 using SceneBlueprint.Editor.Export;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers;
+using SceneBlueprint.Editor.Templates;
 using SceneBlueprint.Runtime;
 using SceneBlueprint.Runtime.Markers;
 
@@ -384,6 +385,13 @@ namespace SceneBlueprint.Editor
             if (GUILayout.Button("帮助", EditorStyles.toolbarButton, GUILayout.Width(40)))
             {
                 ShowHelp();
+            }
+
+            GUILayout.Space(6);
+
+            if (GUILayout.Button("配置", EditorStyles.toolbarButton, GUILayout.Width(40)))
+            {
+                Templates.ConfigurationWindow.ShowWindow();
             }
 
             GUILayout.EndHorizontal();
@@ -1019,10 +1027,11 @@ namespace SceneBlueprint.Editor
 
             var menu = new GenericMenu();
 
-            // 按分类分组显示所有节点类型
+            // 按分类分组显示所有节点类型（按 CategorySO.SortOrder 排序，无 SO 时按字母排序）
             var grouped = _profile.NodeTypes.GetAll()
                 .GroupBy(def => string.IsNullOrEmpty(def.Category) ? "未分类" : def.Category)
-                .OrderBy(g => g.Key);
+                .OrderBy(g => CategoryRegistry.GetSortOrder(g.Key))
+                .ThenBy(g => g.Key);
 
             foreach (var group in grouped)
             {
@@ -1045,6 +1054,35 @@ namespace SceneBlueprint.Editor
             if (menu.GetItemCount() == 0)
             {
                 menu.AddDisabledItem(new GUIContent("(无可用节点类型)"));
+            }
+
+            // 从模板创建子蓝图
+            var templatesGrouped = Templates.BlueprintTemplateUtils.FindAllTemplatesGrouped();
+            if (templatesGrouped.Count > 0)
+            {
+                menu.AddSeparator("");
+                foreach (var kvp in templatesGrouped.OrderBy(k => k.Key))
+                {
+                    foreach (var tmpl in kvp.Value.OrderBy(t => t.DisplayName))
+                    {
+                        var capturedTemplate = tmpl;
+                        var capturedPos = canvasPos;
+                        string displayName = string.IsNullOrEmpty(tmpl.DisplayName) ? tmpl.name : tmpl.DisplayName;
+                        string menuPath = $"从模板创建/{kvp.Key}/{displayName}";
+                        menu.AddItem(new GUIContent(menuPath), false, () =>
+                        {
+                            if (_viewModel == null) return;
+                            var result = Templates.BlueprintTemplateUtils.InstantiateTemplate(
+                                _viewModel.Graph, capturedTemplate,
+                                CreateGraphSerializer(), capturedPos);
+                            if (result != null)
+                            {
+                                _viewModel.RequestRepaint();
+                                Repaint();
+                            }
+                        });
+                    }
+                }
             }
 
             // 如果有多个节点被选中，添加"创建子蓝图"选项
@@ -1106,6 +1144,17 @@ namespace SceneBlueprint.Editor
                     _viewModel.RequestRepaint();
                     Repaint();
                 });
+
+                menu.AddItem(new GUIContent("保存为模板..."), false, () =>
+                {
+                    if (_viewModel == null) return;
+                    var targetFrame = _viewModel.Graph.SubGraphFrames
+                        .FirstOrDefault(f => f.Id == capturedFrameId);
+                    if (targetFrame == null) return;
+                    Templates.BlueprintTemplateUtils.SaveAsTemplate(
+                        _viewModel.Graph, targetFrame, CreateGraphSerializer());
+                });
+
                 menu.AddSeparator("");
             }
 

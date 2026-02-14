@@ -31,5 +31,11 @@ namespace SceneBlueprint.Editor.Logging
 
         /// <summary>图层系统</summary>
         public const string Layer = "Layer";
+
+        /// <summary>注册表加载（ActionRegistry / MarkerRegistry）</summary>
+        public const string Registry = "Registry";
+
+        /// <summary>模板系统（ActionTemplateSO / BlueprintTemplateSO）</summary>
+        public const string Template = "Template";
     }
 }

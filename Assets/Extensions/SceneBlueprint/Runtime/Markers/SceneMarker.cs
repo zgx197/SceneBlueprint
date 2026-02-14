@@ -31,6 +31,14 @@ namespace SceneBlueprint.Runtime.Markers
         [Tooltip("Tag 标签——用于图层映射和分类过滤（如 Combat.SpawnPoint）")]
         public string Tag = "";
 
+        [Header("显示")]
+
+        [Tooltip("是否覆盖图层默认 Gizmo 颜色")]
+        public bool UseCustomGizmoColor;
+
+        [Tooltip("自定义 Gizmo 颜色（UseCustomGizmoColor=true 时生效）")]
+        public Color CustomGizmoColor = Color.white;
+
         [Tooltip("所属子蓝图 ID（为空表示顶层）")]
         [SerializeField] private string _subGraphId = "";
 

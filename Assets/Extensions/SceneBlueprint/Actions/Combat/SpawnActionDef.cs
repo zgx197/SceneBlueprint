@@ -78,14 +78,13 @@ namespace SceneBlueprint.Actions.Combat
             // ─── 场景标记需求 ───
             SceneRequirements = new[]
             {
-                // 刷怪区域——必需，一个区域标记
-                new MarkerRequirement("spawnArea", MarkerTypeIds.Area, "刷怪区域",
-                    required: true, defaultTag: "Combat.SpawnArea"),
+                // 刷怪区域——必需，一个区域标记（创建参数由 MarkerPresetSO 控制）
+                new MarkerRequirement("spawnArea", MarkerTypeIds.Area,
+                    presetId: "Combat.SpawnArea", required: true),
 
                 // 刷怪点——可选，允许多个点位标记
-                new MarkerRequirement("spawnPoints", MarkerTypeIds.Point, "刷怪点",
-                    required: false, allowMultiple: true, minCount: 1,
-                    defaultTag: "Combat.SpawnPoint"),
+                new MarkerRequirement("spawnPoints", MarkerTypeIds.Point,
+                    presetId: "Combat.SpawnPoint", allowMultiple: true, minCount: 1),
             }
         };
     }
