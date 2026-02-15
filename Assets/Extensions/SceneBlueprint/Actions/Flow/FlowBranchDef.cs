@@ -29,9 +29,9 @@ namespace SceneBlueprint.Actions.Flow
             Duration = ActionDuration.Instant, // 瞬时型——立即判断并走对应分支
             Ports = new[]
             {
-                Port.FlowIn("in", "输入"),
-                Port.FlowOut("true", "True"),   // 条件为 true 时的输出
-                Port.FlowOut("false", "False")  // 条件为 false 时的输出
+                Port.In("in", "输入"),
+                Port.Out("true", "True"),   // 条件为 true 时的输出
+                Port.Out("false", "False")  // 条件为 false 时的输出
             },
             Properties = new[]
             {

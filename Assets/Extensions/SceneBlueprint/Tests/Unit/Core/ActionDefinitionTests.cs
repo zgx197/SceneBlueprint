@@ -1,7 +1,10 @@
 #nullable enable
+using System.Linq;
 using NUnit.Framework;
+using NodeGraph.Core;
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SBPort = SceneBlueprint.Core.Port;
 
 namespace SceneBlueprint.Tests.Unit.Core
 {
@@ -27,7 +30,7 @@ namespace SceneBlueprint.Tests.Unit.Core
                 Category = "Combat",
                 Duration = ActionDuration.Duration,
                 ThemeColor = new Color4(0.2f, 0.7f, 0.3f),
-                Ports = new[] { Port.FlowIn("in"), Port.FlowOut("out") },
+                Ports = new[] { SBPort.In("in"), SBPort.Out("out") },
                 Properties = new[] { Prop.Int("count", "数量", defaultValue: 5) }
             };
 
@@ -58,11 +61,11 @@ namespace SceneBlueprint.Tests.Unit.Core
         [Test]
         public void PortDefinition_FlowIn_HasCorrectDirection()
         {
-            var port = Port.FlowIn("in", "输入");
+            var port = SBPort.In("in", "输入");
 
             Assert.AreEqual("in", port.Id);
             Assert.AreEqual("输入", port.DisplayName);
-            Assert.AreEqual(PortDirection.In, port.Direction);
+            Assert.AreEqual(PortDirection.Input, port.Direction);
             Assert.AreEqual(PortCapacity.Multiple, port.Capacity);
         }
 
@@ -70,10 +73,10 @@ namespace SceneBlueprint.Tests.Unit.Core
         [Test]
         public void PortDefinition_FlowOut_HasCorrectDirection()
         {
-            var port = Port.FlowOut("out", "输出");
+            var port = SBPort.Out("out", "输出");
 
             Assert.AreEqual("out", port.Id);
-            Assert.AreEqual(PortDirection.Out, port.Direction);
+            Assert.AreEqual(PortDirection.Output, port.Direction);
             Assert.AreEqual(PortCapacity.Single, port.Capacity);
         }
 
@@ -81,9 +84,9 @@ namespace SceneBlueprint.Tests.Unit.Core
         [Test]
         public void PortDefinition_EventOut_HasMultipleCapacity()
         {
-            var port = Port.EventOut("onComplete", "完成时");
+            var port = SBPort.Event("onComplete", "完成时");
 
-            Assert.AreEqual(PortDirection.Out, port.Direction);
+            Assert.AreEqual(PortDirection.Output, port.Direction);
             Assert.AreEqual(PortCapacity.Multiple, port.Capacity);
         }
     }

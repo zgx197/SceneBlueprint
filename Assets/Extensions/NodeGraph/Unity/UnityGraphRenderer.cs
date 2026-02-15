@@ -472,6 +472,10 @@ namespace NodeGraph.Unity
                 // ── 普通端口：单圆圈 ──
                 var wCenter = C2W(pos);
 
+                // 兼容性高亮（拖线时）
+                if (port.CanConnectToDragSource)
+                    DrawPortCompatibleGlow(wCenter, t);
+
                 // 悬停高亮
                 if (port.Hovered)
                     DrawPortHoverGlow(wCenter, t, port.Color);
@@ -517,6 +521,38 @@ namespace NodeGraph.Unity
 
             GUI.Label(new Rect(windowTextX, wPort.y - textSize.y * 0.5f, textSize.x, textSize.y),
                 port.Name, _portNameStyle);
+
+            // 鼠标悬停时显示端口类型信息
+            if (port.Hovered)
+            {
+                string kindText = port.Kind switch
+                {
+                    PortKind.Control => "控制流 (Control)",
+                    PortKind.Event => "事件 (Event)",
+                    PortKind.Data => "数据 (Data)",
+                    _ => "未知"
+                };
+                string directionText = port.Direction == PortDirection.Input ? "输入 (Input)" : "输出 (Output)";
+                string dataTypeText = string.IsNullOrEmpty(port.DataType) ? "" : $"\n类型: {port.DataType}";
+                
+                GUI.tooltip = $"{kindText} - {directionText}{dataTypeText}";
+            }
+        }
+
+        /// <summary>
+        /// 兼容端口脉冲光效（拖线时绿色呼吸动画）
+        /// </summary>
+        private void DrawPortCompatibleGlow(Vector3 wCenter, NodeVisualTheme t)
+        {
+            float time = (float)EditorApplication.timeSinceStartup;
+            float pulse = Mathf.Abs(Mathf.Sin(time * 3f)); // 快速脉冲
+            float alpha = 0.3f + pulse * 0.4f;
+            
+            var glowColor = new Color(0.2f, 1f, 0.3f, alpha); // 绿色
+            float glowRadius = S(t.PortRadius + t.PortOuterRingWidth + 4f);
+            
+            Handles.color = glowColor;
+            Handles.DrawSolidDisc(wCenter, Vector3.forward, glowRadius);
         }
 
         /// <summary>

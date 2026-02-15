@@ -351,7 +351,7 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
 
         private static void Trace(string message)
         {
-            Debug.Log($"[SB.Selection.Trace][GizmoRenderPipeline] {message}");
+            // Debug.Log($"[SB.Selection.Trace][GizmoRenderPipeline] {message}");
         }
 
         // ─── Bounds 计算 ───

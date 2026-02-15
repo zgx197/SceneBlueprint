@@ -25,6 +25,23 @@ namespace SceneBlueprint.Editor
                 sb.Append("}");
                 return sb.ToString();
             }
+            
+            if (data is SceneObjectProxyData proxyData)
+            {
+                // 格式: { "objectType": "xxx", "sceneObjectId": "xxx", "displayName": "xxx", "isBroken": false }
+                var sb = new System.Text.StringBuilder();
+                sb.Append("{\"objectType\":\"");
+                sb.Append(EscapeJson(proxyData.ObjectType));
+                sb.Append("\",\"sceneObjectId\":\"");
+                sb.Append(EscapeJson(proxyData.SceneObjectId));
+                sb.Append("\",\"displayName\":\"");
+                sb.Append(EscapeJson(proxyData.DisplayName));
+                sb.Append("\",\"isBroken\":");
+                sb.Append(proxyData.IsBroken ? "true" : "false");
+                sb.Append("}");
+                return sb.ToString();
+            }
+            
             return "{}";
         }
 
@@ -35,7 +52,25 @@ namespace SceneBlueprint.Editor
 
             try
             {
-                // 简易解析：提取 typeId 和 properties
+                // 先判断是否为 SceneObjectProxyData（通过检查 objectType 字段）
+                string? objectType = ExtractStringField(json, "objectType");
+                if (objectType != null)
+                {
+                    // 这是 SceneObjectProxyData
+                    string? sceneObjectId = ExtractStringField(json, "sceneObjectId");
+                    string? displayName = ExtractStringField(json, "displayName");
+                    bool isBroken = ExtractBoolField(json, "isBroken");
+
+                    return new SceneObjectProxyData
+                    {
+                        ObjectType = objectType,
+                        SceneObjectId = sceneObjectId ?? "",
+                        DisplayName = displayName ?? "",
+                        IsBroken = isBroken
+                    };
+                }
+
+                // 否则尝试解析为 ActionNodeData
                 string? actionTypeId = ExtractStringField(json, "typeId");
                 string? propertiesJson = ExtractObjectField(json, "properties");
 
@@ -121,6 +156,27 @@ namespace SceneBlueprint.Editor
                 end++;
             }
             return json.Substring(start, end - start);
+        }
+
+        /// <summary>从 JSON 中提取布尔字段值</summary>
+        private static bool ExtractBoolField(string json, string fieldName)
+        {
+            string pattern = $"\"{fieldName}\":";
+            int start = json.IndexOf(pattern);
+            if (start < 0) return false;
+
+            start += pattern.Length;
+            // 跳过空白
+            while (start < json.Length && char.IsWhiteSpace(json[start]))
+                start++;
+
+            if (start >= json.Length) return false;
+
+            // 检查 true/false
+            if (start + 4 <= json.Length && json.Substring(start, 4) == "true")
+                return true;
+            
+            return false;
         }
     }
 }

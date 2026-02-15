@@ -3,6 +3,7 @@
     "rootNamespace": "SceneBlueprint.Actions",
     "references": [
         "SceneBlueprint.Core",
+        "NodeGraph.Core",
         "NodeGraph.Math"
     ],
     "includePlatforms": [],

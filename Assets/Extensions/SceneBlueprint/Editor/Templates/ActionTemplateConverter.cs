@@ -42,7 +42,7 @@ namespace SceneBlueprint.Editor.Templates
             // ── 端口：默认 FlowIn("in") + 用户配置的输出端口 ──
             var ports = new List<PortDefinition>
             {
-                Port.FlowIn("in", "激活")
+                Port.In("in", "激活")
             };
             foreach (var p in template.OutputPorts)
             {
@@ -90,8 +90,8 @@ namespace SceneBlueprint.Editor.Templates
         {
             return p.PortType switch
             {
-                ActionTemplateSO.PortTypeEntry.EventOut => Port.EventOut(p.Id, p.DisplayName),
-                _ => Port.FlowOut(p.Id, p.DisplayName)
+                ActionTemplateSO.PortTypeEntry.EventOut => Port.Event(p.Id, p.DisplayName),
+                _ => Port.Out(p.Id, p.DisplayName)
             };
         }
 

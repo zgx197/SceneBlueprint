@@ -2,33 +2,33 @@
 using NodeGraph.Math;
 using SceneBlueprint.Core;
 
-namespace SceneBlueprint.Actions.Combat
+namespace SceneBlueprint.Actions.Spawn
 {
     /// <summary>
     /// 放置预设怪行动定义——瞬时型，在场景预设点位一次性放置怪物。
     /// <para>
-    /// 与 Spawn 不同，PlacePreset 是瞬时的：
-    /// - <b>Spawn</b>：持续型，按节奏多波刷怪，随机位置
-    /// - <b>PlacePreset</b>：瞬时型，一次性在策划预设的精确点位放置怪物
+    /// 与波次刷怪不同：
+    /// - <b>Spawn.Wave</b>：持续型，按节奏多波刷怪，区域内随机位置
+    /// - <b>Spawn.Preset</b>：瞬时型，一次性在策划预设的精确点位放置怪物
     /// </para>
     /// <para>典型用途：Boss 出场、埋伏怪、NPC 守卫等需要精确位置的场景。</para>
-    /// <para>节点拓扑：[前置] ─in→ [PlacePreset] ─out→ [后续]</para>
+    /// <para>节点拓扑：[前置] ─in→ [Spawn.Preset] ─out→ [后续]</para>
     /// </summary>
-    [ActionType("Combat.PlacePreset")]
+    [ActionType("Spawn.Preset")]
     public class PlacePresetActionDef : IActionDefinitionProvider
     {
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId = "Combat.PlacePreset",
+            TypeId = "Spawn.Preset",
             DisplayName = "放置预设怪",
-            Category = "Combat",
+            Category = "Spawn",
             Description = "在场景预设点位瞬时放置怪物",
-            ThemeColor = new Color4(0.3f, 0.6f, 0.4f), // 淡绿色——战斗域辅助色
+            ThemeColor = new Color4(0.2f, 0.7f, 0.3f), // 深绿色 - 与 Spawn.Wave 统一
             Duration = ActionDuration.Instant, // 瞬时型——一次性放置
             Ports = new[]
             {
-                Port.FlowIn("in", "输入"),
-                Port.FlowOut("out", "输出")
+                Port.In("in", "输入"),
+                Port.Out("out", "输出")
             },
             Properties = new[]
             {

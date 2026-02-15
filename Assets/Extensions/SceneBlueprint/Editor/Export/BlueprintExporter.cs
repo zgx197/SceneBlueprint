@@ -686,12 +686,12 @@ namespace SceneBlueprint.Editor.Export
         }
 
         /// <summary>将 ValidationSeverity 转为 ValidationMessage</summary>
-        private static ValidationMessage ToMessage(ValidationSeverity severity, string msg)
+        private static ValidationMessage ToMessage(SceneBlueprint.Runtime.Templates.ValidationSeverity severity, string msg)
         {
             return severity switch
             {
-                ValidationSeverity.Error => ValidationMessage.Error(msg),
-                ValidationSeverity.Warning => ValidationMessage.Warning(msg),
+                SceneBlueprint.Runtime.Templates.ValidationSeverity.Error => ValidationMessage.Error(msg),
+                SceneBlueprint.Runtime.Templates.ValidationSeverity.Warning => ValidationMessage.Warning(msg),
                 _ => ValidationMessage.Info(msg)
             };
         }

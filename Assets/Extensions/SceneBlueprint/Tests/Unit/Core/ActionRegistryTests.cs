@@ -129,9 +129,9 @@ namespace SceneBlueprint.Tests.Unit.Core
             Assert.IsTrue(registry.TryGet("Flow.Branch", out _), "Flow.Branch 未发现");
             Assert.IsTrue(registry.TryGet("Flow.Join", out _), "Flow.Join 未发现");
 
-            // Combat 域
-            Assert.IsTrue(registry.TryGet("Combat.Spawn", out _), "Combat.Spawn 未发现");
-            Assert.IsTrue(registry.TryGet("Combat.PlacePreset", out _), "Combat.PlacePreset 未发现");
+            // Spawn 域
+            Assert.IsTrue(registry.TryGet("Spawn.Wave", out _), "Spawn.Wave 未发现");
+            Assert.IsTrue(registry.TryGet("Spawn.Preset", out _), "Spawn.Preset 未发现");
 
             Assert.GreaterOrEqual(registry.GetAll().Count, 7);
         }

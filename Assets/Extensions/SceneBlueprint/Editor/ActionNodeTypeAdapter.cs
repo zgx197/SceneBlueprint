@@ -6,11 +6,7 @@ using SceneBlueprint.Core;
 
 // 使用别名消除两个框架中同名类型的歧义
 using NGPortDef = NodeGraph.Core.PortDefinition;
-using NGPortDir = NodeGraph.Core.PortDirection;
-using NGPortCap = NodeGraph.Core.PortCapacity;
 using SBPortDef = SceneBlueprint.Core.PortDefinition;
-using SBPortDir = SceneBlueprint.Core.PortDirection;
-using SBPortCap = SceneBlueprint.Core.PortCapacity;
 
 namespace SceneBlueprint.Editor
 {
@@ -76,19 +72,26 @@ namespace SceneBlueprint.Editor
         /// </summary>
         private static NGPortDef ConvertPort(SBPortDef sbPort, int sortOrder)
         {
-            var direction = sbPort.Direction == SBPortDir.In
-                ? NGPortDir.Input
-                : NGPortDir.Output;
+            var direction = sbPort.Direction == PortDirection.Input
+                ? PortDirection.Input
+                : PortDirection.Output;
 
-            var capacity = sbPort.Capacity == SBPortCap.Single
-                ? NGPortCap.Single
-                : NGPortCap.Multiple;
+            var capacity = sbPort.Capacity == PortCapacity.Single
+                ? PortCapacity.Single
+                : PortCapacity.Multiple;
+
+            // 正确传递端口的 Kind 和 DataType
+            // SceneBlueprint.Core.PortDefinition.Kind 和 NodeGraph.Core.PortKind 使用相同的枚举值
+            var kind = sbPort.Kind;
+            var dataType = string.IsNullOrEmpty(sbPort.DataType) ? "exec" : sbPort.DataType;
+            
+            UnityEngine.Debug.Log($"[ActionNodeTypeAdapter] Converting port: {sbPort.Id}, Kind={sbPort.Kind} -> {kind}, DataType={dataType}");
 
             return new NGPortDef(
                 name: string.IsNullOrEmpty(sbPort.DisplayName) ? sbPort.Id : sbPort.DisplayName,
                 direction: direction,
-                kind: PortKind.Control,
-                dataType: "exec",
+                kind: kind,
+                dataType: dataType,
                 capacity: capacity,
                 sortOrder: sortOrder
             );

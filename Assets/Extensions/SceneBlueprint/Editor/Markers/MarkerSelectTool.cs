@@ -124,7 +124,7 @@ namespace SceneBlueprint.Editor.Markers
 
         private static void Trace(string message)
         {
-            Debug.Log($"[SB.Selection.Trace][MarkerSelectTool] {message}");
+            // Debug.Log($"[SB.Selection.Trace][MarkerSelectTool] {message}");
         }
     }
 }

@@ -1,20 +1,22 @@
 #nullable enable
 using System.Linq;
 using NUnit.Framework;
+using NodeGraph.Core;
 using SceneBlueprint.Core;
 
 namespace SceneBlueprint.Tests.Integration
 {
     /// <summary>
-    /// Step 9: Combat 域行动测试——验证 Spawn 和 PlacePreset 的注册、端口、属性和分类。
+    /// Step 9: Spawn 域行动集成测试——验证 Wave/Preset 的注册、端口、属性和分类。
     /// <para>
     /// 测试范围：
-    /// - Spawn 注册、端口（in/out/onWaveComplete/onAllComplete）、属性、VisibleWhen
-    /// - PlacePreset 注册、端口、SceneBinding 绑定类型
-    /// - 所有 Combat 行动的 Category 都是 "Combat"
+    /// - Spawn.Wave 和 Spawn.Preset 均被 AutoDiscover 注册
+    /// - Wave 为 Duration 类型，Preset 为 Instant 类型
+    /// - 属性完整性（monsterTemplate, waveCount, spawnArea, presetPoints）
     /// </para>
     /// </summary>
-    public class CombatActionTests
+    [TestFixture]
+    public class SpawnActionTests
     {
         private ActionRegistry _registry = null!;
 
@@ -26,89 +28,78 @@ namespace SceneBlueprint.Tests.Integration
             _registry.AutoDiscover();
         }
 
-        /// <summary>验证 Spawn 已注册且分类为 Combat、类型为 Duration</summary>
+        /// <summary>验证 Spawn.Wave 已注册且分类为 Spawn、类型为 Duration</summary>
         [Test]
-        public void CombatSpawn_IsRegistered()
+        public void SpawnWave_IsRegistered()
         {
-            Assert.IsTrue(_registry.TryGet("Combat.Spawn", out var def));
-            Assert.AreEqual("Combat", def.Category);
+            Assert.IsTrue(_registry.TryGet("Spawn.Wave", out var def));
+            Assert.AreEqual("Spawn", def.Category);
             Assert.AreEqual(ActionDuration.Duration, def.Duration);
         }
 
-        /// <summary>验证 Spawn 有 4 个端口：in/out/onWaveComplete/onAllComplete</summary>
+        /// <summary>验证 Spawn.Wave 有正确的端口（in, out, onWaveComplete）</summary>
         [Test]
-        public void CombatSpawn_HasCorrectPorts()
+        public void SpawnWave_HasCorrectPorts()
         {
-            var def = _registry.Get("Combat.Spawn");
+            var def = _registry.Get("Spawn.Wave");
 
-            Assert.IsTrue(def.Ports.Any(p => p.Id == "in" && p.Direction == PortDirection.In));
-            Assert.IsTrue(def.Ports.Any(p => p.Id == "out" && p.Direction == PortDirection.Out));
-            Assert.IsTrue(def.Ports.Any(p => p.Id == "onWaveComplete" && p.Direction == PortDirection.Out));
-            Assert.IsTrue(def.Ports.Any(p => p.Id == "onAllComplete" && p.Direction == PortDirection.Out));
+            Assert.IsTrue(def.Ports.Any(p => p.Id == "in" && p.Direction == PortDirection.Input));
+            Assert.IsTrue(def.Ports.Any(p => p.Id == "out" && p.Direction == PortDirection.Output));
+            Assert.IsTrue(def.Ports.Any(p => p.Id == "onWaveComplete" && p.Direction == PortDirection.Output));
         }
 
-        /// <summary>验证 Spawn 包含所有必要属性：template/tempoType/monstersPerWave/spawnArea</summary>
+        /// <summary>验证 Spawn.Wave 拥有必需的属性</summary>
         [Test]
-        public void CombatSpawn_HasRequiredProperties()
+        public void SpawnWave_HasRequiredProperties()
         {
-            var def = _registry.Get("Combat.Spawn");
+            var def = _registry.Get("Spawn.Wave");
 
-            Assert.IsTrue(def.Properties.Any(p => p.Key == "template"), "缺少 template 属性");
-            Assert.IsTrue(def.Properties.Any(p => p.Key == "tempoType"), "缺少 tempoType 属性");
+            Assert.IsTrue(def.Properties.Any(p => p.Key == "monsterTemplate"), "缺少 monsterTemplate 属性");
+            Assert.IsTrue(def.Properties.Any(p => p.Key == "waveCount"), "缺少 waveCount 属性");
             Assert.IsTrue(def.Properties.Any(p => p.Key == "monstersPerWave"), "缺少 monstersPerWave 属性");
             Assert.IsTrue(def.Properties.Any(p => p.Key == "spawnArea"), "缺少 spawnArea 属性");
         }
 
-        /// <summary>验证 Spawn 的 interval 属性的 VisibleWhen 为 "tempoType == Interval"</summary>
+        /// <summary>验证 Spawn.Preset 已注册且分类为 Spawn、类型为 Instant</summary>
         [Test]
-        public void CombatSpawn_IntervalProperty_HasVisibleWhen()
+        public void SpawnPreset_IsRegistered()
         {
-            var def = _registry.Get("Combat.Spawn");
-            var interval = def.Properties.First(p => p.Key == "interval");
-
-            Assert.AreEqual("tempoType == Interval", interval.VisibleWhen);
-        }
-
-        /// <summary>验证 PlacePreset 已注册且分类为 Combat、类型为 Instant</summary>
-        [Test]
-        public void CombatPlacePreset_IsRegistered()
-        {
-            Assert.IsTrue(_registry.TryGet("Combat.PlacePreset", out var def));
-            Assert.AreEqual("Combat", def.Category);
+            Assert.IsTrue(_registry.TryGet("Spawn.Preset", out var def));
+            Assert.AreEqual("Spawn", def.Category);
             Assert.AreEqual(ActionDuration.Instant, def.Duration);
         }
 
-        /// <summary>验证 PlacePreset 有 2 个端口：in + out</summary>
+        /// <summary>验证 Spawn.Preset 有正确的端口（in, out）</summary>
         [Test]
-        public void CombatPlacePreset_HasCorrectPorts()
+        public void SpawnPreset_HasCorrectPorts()
         {
-            var def = _registry.Get("Combat.PlacePreset");
+            var def = _registry.Get("Spawn.Preset");
 
             Assert.AreEqual(2, def.Ports.Length); // in + out
             Assert.IsTrue(def.Ports.Any(p => p.Id == "in"));
             Assert.IsTrue(def.Ports.Any(p => p.Id == "out"));
         }
 
-        /// <summary>验证 PlacePreset 的 presetPoints 属性为 SceneBinding 类型且绑定为 Transform</summary>
+        /// <summary>验证 Spawn.Preset 有场景绑定属性（presetPoints）</summary>
         [Test]
-        public void CombatPlacePreset_HasSceneBinding()
+        public void SpawnPreset_HasSceneBinding()
         {
-            var def = _registry.Get("Combat.PlacePreset");
+            var def = _registry.Get("Spawn.Preset");
             var binding = def.Properties.First(p => p.Key == "presetPoints");
 
             Assert.AreEqual(PropertyType.SceneBinding, binding.Type);
             Assert.AreEqual(BindingType.Transform, binding.SceneBindingType);
         }
 
-        /// <summary>验证所有 Combat 行动的 Category 都是 "Combat"（至少 2 个）</summary>
+        /// <summary>验证所有 Spawn 行动的 Category 都是 "Spawn"（至少 2 个）</summary>
         [Test]
-        public void AllCombatActions_BelongToCombatCategory()
+        public void AllSpawnActions_BelongToSpawnCategory()
         {
-            var combatActions = _registry.GetByCategory("Combat");
+            var spawnActions = _registry.GetByCategory("Spawn");
 
-            Assert.GreaterOrEqual(combatActions.Count, 2);
-            foreach (var action in combatActions)
-                Assert.AreEqual("Combat", action.Category);
+            Assert.GreaterOrEqual(spawnActions.Count, 2, "Spawn 分类至少应有 2 个节点（Wave + Preset）");
+            foreach (var action in spawnActions)
+                Assert.AreEqual("Spawn", action.Category);
         }
     }
 }

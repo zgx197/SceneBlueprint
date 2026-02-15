@@ -25,8 +25,8 @@ namespace SceneBlueprint.Actions.Flow
             Duration = ActionDuration.Duration, // 持续型——需要等待时间到期
             Ports = new[]
             {
-                Port.FlowIn("in", "输入"),
-                Port.FlowOut("out", "输出")
+                Port.In("in", "输入"),
+                Port.Out("out", "输出")
             },
             Properties = new[]
             {

@@ -31,6 +31,9 @@ namespace NodeGraph.View
         /// <summary>连接容量（Single / Multiple），影响渲染样式</summary>
         public PortCapacity Capacity { get; set; }
 
+        /// <summary>数据类型（用于悬停提示）</summary>
+        public string DataType { get; set; } = "";
+
         /// <summary>当前已连接的边数（Multiple 端口用于堆叠圆圈渲染）</summary>
         public int ConnectedEdgeCount { get; set; }
 
@@ -42,5 +45,8 @@ namespace NodeGraph.View
 
         /// <summary>悬停的槽位索引（Multiple 端口用，-1 表示非 Multiple 或整体悬停）</summary>
         public int HoveredSlotIndex { get; set; } = -1;
+
+        /// <summary>是否可与当前拖拽的端口连接（拖线时高亮提示）</summary>
+        public bool CanConnectToDragSource { get; set; }
     }
 }

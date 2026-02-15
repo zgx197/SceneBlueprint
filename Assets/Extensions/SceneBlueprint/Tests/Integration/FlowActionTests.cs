@@ -1,6 +1,7 @@
 #nullable enable
 using System.Linq;
 using NUnit.Framework;
+using NodeGraph.Core;
 using SceneBlueprint.Core;
 
 namespace SceneBlueprint.Tests.Integration
@@ -48,7 +49,7 @@ namespace SceneBlueprint.Tests.Integration
 
             Assert.AreEqual(1, def.Ports.Length);
             Assert.AreEqual("out", def.Ports[0].Id);
-            Assert.AreEqual(PortDirection.Out, def.Ports[0].Direction);
+            Assert.AreEqual(PortDirection.Output, def.Ports[0].Direction);
         }
 
         /// <summary>验证 End 节点只有一个输入端口</summary>
@@ -59,7 +60,7 @@ namespace SceneBlueprint.Tests.Integration
 
             Assert.AreEqual(1, def.Ports.Length);
             Assert.AreEqual("in", def.Ports[0].Id);
-            Assert.AreEqual(PortDirection.In, def.Ports[0].Direction);
+            Assert.AreEqual(PortDirection.Input, def.Ports[0].Direction);
         }
 
         /// <summary>验证 Delay 节点有 duration 属性且行动类型为 Duration</summary>
@@ -78,9 +79,9 @@ namespace SceneBlueprint.Tests.Integration
         {
             var def = _registry.Get("Flow.Branch");
 
-            Assert.IsTrue(def.Ports.Any(p => p.Id == "true" && p.Direction == PortDirection.Out));
-            Assert.IsTrue(def.Ports.Any(p => p.Id == "false" && p.Direction == PortDirection.Out));
-            Assert.IsTrue(def.Ports.Any(p => p.Id == "in" && p.Direction == PortDirection.In));
+            Assert.IsTrue(def.Ports.Any(p => p.Id == "true" && p.Direction == PortDirection.Output));
+            Assert.IsTrue(def.Ports.Any(p => p.Id == "false" && p.Direction == PortDirection.Output));
+            Assert.IsTrue(def.Ports.Any(p => p.Id == "in" && p.Direction == PortDirection.Input));
         }
 
         /// <summary>验证 Join 节点有 requiredCount 整数属性</summary>

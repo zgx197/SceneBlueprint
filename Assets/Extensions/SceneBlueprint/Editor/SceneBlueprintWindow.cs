@@ -209,6 +209,7 @@ namespace SceneBlueprint.Editor
             EditorApplication.projectChanged -= OnEditorProjectChanged;
 
             SceneViewMarkerTool.OnMarkerCreated -= OnMarkerCreated;
+            MarkerGroupCreationTool.OnGroupCreated -= OnMarkerGroupCreated;
             _toolContext.Detach();
 
             // 取消双向联动订阅
@@ -250,6 +251,9 @@ namespace SceneBlueprint.Editor
             //    否则 FrameBuilder 查不到 NodeTypeDef，节点颜色会 fallback 到灰色。
             var settings = existingGraph?.Settings
                 ?? new GraphSettings { Topology = GraphTopologyPolicy.DAG };
+
+            // 1b. 注入 SceneBlueprint 专用的连接策略（支持 Flow/Event/Data 端口验证）
+            settings.ConnectionPolicy = new SceneBlueprintConnectionPolicy();
 
             // 2. 创建 Profile，将 Action 类型注册到 settings.NodeTypes 中
             var textMeasurer = new UnityTextMeasurer();
@@ -300,6 +304,8 @@ namespace SceneBlueprint.Editor
             _toolContext.EnableMarkerTool(actionRegistry, EnsureSpatialModeDescriptor());
             SceneViewMarkerTool.OnMarkerCreated -= OnMarkerCreated;
             SceneViewMarkerTool.OnMarkerCreated += OnMarkerCreated;
+            MarkerGroupCreationTool.OnGroupCreated -= OnMarkerGroupCreated;
+            MarkerGroupCreationTool.OnGroupCreated += OnMarkerGroupCreated;
 
             // 9. 双向联动：订阅蓝图选中变化 + 场景侧事件 + Unity 场景选中监听
             _viewModel.Selection.OnSelectionChanged -= OnBlueprintSelectionChanged;
@@ -629,6 +635,13 @@ namespace SceneBlueprint.Editor
             // 显示已注册的节点类型数量
             int typeCount = _profile?.NodeTypes?.GetAll()?.Count() ?? 0;
             GUILayout.Label($"已注册 {typeCount} 种行动类型", EditorStyles.miniLabel);
+            
+            // 刷新节点按钮（解决程序集延迟加载导致的节点遗漏问题）
+            if (GUILayout.Button(new GUIContent("刷新", "重新扫描并加载所有节点类型"), 
+                EditorStyles.toolbarButton, GUILayout.Width(40)))
+            {
+                RefreshNodeTypes();
+            }
 
             GUILayout.Space(8);
 
@@ -2088,6 +2101,94 @@ namespace SceneBlueprint.Editor
         }
 
         /// <summary>
+        /// 刷新节点类型——重新扫描并加载所有 ActionDefinition。
+        /// 用于解决程序集延迟加载导致的节点遗漏问题。
+        /// </summary>
+        private void RefreshNodeTypes()
+        {
+            if (_viewModel == null) return;
+
+            int oldCount = _profile?.NodeTypes?.GetAll()?.Count() ?? 0;
+
+            UnityEngine.Debug.Log("=== 刷新节点开始 ===");
+            UnityEngine.Debug.Log($"刷新前 NodeTypeRegistry 节点数: {oldCount}");
+
+            // 保存当前图数据
+            var serializer = CreateGraphSerializer();
+            string graphJson = serializer.Serialize(_viewModel.Graph);
+
+            // 重新初始化（会创建新的 NodeTypeRegistry 和 Profile）
+            _viewModel = null;
+            _profile = null;
+            InitializeIfNeeded();
+
+            // 恢复图数据
+            try
+            {
+                var graph = serializer.Deserialize(graphJson);
+                _viewModel = null;
+                InitializeWithGraph(graph);
+            }
+            catch (System.Exception ex)
+            {
+                SBLog.Error(SBLogTags.Blueprint, $"刷新节点类型时恢复图数据失败: {ex}");
+                InitializeIfNeeded();
+            }
+
+            // === 诊断步骤1：检查 ActionRegistry ===
+            UnityEngine.Debug.Log("--- 步骤1：检查 ActionRegistry ---");
+            var testActionRegistry = SceneBlueprintProfile.CreateActionRegistry();
+            var allActions = testActionRegistry.GetAll();
+            UnityEngine.Debug.Log($"ActionRegistry 总节点数: {allActions.Count}");
+            bool hasVFXInActionRegistry = allActions.Any(a => a.Category == "VFX");
+            UnityEngine.Debug.Log($"ActionRegistry 中是否有 VFX: {hasVFXInActionRegistry}");
+            if (hasVFXInActionRegistry)
+            {
+                var vfxActions = allActions.Where(a => a.Category == "VFX").ToList();
+                foreach (var vfx in vfxActions)
+                {
+                    UnityEngine.Debug.Log($"  • {vfx.TypeId} → \"{vfx.DisplayName}\"");
+                }
+            }
+
+            int newCount = _profile?.NodeTypes?.GetAll()?.Count() ?? 0;
+
+            // 诊断日志：输出 NodeTypeRegistry 的内容
+            UnityEngine.Debug.Log("=== NodeTypeRegistry 诊断（刷新后）===");
+            var allNodeTypes = _profile?.NodeTypes?.GetAll();
+            if (allNodeTypes != null)
+            {
+                var groupedNodeTypes = allNodeTypes
+                    .GroupBy(def => string.IsNullOrEmpty(def.Category) ? "未分类" : def.Category)
+                    .OrderBy(g => g.Key);
+                
+                foreach (var group in groupedNodeTypes)
+                {
+                    UnityEngine.Debug.Log($"<color=yellow>【{group.Key}】</color> ({group.Count()} 个)");
+                    foreach (var def in group.OrderBy(d => d.DisplayName))
+                    {
+                        UnityEngine.Debug.Log($"  • {def.TypeId} → \"{def.DisplayName}\"");
+                    }
+                }
+            }
+            UnityEngine.Debug.Log("=== 诊断结束 ===");
+
+            if (newCount != oldCount)
+            {
+                SBLog.Info(SBLogTags.Blueprint, $"节点类型已刷新：{oldCount} → {newCount}");
+                EditorUtility.DisplayDialog("刷新完成", 
+                    $"已重新扫描节点类型\n\n旧: {oldCount} 种\n新: {newCount} 种\n\n右键菜单已更新。", "确定");
+            }
+            else
+            {
+                EditorUtility.DisplayDialog("刷新完成", 
+                    $"节点类型数量未变化（{newCount} 种）", "确定");
+            }
+
+            Repaint();
+        }
+
+        /// <summary>
         /// 从场景绑定存储恢复绑定数据到 BindingContext。
         /// 在加载蓝图后调用。
         /// </summary>
@@ -2518,9 +2619,12 @@ namespace SceneBlueprint.Editor
 
             foreach (var group in grouped)
             {
+                // 获取分类的中文显示名（优先 CategorySO.DisplayName，无 SO 时回退到 categoryId）
+                string categoryDisplayName = CategoryRegistry.GetDisplayName(group.Key);
+                
                 foreach (var typeDef in group.OrderBy(d => d.DisplayName))
                 {
-                    string menuPath = $"{group.Key}/{typeDef.DisplayName}";
+                    string menuPath = $"{categoryDisplayName}/{typeDef.DisplayName}";
                     var capturedTypeId = typeDef.TypeId;
                     var capturedPos = canvasPos;
 
@@ -2536,7 +2640,7 @@ namespace SceneBlueprint.Editor
 
             if (menu.GetItemCount() == 0)
             {
-                menu.AddDisabledItem(new GUIContent("(无可用节点类型)"));
+                menu.AddDisabledItem(new GUIContent("(无可用节点类型) (No Available Node Types)"));
             }
 
             // 从模板创建子蓝图
@@ -2551,7 +2655,7 @@ namespace SceneBlueprint.Editor
                         var capturedTemplate = tmpl;
                         var capturedPos = canvasPos;
                         string displayName = string.IsNullOrEmpty(tmpl.DisplayName) ? tmpl.name : tmpl.DisplayName;
-                        string menuPath = $"从模板创建/{kvp.Key}/{displayName}";
+                        string menuPath = $"从模板创建 (From Template)/{kvp.Key}/{displayName}";
                         menu.AddItem(new GUIContent(menuPath), false, () =>
                         {
                             if (_viewModel == null) return;
@@ -2572,7 +2676,7 @@ namespace SceneBlueprint.Editor
             if (_viewModel.Selection.SelectedNodeIds.Count >= 1)
             {
                 menu.AddSeparator("");
-                menu.AddItem(new GUIContent("创建子蓝图（将选中节点打组）"), false, () =>
+                menu.AddItem(new GUIContent("创建子蓝图 (Create SubGraph)"), false, () =>
                 {
                     if (_viewModel == null) return;
                     var selectedIds = _viewModel.Selection.SelectedNodeIds.ToList();
@@ -2611,7 +2715,7 @@ namespace SceneBlueprint.Editor
                 var isCollapsed = frame.IsCollapsed;
 
                 // 折叠/展开切换
-                menu.AddItem(new GUIContent(isCollapsed ? "展开子蓝图" : "折叠子蓝图"), false, () =>
+                menu.AddItem(new GUIContent(isCollapsed ? "展开子蓝图 (Expand)" : "折叠子蓝图 (Collapse)"), false, () =>
                 {
                     if (_viewModel == null) return;
                     _viewModel.Commands.Execute(new ToggleSubGraphCollapseCommand(capturedFrameId));
@@ -2619,7 +2723,7 @@ namespace SceneBlueprint.Editor
                     Repaint();
                 });
 
-                menu.AddItem(new GUIContent("解散子蓝图"), false, () =>
+                menu.AddItem(new GUIContent("解散子蓝图 (Ungroup)"), false, () =>
                 {
                     if (_viewModel == null) return;
                     _viewModel.Commands.Execute(new UngroupSubGraphCommand(capturedFrameId));
@@ -2628,7 +2732,7 @@ namespace SceneBlueprint.Editor
                     Repaint();
                 });
 
-                menu.AddItem(new GUIContent("保存为模板..."), false, () =>
+                menu.AddItem(new GUIContent("保存为模板 (Save as Template)..."), false, () =>
                 {
                     if (_viewModel == null) return;
                     var targetFrame = _viewModel.Graph.SubGraphFrames
@@ -2641,7 +2745,7 @@ namespace SceneBlueprint.Editor
                 menu.AddSeparator("");
             }
 
-            menu.AddItem(new GUIContent("删除节点"), false, () =>
+            menu.AddItem(new GUIContent("删除节点 (Delete)"), false, () =>
             {
                 if (_viewModel == null) return;
                 _viewModel.DeleteSelected();
@@ -2652,7 +2756,7 @@ namespace SceneBlueprint.Editor
             if (_viewModel.Selection.SelectedNodeIds.Count > 1)
             {
                 menu.AddSeparator("");
-                menu.AddItem(new GUIContent("创建子蓝图（将选中节点打组）"), false, () =>
+                menu.AddItem(new GUIContent("创建子蓝图 (Create SubGraph)"), false, () =>
                 {
                     if (_viewModel == null) return;
                     var selectedIds = _viewModel.Selection.SelectedNodeIds.ToList();
@@ -2688,8 +2792,8 @@ namespace SceneBlueprint.Editor
                 var otherNode = otherPort != null ? _viewModel.Graph.FindNode(otherPort.NodeId) : null;
 
                 string label = otherNode != null
-                    ? $"断开连线: {otherNode.TypeId}.{otherPort!.Name}"
-                    : $"断开连线: {otherPortId}";
+                    ? $"断开连线 (Disconnect): {otherNode.TypeId}.{otherPort!.Name}"
+                    : $"断开连线 (Disconnect): {otherPortId}";
 
                 var capturedEdgeId = edge.Id;
                 menu.AddItem(new GUIContent(label), false, () =>
@@ -2704,7 +2808,7 @@ namespace SceneBlueprint.Editor
             if (edges.Count > 1)
             {
                 menu.AddSeparator("");
-                menu.AddItem(new GUIContent("断开所有连线"), false, () =>
+                menu.AddItem(new GUIContent("断开所有连线 (Disconnect All)"), false, () =>
                 {
                     if (_viewModel == null) return;
                     using (_viewModel.Commands.BeginCompound("断开所有连线"))
@@ -2770,6 +2874,55 @@ namespace SceneBlueprint.Editor
 
             SBLog.Info(SBLogTags.Marker, $"已为 {result.ActionDisplayName} 创建蓝图节点，" +
                 $"关联 {result.CreatedMarkers.Count} 个标记");
+
+            MarkWorkbenchDataDirty();
+            _viewModel.RequestRepaint();
+            Repaint();
+        }
+
+        /// <summary>
+        /// MarkerGroup 创建完成后的回调。
+        /// 在蓝图中自动创建对应的 SceneObjectProxy 节点，表示场景中的标记组。
+        /// </summary>
+        private void OnMarkerGroupCreated(Runtime.Markers.MarkerGroup group)
+        {
+            if (_viewModel == null || _profile == null || group == null) return;
+
+            var graph = _viewModel.Graph;
+            
+            // 验证 ProxyNode 类型是否已注册
+            string proxyTypeId = Core.SceneObjectProxyTypes.Group;
+            var nodeType = graph.Settings.NodeTypes.GetDefinition(proxyTypeId);
+            if (nodeType == null)
+            {
+                SBLog.Warn(SBLogTags.Marker, $"未找到 ProxyNode 类型: {proxyTypeId}");
+                return;
+            }
+
+            // 计算画布中心位置（与标记创建节点类似）
+            var canvasCenter = new Vec2(
+                (-_viewModel.PanOffset.X + position.width / 2f) / _viewModel.ZoomLevel,
+                (-_viewModel.PanOffset.Y + position.height / 2f) / _viewModel.ZoomLevel);
+
+            // 创建 ProxyNode
+            var cmd = new NodeGraph.Commands.AddNodeCommand(proxyTypeId, canvasCenter);
+            _viewModel.Commands.Execute(cmd);
+
+            // 设置 ProxyNode 的数据（关联场景对象）
+            if (cmd.CreatedNodeId != null)
+            {
+                var node = graph.FindNode(cmd.CreatedNodeId);
+                if (node != null)
+                {
+                    node.UserData = new Core.SceneObjectProxyData(
+                        objectType: Core.MarkerTypeIds.Group,
+                        sceneObjectId: group.MarkerId,
+                        displayName: group.GetDisplayLabel());
+
+                    SBLog.Info(SBLogTags.Marker, 
+                        $"已为 MarkerGroup '{group.GetDisplayLabel()}' 创建 ProxyNode");
+                }
+            }
 
             MarkWorkbenchDataDirty();
             _viewModel.RequestRepaint();

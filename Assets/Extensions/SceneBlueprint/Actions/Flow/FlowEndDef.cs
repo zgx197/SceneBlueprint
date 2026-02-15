@@ -25,7 +25,7 @@ namespace SceneBlueprint.Actions.Flow
             Duration = ActionDuration.Instant,
             Ports = new[]
             {
-                Port.FlowIn("in", "输入") // 唯一的输入端口
+                Port.In("in", "输入") // 唯一的输入端口
             },
             Properties = System.Array.Empty<PropertyDefinition>() // 无属性
         };

@@ -10,11 +10,15 @@ namespace NodeGraph.Core
         Output
     }
 
-    /// <summary>端口类别：控制流 vs 数据流</summary>
+    /// <summary>端口类别：控制流 / 事件流 / 数据流</summary>
     public enum PortKind
     {
+        /// <summary>控制流——同步执行，决定执行顺序（黑色实线）</summary>
         Control,
-        Data
+        /// <summary>数据流——传递配置或状态，不影响执行（蓝色线）</summary>
+        Data,
+        /// <summary>事件流——异步触发，条件满足时触发（橙色虚线）</summary>
+        Event
     }
 
     /// <summary>端口连接容量</summary>

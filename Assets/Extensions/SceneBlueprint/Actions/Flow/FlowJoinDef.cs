@@ -29,8 +29,16 @@ namespace SceneBlueprint.Actions.Flow
             Duration = ActionDuration.Duration, // 持续型——需要等待所有输入完成
             Ports = new[]
             {
-                Port.FlowIn("in", "输入"),  // 多连接——可以接收多个前置行动
-                Port.FlowOut("out", "输出") // 所有输入完成后触发
+                Port.In("in", "输入"),  // 多连接——可以接收多个前置行动
+                // 汇合后的输出（Multiple），可以同时触发多个后续节点
+                new PortDefinition
+                {
+                    Id = "out",
+                    DisplayName = "输出",
+                    Kind = NodeGraph.Core.PortKind.Control,
+                    Direction = NodeGraph.Core.PortDirection.Output,
+                    Capacity = NodeGraph.Core.PortCapacity.Multiple
+                }
             },
             Properties = new[]
             {

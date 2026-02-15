@@ -5,6 +5,7 @@ using System.Linq;
 using NodeGraph.Abstraction;
 using NodeGraph.Core;
 using NodeGraph.Math;
+using NodeGraph.View.Handlers;
 
 namespace NodeGraph.View
 {
@@ -376,12 +377,25 @@ namespace NodeGraph.View
             float titleBarHeight = 24f;
             float portSpacing = viewModel.Theme.PortSpacing;
 
+            // 获取拖拽源端口（用于判断兼容性高亮）
+            var dragHandler = viewModel.GetHandler<ConnectionDragHandler>();
+            var dragSourcePort = dragHandler?.DragSourcePort;
+
             int inputIndex = 0, outputIndex = 0;
             foreach (var port in repNode.Ports)
             {
                 int idx = port.Direction == PortDirection.Input ? inputIndex++ : outputIndex++;
                 Vec2 pos = GetBoundaryPortPosition(port, frameBounds, idx, portSpacing, titleBarHeight);
                 int edgeCount = viewModel.Graph.GetEdgeCountForPort(port.Id);
+
+                // 判断是否可连接到拖拽源
+                bool canConnect = false;
+                if (dragSourcePort != null && port.Id != dragSourcePort.Id)
+                {
+                    var policy = viewModel.Graph.Settings.ConnectionPolicy;
+                    var result = policy.CanConnect(viewModel.Graph, dragSourcePort, port);
+                    canConnect = result == ConnectionResult.Success;
+                }
 
                 bool isHovered = port.Id == viewModel.HoveredPortId;
                 ports.Add(new PortFrame
@@ -394,10 +408,12 @@ namespace NodeGraph.View
                     Direction = port.Direction,
                     Kind = port.Kind,
                     Capacity = port.Capacity,
+                    DataType = port.DataType,
                     ConnectedEdgeCount = edgeCount,
                     TotalSlots = 1,
                     Hovered = isHovered,
-                    HoveredSlotIndex = isHovered ? 0 : -1
+                    HoveredSlotIndex = isHovered ? 0 : -1,
+                    CanConnectToDragSource = canConnect
                 });
             }
             return ports;
@@ -466,10 +482,23 @@ namespace NodeGraph.View
         protected void BuildPorts(NodeFrame nodeFrame, Node node, Rect2 bounds,
             GraphViewModel viewModel, NodeVisualTheme theme)
         {
+            // 获取拖拽源端口（用于判断兼容性高亮）
+            var dragHandler = viewModel.GetHandler<ConnectionDragHandler>();
+            var dragSourcePort = dragHandler?.DragSourcePort;
+
             foreach (var port in node.Ports)
             {
                 Vec2 pos = GetPortPosition(port, node, bounds, theme, viewModel);
                 int edgeCount = viewModel.Graph.GetEdgeCountForPort(port.Id);
+
+                // 判断是否可连接到拖拽源
+                bool canConnect = false;
+                if (dragSourcePort != null && port.Id != dragSourcePort.Id)
+                {
+                    var policy = viewModel.Graph.Settings.ConnectionPolicy;
+                    var result = policy.CanConnect(viewModel.Graph, dragSourcePort, port);
+                    canConnect = result == ConnectionResult.Success;
+                }
 
                 bool isHovered = port.Id == viewModel.HoveredPortId;
                 nodeFrame.Ports.Add(new PortFrame
@@ -482,10 +511,12 @@ namespace NodeGraph.View
                     Direction = port.Direction,
                     Kind = port.Kind,
                     Capacity = port.Capacity,
+                    DataType = port.DataType,
                     ConnectedEdgeCount = edgeCount,
                     TotalSlots = GetPortSlotCount(port, viewModel),
                     Hovered = isHovered,
-                    HoveredSlotIndex = isHovered ? viewModel.HoveredPortSlotIndex : -1
+                    HoveredSlotIndex = isHovered ? viewModel.HoveredPortSlotIndex : -1,
+                    CanConnectToDragSource = canConnect
                 });
             }
         }
@@ -659,19 +690,28 @@ namespace NodeGraph.View
 
         protected static Color4 GetPortColor(Port port)
         {
-            if (port.Kind == PortKind.Control)
-                return Color4.Palette.ControlPort;
-
-            return port.DataType switch
+            // 优先根据 PortKind 返回颜色
+            switch (port.Kind)
             {
-                "float" => Color4.Palette.FloatPort,
-                "int" => Color4.Palette.IntPort,
-                "string" => Color4.Palette.StringPort,
-                "bool" => Color4.Palette.BoolPort,
-                "entity" => Color4.Palette.EntityPort,
-                "any" => Color4.Palette.AnyPort,
-                _ => Color4.Palette.AnyPort
-            };
+                case PortKind.Control:
+                    return Color4.Palette.ControlPort;  // 白色
+                case PortKind.Event:
+                    return Color4.Palette.EventPort;    // 橙色
+                case PortKind.Data:
+                    return Color4.Palette.DataPort;     // 蓝色
+                default:
+                    // 未知类型回退到数据类型判断
+                    return port.DataType switch
+                    {
+                        "float" => Color4.Palette.FloatPort,
+                        "int" => Color4.Palette.IntPort,
+                        "string" => Color4.Palette.StringPort,
+                        "bool" => Color4.Palette.BoolPort,
+                        "entity" => Color4.Palette.EntityPort,
+                        "any" => Color4.Palette.AnyPort,
+                        _ => Color4.Palette.AnyPort
+                    };
+            }
         }
     }
 }

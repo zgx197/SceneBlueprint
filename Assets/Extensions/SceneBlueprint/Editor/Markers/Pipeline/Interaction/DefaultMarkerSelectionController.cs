@@ -328,7 +328,7 @@ namespace SceneBlueprint.Editor.Markers.Pipeline.Interaction
 
         private static void Trace(string message)
         {
-            Debug.Log($"[SB.Selection.Trace][SelectionController] {message}");
+            // Debug.Log($"[SB.Selection.Trace][SelectionController] {message}");
         }
     }
 }

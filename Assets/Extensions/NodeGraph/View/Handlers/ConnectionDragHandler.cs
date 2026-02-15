@@ -20,6 +20,9 @@ namespace NodeGraph.View.Handlers
         /// <summary>端口点击检测半径</summary>
         public float PortHitRadius { get; set; } = 12f;
 
+        /// <summary>当前拖拽的源端口（供 FrameBuilder 判断兼容性）</summary>
+        public Port? DragSourcePort => IsActive ? _sourcePort : null;
+
         public bool HandleInput(GraphViewModel viewModel, IPlatformInput input)
         {
             if (!IsActive && input.IsMouseDown(MouseButton.Left) && !input.IsAltHeld)

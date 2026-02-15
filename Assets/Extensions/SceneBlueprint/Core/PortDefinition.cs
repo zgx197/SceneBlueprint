@@ -1,45 +1,31 @@
 #nullable enable
 using System;
+using NodeGraph.Core;
 
 namespace SceneBlueprint.Core
 {
     // ═══════════════════════════════════════════════════════════
     //  端口定义 (PortDefinition)
     //
-    //  端口是行动节点上的连接点，用于表达行动之间的执行流。
-    //  每个端口有方向（输入/输出）和容量（单连接/多连接）。
+    //  端口是行动节点上的连接点，用于表达执行流和数据流。
+    //  每个端口有类型（Control/Event/Data）、方向（输入/输出）和容量（单连接/多连接）。
     //
     //  设计思路：
+    //  - Control（控制流）：同步执行，决定执行顺序
+    //  - Event（事件流）：异步触发，条件满足时触发
+    //  - Data（数据流）：传递配置或状态，不影响执行顺序
+    //  
     //  - 输入端口通常是 Multiple（允许多个前置行动连入）
     //  - 流程输出端口通常是 Single（只走一条路径）
     //  - 事件输出端口是 Multiple（一个事件可以触发多个后续行动）
     //
     //  示例：
-    //    Spawn 节点有 4 个端口：
-    //      in(输入)  out(输出)  onWaveComplete(波次完成)  onAllComplete(全部完成)
+    //    Spawn 节点有 6 个端口：
+    //      in(Control输入)  out(Control输出)  onComplete(Event)  
+    //      spawnedEntities(Data输出)  positions(Data输入)  monsters(Data输入)
+    //
+    //  注意：PortKind、PortDirection、PortCapacity 使用 NodeGraph.Core 中的定义
     // ═══════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// 端口方向——决定连线从哪边进出
-    /// </summary>
-    public enum PortDirection
-    {
-        /// <summary>输入端口——接收来自上游节点的连线</summary>
-        In,
-        /// <summary>输出端口——向下游节点发出连线</summary>
-        Out
-    }
-
-    /// <summary>
-    /// 端口容量——决定一个端口能连几条线
-    /// </summary>
-    public enum PortCapacity
-    {
-        /// <summary>单连接——只能连一条线（如主流程输出端口）</summary>
-        Single,
-        /// <summary>多连接——可以连多条线（如输入端口、事件端口）</summary>
-        Multiple
-    }
 
     /// <summary>
     /// 端口定义——声明一个行动节点上的输入/输出端口。
@@ -55,22 +41,44 @@ namespace SceneBlueprint.Core
     public class PortDefinition
     {
         /// <summary>
-        /// 端口唯一 ID，如 "in", "out", "onWaveComplete"
+        /// 端口唯一 ID，如 "in", "out", "onWaveComplete", "positions"
         /// <para>在同一个 ActionDefinition 内必须唯一</para>
         /// </summary>
         public string Id { get; set; } = "";
 
         /// <summary>
-        /// 编辑器中显示的端口名，如 "输入", "输出", "波次完成"
+        /// 编辑器中显示的端口名，如 "输入", "输出", "波次完成", "位置列表"
         /// <para>为空时编辑器可回退显示 Id</para>
         /// </summary>
         public string DisplayName { get; set; } = "";
+
+        /// <summary>端口类型——Control(控制流) / Event(事件流) / Data(数据流)</summary>
+        public PortKind Kind { get; set; } = PortKind.Control;
 
         /// <summary>端口方向——In(输入) 或 Out(输出)</summary>
         public PortDirection Direction { get; set; }
 
         /// <summary>端口容量——Single(单连接) 或 Multiple(多连接)</summary>
         public PortCapacity Capacity { get; set; }
+
+        // ── Data 端口专用字段 ──
+
+        /// <summary>
+        /// 数据类型（仅 Data 端口有效），如 "Vector3[]", "EntityRef[]", "MonsterConfig[]"
+        /// <para>用于连线验证和类型检查</para>
+        /// </summary>
+        public string DataType { get; set; } = "";
+
+        /// <summary>
+        /// 是否必需（仅 Data 输入端口有效）。
+        /// <para>如果为 true，编辑器会在此端口未连接时显示警告</para>
+        /// </summary>
+        public bool Required { get; set; } = false;
+
+        /// <summary>
+        /// 端口描述文本（可选），用于编辑器提示和文档生成
+        /// </summary>
+        public string Description { get; set; } = "";
     }
 
     /// <summary>
@@ -79,9 +87,11 @@ namespace SceneBlueprint.Core
     /// 使用示例：
     /// <code>
     /// Ports = new[] {
-    ///     Port.FlowIn("in"),                      // 标准输入
-    ///     Port.FlowOut("out"),                     // 标准输出
-    ///     Port.EventOut("onWaveComplete", "波次完成") // 事件输出（可连多条线）
+    ///     Port.In("in"),                          // 标准控制流输入
+    ///     Port.Out("out"),                        // 标准控制流输出
+    ///     Port.Event("onWaveComplete", "波次完成") // 事件输出（可连多条线）
+    ///     Port.DataIn("positions", "位置列表", DataTypes.Vector3Array)  // 数据输入
+    ///     Port.DataOut("entities", "实体列表", DataTypes.EntityRefArray) // 数据输出
     /// }
     /// </code>
     /// </para>
@@ -89,37 +99,39 @@ namespace SceneBlueprint.Core
     public static class Port
     {
         /// <summary>
-        /// 创建流入端口（多连接）。
+        /// 创建控制流输入端口（多连接）。
         /// <para>输入端口默认允许多个上游节点连入（Multiple），
         /// 这样同一个行动可以被多条路径触发。</para>
         /// </summary>
         /// <param name="id">端口 ID，如 "in"</param>
         /// <param name="displayName">显示名，为空则使用 id</param>
-        public static PortDefinition FlowIn(string id, string displayName = "")
+        public static PortDefinition In(string id, string displayName = "")
         {
             return new PortDefinition
             {
                 Id = id,
                 DisplayName = displayName,
-                Direction = PortDirection.In,
+                Kind = PortKind.Control,
+                Direction = PortDirection.Input,
                 Capacity = PortCapacity.Multiple
             };
         }
 
         /// <summary>
-        /// 创建流出端口（单连接）。
+        /// 创建控制流输出端口（单连接）。
         /// <para>标准流程输出端口只允许连一条线，表示唯一的后续路径。
-        /// 如果需要多条路径（如 Branch 的 true/false），应创建多个 FlowOut 端口。</para>
+        /// 如果需要多条路径（如 Branch 的 true/false），应创建多个 Out 端口。</para>
         /// </summary>
         /// <param name="id">端口 ID，如 "out"</param>
         /// <param name="displayName">显示名，为空则使用 id</param>
-        public static PortDefinition FlowOut(string id, string displayName = "")
+        public static PortDefinition Out(string id, string displayName = "")
         {
             return new PortDefinition
             {
                 Id = id,
                 DisplayName = displayName,
-                Direction = PortDirection.Out,
+                Kind = PortKind.Control,
+                Direction = PortDirection.Output,
                 Capacity = PortCapacity.Single
             };
         }
@@ -131,14 +143,65 @@ namespace SceneBlueprint.Core
         /// </summary>
         /// <param name="id">端口 ID，如 "onWaveComplete"</param>
         /// <param name="displayName">显示名，如 "波次完成"</param>
-        public static PortDefinition EventOut(string id, string displayName = "")
+        public static PortDefinition Event(string id, string displayName = "")
         {
             return new PortDefinition
             {
                 Id = id,
                 DisplayName = displayName,
-                Direction = PortDirection.Out,
+                Kind = PortKind.Event,
+                Direction = PortDirection.Output,
                 Capacity = PortCapacity.Multiple
+            };
+        }
+
+        /// <summary>
+        /// 创建数据输入端口（单连接）。
+        /// <para>数据输入端口接收上游节点传递的配置或状态数据。
+        /// 每个数据输入端口只能连一条线（避免数据来源冲突）。</para>
+        /// </summary>
+        /// <param name="id">端口 ID，如 "positions", "monsters"</param>
+        /// <param name="displayName">显示名，如 "位置列表", "怪物配置"</param>
+        /// <param name="dataType">数据类型，如 "Vector3[]", "MonsterConfig[]"</param>
+        /// <param name="required">是否必需，默认 false</param>
+        /// <param name="description">描述文本（可选）</param>
+        public static PortDefinition DataIn(string id, string displayName, string dataType, 
+            bool required = false, string description = "")
+        {
+            return new PortDefinition
+            {
+                Id = id,
+                DisplayName = displayName,
+                Kind = PortKind.Data,
+                Direction = PortDirection.Input,
+                Capacity = PortCapacity.Single,
+                DataType = dataType,
+                Required = required,
+                Description = description
+            };
+        }
+
+        /// <summary>
+        /// 创建数据输出端口（多连接）。
+        /// <para>数据输出端口向下游节点传递配置或状态数据。
+        /// 一个数据输出可以连多条线（多个下游节点共享同一数据）。</para>
+        /// </summary>
+        /// <param name="id">端口 ID，如 "spawnedEntities", "positions"</param>
+        /// <param name="displayName">显示名，如 "已刷出实体", "生成的位置"</param>
+        /// <param name="dataType">数据类型，如 "EntityRef[]", "Vector3[]"</param>
+        /// <param name="description">描述文本（可选）</param>
+        public static PortDefinition DataOut(string id, string displayName, string dataType, 
+            string description = "")
+        {
+            return new PortDefinition
+            {
+                Id = id,
+                DisplayName = displayName,
+                Kind = PortKind.Data,
+                Direction = PortDirection.Output,
+                Capacity = PortCapacity.Multiple,
+                DataType = dataType,
+                Description = description
             };
         }
     }

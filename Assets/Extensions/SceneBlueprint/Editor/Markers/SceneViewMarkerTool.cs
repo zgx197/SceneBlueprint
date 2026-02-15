@@ -84,6 +84,9 @@ namespace SceneBlueprint.Editor.Markers
             if (_enabled) return;
             _enabled = true;
 
+            // 设置 MarkerGroupCreationTool 的空间模式
+            MarkerGroupCreationTool.SetSpatialMode(_spatialMode);
+
             if (!_createInputDrivenByTool)
             {
                 SceneView.duringSceneGui -= OnSceneGUI;
@@ -194,6 +197,14 @@ namespace SceneBlueprint.Editor.Markers
             // 分隔线
             menu.AddSeparator("");
 
+            // 创建标记组（多步交互）
+            menu.AddItem(new GUIContent("创建标记组 (Create Marker Group)/点组"), false, () =>
+            {
+                MarkerGroupCreationTool.BeginCreateGroup(worldPos, "新点组", "");
+            });
+
+            menu.AddSeparator("");
+
             // 仅创建标记——按预设分组显示
             var presets = MarkerPresetRegistry.GetAll();
             if (presets.Count > 0)
@@ -206,7 +217,7 @@ namespace SceneBlueprint.Editor.Markers
                 {
                     foreach (var preset in group.OrderBy(p => p.DisplayName))
                     {
-                        string label = $"仅创建标记/{group.Key}/{preset.DisplayName} ({preset.BaseMarkerTypeId})";
+                        string label = $"仅创建标记 (Marker Only)/{group.Key}/{preset.DisplayName} ({preset.BaseMarkerTypeId})";
                         var presetCopy = preset;
                         menu.AddItem(new GUIContent(label), false, () =>
                         {
@@ -215,7 +226,7 @@ namespace SceneBlueprint.Editor.Markers
                     }
                 }
 
-                menu.AddSeparator("仅创建标记/");
+                menu.AddSeparator("仅创建标记 (Marker Only)/");
             }
 
             // 基础标记类型（无预设裸创建）
@@ -229,7 +240,7 @@ namespace SceneBlueprint.Editor.Markers
                 string displayName = string.IsNullOrEmpty(definition.DisplayName)
                     ? definition.TypeId
                     : definition.DisplayName;
-                string label = $"仅创建标记/空白 {displayName}";
+                string label = $"仅创建标记 (Marker Only)/空白 {displayName}";
                 var definitionCopy = definition;
                 menu.AddItem(new GUIContent(label), false, () =>
                 {

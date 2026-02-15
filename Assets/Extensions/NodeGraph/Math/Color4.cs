@@ -105,7 +105,12 @@ namespace NodeGraph.Math
         /// <summary>端口类型预定义颜色</summary>
         public static class Palette
         {
-            public static Color4 ControlPort => FromHex("#FFFFFF");
+            // 端口 Kind 颜色
+            public static Color4 ControlPort => FromHex("#FFFFFF");  // 白色 - 控制流
+            public static Color4 EventPort => FromHex("#FF9933");    // 橙色 - 事件
+            public static Color4 DataPort => FromHex("#6BB5FF");     // 蓝色 - 数据
+            
+            // 数据类型颜色（向后兼容）
             public static Color4 FloatPort => FromHex("#84E084");
             public static Color4 IntPort => FromHex("#6BB5FF");
             public static Color4 StringPort => FromHex("#F5A623");

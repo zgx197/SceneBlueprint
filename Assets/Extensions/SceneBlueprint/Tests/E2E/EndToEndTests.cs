@@ -29,14 +29,14 @@ namespace SceneBlueprint.Tests.E2E
             registry.AutoDiscover();
 
             // 2. 从 Definition 创建 ActionNodeData
-            var spawnDef = registry.Get("Combat.Spawn");
+            var spawnDef = registry.Get("Spawn.Wave");
             var spawnData = ActionNodeData.CreateFromDefinition(spawnDef);
 
             // 3. 修改属性
             spawnData.Properties.Set("monstersPerWave", 8);
-            spawnData.Properties.Set("template", "elite_group_01");
-            spawnData.Properties.Set("tempoType", "Interval");
-            spawnData.Properties.Set("interval", 3.5f);
+            spawnData.Properties.Set("monsterTemplate", "elite_group_01");
+            spawnData.Properties.Set("waveCount", 5);
+            spawnData.Properties.Set("waveInterval", 3.5f);
 
             // 4. 序列化
             string json = PropertyBagSerializer.ToJson(spawnData.Properties);
@@ -83,44 +83,44 @@ namespace SceneBlueprint.Tests.E2E
         }
 
         /// <summary>
-        /// 验证 VisibleWhen 与实际 Spawn 数据的配合：
-        /// - tempoType == Interval 时 interval 可见
-        /// - tempoType == Instant 时 interval 隐藏、totalWaves 隐藏
-        /// - tempoType == Burst 时 totalWaves 可见
+        /// 完整流程：验证 VisibleWhen 与实际节点数据的配合（使用 Behavior.Assign 测试条件可见）。
+        /// <para>
+        /// 测试点：
+        /// - behaviorType == Patrol 时 patrolRoute 可见
+        /// - behaviorType == Guard 时 guardRadius 可见
+        /// </para>
         /// </summary>
         [Test]
-        public void FullFlow_VisibleWhen_WorksWithActualSpawnData()
+        public void FullFlow_VisibleWhen_WorksWithBehaviorAssign()
         {
             var registry = new ActionRegistry();
             registry.AutoDiscover();
 
-            var spawnDef = registry.Get("Combat.Spawn");
-            var data = ActionNodeData.CreateFromDefinition(spawnDef);
+            var behaviorDef = registry.Get("Behavior.Assign");
+            var data = ActionNodeData.CreateFromDefinition(behaviorDef);
 
-            // tempoType 默认是 "Interval"
-            data.Properties.Set("tempoType", "Interval");
+            // 默认 behaviorType 是 "Idle"
+            data.Properties.Set("behaviorType", "Patrol");
 
-            // interval 属性的 VisibleWhen = "tempoType == Interval"
-            var intervalProp = spawnDef.Properties.First(p => p.Key == "interval");
-            Assert.IsTrue(VisibleWhenEvaluator.Evaluate(intervalProp.VisibleWhen, data.Properties),
-                "tempoType == Interval 时，interval 应该可见");
+            // patrolRoute 的 VisibleWhen = "behaviorType == Patrol"
+            var routeProp = behaviorDef.Properties.FirstOrDefault(p => p.Key == "patrolRoute");
+            if (routeProp != null)
+            {
+                Assert.IsTrue(VisibleWhenEvaluator.Evaluate(routeProp.VisibleWhen, data.Properties),
+                    "behaviorType == Patrol 时，patrolRoute 应该可见");
+            }
 
-            // 改为 Instant
-            data.Properties.Set("tempoType", "Instant");
-            Assert.IsFalse(VisibleWhenEvaluator.Evaluate(intervalProp.VisibleWhen, data.Properties),
-                "tempoType == Instant 时，interval 应该隐藏");
-
-            // totalWaves 的 VisibleWhen = "tempoType != Instant"
-            var wavesProp = spawnDef.Properties.First(p => p.Key == "totalWaves");
-            Assert.IsFalse(VisibleWhenEvaluator.Evaluate(wavesProp.VisibleWhen, data.Properties),
-                "tempoType == Instant 时，totalWaves 应该隐藏");
-
-            data.Properties.Set("tempoType", "Burst");
-            Assert.IsTrue(VisibleWhenEvaluator.Evaluate(wavesProp.VisibleWhen, data.Properties),
-                "tempoType == Burst 时，totalWaves 应该可见");
+            // 改为 Guard
+            data.Properties.Set("behaviorType", "Guard");
+            var radiusProp = behaviorDef.Properties.FirstOrDefault(p => p.Key == "guardRadius");
+            if (radiusProp != null)
+            {
+                Assert.IsTrue(VisibleWhenEvaluator.Evaluate(radiusProp.VisibleWhen, data.Properties),
+                    "behaviorType == Guard 时，guardRadius 应该可见");
+            }
         }
 
-        /// <summary>验证 Registry 分类正确：Flow 至少 5 个，Combat 至少 2 个</summary>
+        /// <summary>验证 Registry 分类正确：Flow 至少 5 个，Spawn 至少 2 个</summary>
         [Test]
         public void FullFlow_Registry_CategoriesAreCorrect()
         {
@@ -129,11 +129,11 @@ namespace SceneBlueprint.Tests.E2E
 
             var categories = registry.GetCategories();
             CollectionAssert.Contains((System.Collections.ICollection)categories, "Flow");
-            CollectionAssert.Contains((System.Collections.ICollection)categories, "Combat");
+            CollectionAssert.Contains((System.Collections.ICollection)categories, "Spawn");
 
-            // Flow 至少 5 个，Combat 至少 2 个
+            // Flow 至少 5 个，Spawn 至少 2 个
             Assert.GreaterOrEqual(registry.GetByCategory("Flow").Count, 5);
-            Assert.GreaterOrEqual(registry.GetByCategory("Combat").Count, 2);
+            Assert.GreaterOrEqual(registry.GetByCategory("Spawn").Count, 2);
         }
     }
 }

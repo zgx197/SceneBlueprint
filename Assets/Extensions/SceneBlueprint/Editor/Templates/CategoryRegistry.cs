@@ -19,6 +19,20 @@ namespace SceneBlueprint.Editor.Templates
         private static Dictionary<string, CategorySO>? _cache;
         private static bool _dirty = true;
 
+        // 硬编码的中文名映射表（无 CategorySO 时的后备方案）
+        private static readonly Dictionary<string, string> _fallbackDisplayNames = new()
+        {
+            { "Flow", "流程控制" },
+            { "Spawn", "刷怪" },
+            { "Monster", "怪物" },
+            { "Location", "位置" },
+            { "Condition", "条件" },
+            { "Behavior", "行为" },
+            { "VFX", "视觉效果" },
+            { "Trigger", "触发器" },
+            { "Proxy", "代理" }
+        };
+
         /// <summary>标记缓存为脏，下次访问时重新加载</summary>
         public static void Invalidate() => _dirty = true;
 
@@ -51,12 +65,17 @@ namespace SceneBlueprint.Editor.Templates
         }
 
         /// <summary>
-        /// 获取分类的显示名称。有 SO 时使用 DisplayName，无 SO 时返回 categoryId 本身。
+        /// 获取分类的显示名称。优先级：CategorySO.DisplayName > 硬编码映射表 > categoryId 本身。
         /// </summary>
         public static string GetDisplayName(string categoryId)
         {
             var so = Find(categoryId);
             if (so != null) return so.GetDisplayName();
+            
+            // 使用硬编码的后备映射表
+            if (_fallbackDisplayNames.TryGetValue(categoryId, out var displayName))
+                return displayName;
+            
             return string.IsNullOrEmpty(categoryId) ? "未分类" : categoryId;
         }
 

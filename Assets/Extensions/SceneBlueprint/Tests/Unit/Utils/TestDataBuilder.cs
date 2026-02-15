@@ -32,7 +32,7 @@ namespace SceneBlueprint.Tests.Utils
                 Description = $"{displayName}的描述",
                 ThemeColor = new Color4(0.5f, 0.5f, 0.5f),
                 Duration = duration,
-                Ports = ports ?? new[] { Port.FlowIn("in"), Port.FlowOut("out") },
+                Ports = ports ?? new[] { Port.In("in"), Port.Event("out") },
                 Properties = properties ?? System.Array.Empty<PropertyDefinition>()
             };
         }

@@ -3,7 +3,7 @@
 namespace SceneBlueprint.Core
 {
     /// <summary>
-    /// 场景标记类型 ID 常量——字符串标识，取代旧的 MarkerType 枚举。
+    /// 场景标记类型 ID 常量——字符串标识,取代旧的 MarkerType 枚举。
     /// <para>
     /// 用于 <see cref="MarkerRequirement"/> 声明 Action 需要什么类型的标记，
     /// 以及 SceneMarker 组件标识自身类型。
@@ -23,5 +23,8 @@ namespace SceneBlueprint.Core
 
         /// <summary>实体标记——Prefab 实例引用（如预设怪物、可交互物体）</summary>
         public const string Entity = "Entity";
+
+        /// <summary>标记组——一组相关标记的集合（如刷怪点组、巡逻路线、阵型组）</summary>
+        public const string Group = "Group";
     }
 }

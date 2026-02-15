@@ -5,6 +5,7 @@
         "SceneBlueprint.Core",
         "SceneBlueprint.Actions",
         "SceneBlueprint.Runtime",
+        "NodeGraph.Core",
         "NodeGraph.Math"
     ],
     "includePlatforms": [
