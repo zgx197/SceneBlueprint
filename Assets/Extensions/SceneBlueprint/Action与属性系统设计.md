@@ -4,6 +4,8 @@
 > 日期：2026-02-12  
 > 状态：设计阶段  
 > 父文档：[场景蓝图系统总体设计](场景蓝图系统总体设计.md)
+> doc_status: frozen  
+> last_reviewed: 2026-02-15
 
 ---
 
@@ -1169,4 +1171,4 @@ Step 9 冒烟测试：端到端序列化往返 ✅ PASS
 
 - [场景蓝图系统总体设计](场景蓝图系统总体设计.md)
 - [数据导出与运行时契约](数据导出与运行时契约.md)
-- [AI Director设计](AI%20Director设计.md)
+- [AI Director设计](_archive/AI%20Director设计.md)

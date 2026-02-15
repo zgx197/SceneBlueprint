@@ -33,6 +33,7 @@ namespace SceneBlueprint.Editor.Markers
         // ─── 状态 ───
 
         private static bool _enabled;
+        private static bool _createInputDrivenByTool;
         private static IActionRegistry? _registry;
         private static Vector3 _lastRightClickWorldPos;
         private static IEditorSpatialModeDescriptor? _spatialMode;
@@ -42,6 +43,30 @@ namespace SceneBlueprint.Editor.Markers
 
         /// <summary>标记创建完成时的回调——蓝图编辑器订阅此事件来创建节点并绑定</summary>
         public static event System.Action<MarkerCreationResult>? OnMarkerCreated;
+
+        /// <summary>
+        /// 设置创建输入来源。
+        /// false = 使用 legacy duringSceneGui 路由；
+        /// true  = 使用 MarkerSelectTool.OnToolGUI 路由（P2）。
+        /// </summary>
+        public static void SetCreateInputDrivenByTool(bool drivenByTool)
+        {
+            if (_createInputDrivenByTool == drivenByTool)
+                return;
+
+            _createInputDrivenByTool = drivenByTool;
+
+            if (!_enabled)
+                return;
+
+            if (_createInputDrivenByTool)
+                SceneView.duringSceneGui -= OnSceneGUI;
+            else
+            {
+                SceneView.duringSceneGui -= OnSceneGUI;
+                SceneView.duringSceneGui += OnSceneGUI;
+            }
+        }
 
         // ─── 启用/禁用 ───
 
@@ -54,11 +79,16 @@ namespace SceneBlueprint.Editor.Markers
             IActionRegistry registry,
             IEditorSpatialModeDescriptor spatialMode)
         {
+            _registry = registry ?? throw new System.ArgumentNullException(nameof(registry));
             _spatialMode = spatialMode ?? throw new System.ArgumentNullException(nameof(spatialMode));
             if (_enabled) return;
-            _registry = registry;
             _enabled = true;
-            SceneView.duringSceneGui += OnSceneGUI;
+
+            if (!_createInputDrivenByTool)
+            {
+                SceneView.duringSceneGui -= OnSceneGUI;
+                SceneView.duringSceneGui += OnSceneGUI;
+            }
         }
 
         /// <summary>
@@ -74,13 +104,36 @@ namespace SceneBlueprint.Editor.Markers
             SceneView.duringSceneGui -= OnSceneGUI;
         }
 
+        /// <summary>
+        /// 由 MarkerSelectTool 转发的创建输入入口（P2）。
+        /// </summary>
+        public static void HandleCreateFromTool(Event evt, SceneView sceneView)
+        {
+            if (!_createInputDrivenByTool)
+                return;
+
+            if (!_enabled || _registry == null || _spatialMode == null)
+                return;
+
+            HandleCreateEvent(evt, sceneView);
+        }
+
         // ─── Scene View 事件处理 ───
 
         private static void OnSceneGUI(SceneView sceneView)
         {
             if (!_enabled || _registry == null || _spatialMode == null) return;
 
-            var evt = Event.current;
+            if (_createInputDrivenByTool)
+                return;
+
+            HandleCreateEvent(Event.current, sceneView);
+        }
+
+        private static void HandleCreateEvent(Event evt, SceneView sceneView)
+        {
+            if (evt == null)
+                return;
 
             // 右键点击（MouseUp 避免与 Unity 原生右键按下阶段冲突）
             if (evt.type == EventType.MouseUp && evt.button == 1 && (evt.modifiers & EventModifiers.Shift) != 0)

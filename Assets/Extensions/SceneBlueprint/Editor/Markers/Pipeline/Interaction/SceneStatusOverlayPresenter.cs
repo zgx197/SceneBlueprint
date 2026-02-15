@@ -1,6 +1,7 @@
 #nullable enable
 using UnityEditor;
 using UnityEngine;
+using SceneBlueprint.Runtime.Markers;
 
 namespace SceneBlueprint.Editor.Markers.Pipeline.Interaction
 {
@@ -22,16 +23,30 @@ namespace SceneBlueprint.Editor.Markers.Pipeline.Interaction
             string modeText = interactionMode == GizmoRenderPipeline.MarkerInteractionMode.Edit
                 ? "交互模式：编辑（单击选中 + 原生变换）"
                 : "交互模式：拾取（自定义选中）";
+            string stateText = BuildSelectionStateText();
             string createText = canCreateMarker
                 ? "标记创建：可用（Shift + 右键）"
                 : "标记创建：不可用（请打开 SceneBlueprint 窗口）";
 
             var style = GetSceneStatusStyle();
-            var rect = new Rect(12f, 28f, 360f, 44f);
+            var rect = new Rect(12f, 28f, 440f, 62f);
 
             Handles.BeginGUI();
-            GUI.Label(rect, modeText + "\n" + createText, style);
+            GUI.Label(rect, modeText + "\n" + stateText + "\n" + createText, style);
             Handles.EndGUI();
+        }
+
+        private static string BuildSelectionStateText()
+        {
+            var selected = Selection.activeGameObject;
+            if (selected == null)
+                return "当前状态：编辑中（未选中 Marker）";
+
+            var marker = selected.GetComponent<SceneMarker>();
+            if (marker == null)
+                return "当前状态：编辑中（当前选中非 Marker）";
+
+            return $"当前状态：已选中（{selected.name}）";
         }
 
         private GUIStyle GetSceneStatusStyle()

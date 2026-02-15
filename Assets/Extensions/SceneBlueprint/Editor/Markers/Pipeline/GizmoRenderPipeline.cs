@@ -53,11 +53,61 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
         private static readonly IMarkerHitTestService _hitTestService = new DefaultMarkerHitTestService();
         private static readonly IMarkerSelectionController _selectionController = new DefaultMarkerSelectionController();
         private static readonly IMarkerOverlayPresenter _overlayPresenter = new SceneStatusOverlayPresenter();
+        private static bool _selectionInputDrivenByTool;
 
         private static MarkerInteractionMode _interactionMode = MarkerInteractionMode.Edit;
 
         /// <summary>当前标记交互模式。</summary>
         public static MarkerInteractionMode InteractionMode => _interactionMode;
+
+        /// <summary>
+        /// 设置选中输入来源。
+        /// false = 由 GizmoRenderPipeline(duringSceneGui) 处理；
+        /// true  = 由 MarkerSelectTool(EditorTool) 处理。
+        /// </summary>
+        internal static void SetSelectionInputDrivenByTool(bool drivenByTool)
+        {
+            if (_selectionInputDrivenByTool == drivenByTool)
+                return;
+
+            _selectionInputDrivenByTool = drivenByTool;
+            SBLog.Info(SBLogTags.Selection,
+                $"Selection input route => {(drivenByTool ? "Tool" : "duringSceneGui")}, interactionMode={_interactionMode}, toolActive={MarkerSelectTool.IsActive}");
+            Trace($"SetSelectionInputDrivenByTool route={(drivenByTool ? "Tool" : "duringSceneGui")}, mode={_interactionMode}, toolActive={MarkerSelectTool.IsActive}");
+            _selectionController.ResetState();
+            SceneView.RepaintAll();
+        }
+
+        /// <summary>
+        /// 提供给 MarkerSelectTool 的选中输入入口。
+        /// </summary>
+        internal static void HandlePickingFromTool(Event evt)
+        {
+            if (!_selectionInputDrivenByTool)
+                return;
+
+            if (evt != null && IsTraceEvent(evt.type))
+            {
+                SBLog.Debug(SBLogTags.Selection,
+                    $"HandlePickingFromTool evt={evt.type}, button={evt.button}, mods={evt.modifiers}, drawCount={_drawList.Count}, mode={_interactionMode}, toolActive={MarkerSelectTool.IsActive}");
+                Trace($"HandlePickingFromTool evt={evt.type}, button={evt.button}, mods={evt.modifiers}, drawCount={_drawList.Count}, mode={_interactionMode}, toolActive={MarkerSelectTool.IsActive}");
+            }
+
+            if (_drawList.Count == 0)
+            {
+                SBLog.Debug(SBLogTags.Selection, "HandlePickingFromTool drawList=0 => reset state");
+                Trace("HandlePickingFromTool drawList=0 => reset state");
+                _selectionController.ResetState();
+                return;
+            }
+
+            _selectionController.Handle(
+                evt,
+                _interactionMode,
+                _hitTestService,
+                _drawList,
+                _renderers);
+        }
 
         static GizmoRenderPipeline()
         {
@@ -157,7 +207,7 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
                 if (marker == null) continue;
 
                 // 图层可见性过滤
-                if (!MarkerLayerSystem.IsMarkerVisible(marker.GetLayerPrefix())) continue;
+                if (!MarkerLayerSystem.IsMarkerVisible(marker.GetLayerPrefix(), marker.Tag)) continue;
 
                 // 视锥裁剪
                 var bounds = GetMarkerBounds(marker);
@@ -185,7 +235,12 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
             ExecutePhase(DrawPhase.Label);
 
             // ── 拾取处理 ───
-            HandlePicking();
+            // 收口策略：
+            // - Tool 路由开启且 Tool 处于激活态时，仅走 Tool 入口，避免双通道重复处理；
+            // - Tool 路由开启但 Tool 未激活时，保留 duringSceneGui 兜底（Unity 2021 焦点切换场景）。
+            bool shouldUseDuringFallback = !_selectionInputDrivenByTool || !MarkerSelectTool.IsActive;
+            if (shouldUseDuringFallback)
+                HandlePicking();
         }
 
         // ─── 上下文构建 ───
@@ -269,12 +324,34 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
 
         private static void HandlePicking()
         {
+            var evt = Event.current;
+            if (evt != null && IsTraceEvent(evt.type))
+            {
+                SBLog.Debug(SBLogTags.Selection,
+                    $"HandlePicking(duringSceneGui) evt={evt.type}, button={evt.button}, mods={evt.modifiers}, drawCount={_drawList.Count}, mode={_interactionMode}, routeByTool={_selectionInputDrivenByTool}");
+                Trace($"HandlePicking(duringSceneGui) evt={evt.type}, button={evt.button}, mods={evt.modifiers}, drawCount={_drawList.Count}, mode={_interactionMode}, routeByTool={_selectionInputDrivenByTool}");
+            }
+
             _selectionController.Handle(
-                Event.current,
+                evt,
                 _interactionMode,
                 _hitTestService,
                 _drawList,
                 _renderers);
+        }
+
+        private static bool IsTraceEvent(EventType type)
+        {
+            return type == EventType.MouseDown
+                || type == EventType.MouseUp
+                || type == EventType.MouseDrag
+                || type == EventType.Used
+                || type == EventType.Ignore;
+        }
+
+        private static void Trace(string message)
+        {
+            Debug.Log($"[SB.Selection.Trace][GizmoRenderPipeline] {message}");
         }
 
         // ─── Bounds 计算 ───

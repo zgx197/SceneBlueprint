@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using UnityEngine;
 using UnityEditor;
 using UnityEditor.Overlays;
@@ -25,7 +26,7 @@ namespace SceneBlueprint.Editor.Markers
         public override void OnGUI()
         {
             // 面板宽度
-            EditorGUILayout.BeginVertical(GUILayout.MinWidth(140));
+            EditorGUILayout.BeginVertical(GUILayout.MinWidth(220));
 
             // 标题
             EditorGUILayout.LabelField("标记图层", EditorStyles.boldLabel);
@@ -48,6 +49,25 @@ namespace SceneBlueprint.Editor.Markers
                 {
                     MarkerLayerSystem.SetLayerVisible(layer.Id, next);
                 }
+            }
+
+            EditorGUILayout.Space(4);
+
+            string currentFilter = MarkerLayerSystem.TagFilterExpression;
+            string nextFilter = EditorGUILayout.TextField(
+                new GUIContent("Tag过滤", "支持逗号/分号/竖线分隔。示例：Combat.*.Elite, Trigger"),
+                currentFilter);
+
+            if (!string.Equals(currentFilter, nextFilter, StringComparison.Ordinal))
+                MarkerLayerSystem.SetTagFilterExpression(nextFilter);
+
+            if (MarkerLayerSystem.HasTagFilter)
+            {
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("清空Tag过滤", EditorStyles.miniButton, GUILayout.Width(86)))
+                    MarkerLayerSystem.ClearTagFilterExpression();
+                EditorGUILayout.EndHorizontal();
             }
 
             EditorGUILayout.Space(4);

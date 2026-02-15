@@ -1,6 +1,7 @@
 #nullable enable
 using UnityEngine;
 using SceneBlueprint.Runtime.Markers;
+using SceneBlueprint.Core;
 
 namespace SceneBlueprint.Runtime.Templates
 {
@@ -103,8 +104,7 @@ namespace SceneBlueprint.Runtime.Templates
             foreach (var pattern in MatchTags)
             {
                 if (string.IsNullOrEmpty(pattern)) continue;
-                if (tag.Equals(pattern, System.StringComparison.OrdinalIgnoreCase)) return true;
-                if (tag.StartsWith(pattern + ".", System.StringComparison.OrdinalIgnoreCase)) return true;
+                if (TagExpressionMatcher.IsPatternMatch(tag, pattern)) return true;
             }
             return false;
         }

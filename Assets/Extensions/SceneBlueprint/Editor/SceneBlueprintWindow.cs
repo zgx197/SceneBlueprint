@@ -84,10 +84,10 @@ namespace SceneBlueprint.Editor
         private bool _workbenchIssuesDirty = true;
         private bool _workbenchRelationsDirty = true;
         private bool _hasWorkbenchIssueScan;
+        private bool _useEditorToolSelectionInput = true;
         private Core.ActionRegistry? _actionRegistryCache;
         private IEditorSpatialModeDescriptor? _spatialModeDescriptor;
-        private GizmoRenderPipeline.MarkerInteractionMode _markerInteractionMode =
-            GizmoRenderPipeline.MarkerInteractionMode.Edit;
+        private readonly SceneBlueprintToolContext _toolContext = new SceneBlueprintToolContext();
         private readonly ISceneBindingStore _sceneBindingStore = new SceneManagerBindingStore();
 
         private enum WorkbenchTab
@@ -182,7 +182,9 @@ namespace SceneBlueprint.Editor
             _workbenchTab = ReadEnumPref(WorkbenchTabPrefsKey, WorkbenchTab.Guide);
             _issueSeverityFilter = ReadEnumPref(WorkbenchIssueSeverityFilterPrefsKey, IssueSeverityFilter.All);
             _issueKindFilter = ReadEnumPref(WorkbenchIssueKindFilterPrefsKey, IssueKindFilter.All);
-            SetMarkerInteractionMode(MarkerInteractionModeSettings.Load(), persist: false);
+            _useEditorToolSelectionInput = MarkerSelectionInputRoutingSettings.LoadUseEditorTool();
+            _toolContext.Attach(_useEditorToolSelectionInput);
+            GizmoRenderPipeline.SetInteractionMode(GizmoRenderPipeline.MarkerInteractionMode.Edit);
             _workbenchIssuesDirty = true;
             _workbenchRelationsDirty = true;
 
@@ -201,13 +203,13 @@ namespace SceneBlueprint.Editor
             EditorPrefs.SetInt(WorkbenchTabPrefsKey, (int)_workbenchTab);
             EditorPrefs.SetInt(WorkbenchIssueSeverityFilterPrefsKey, (int)_issueSeverityFilter);
             EditorPrefs.SetInt(WorkbenchIssueKindFilterPrefsKey, (int)_issueKindFilter);
-            MarkerInteractionModeSettings.Save(_markerInteractionMode);
+            MarkerSelectionInputRoutingSettings.SaveUseEditorTool(_useEditorToolSelectionInput);
 
             EditorApplication.hierarchyChanged -= OnEditorHierarchyChanged;
             EditorApplication.projectChanged -= OnEditorProjectChanged;
 
             SceneViewMarkerTool.OnMarkerCreated -= OnMarkerCreated;
-            SceneViewMarkerTool.Disable();
+            _toolContext.Detach();
 
             // 取消双向联动订阅
             if (_viewModel != null)
@@ -294,8 +296,8 @@ namespace SceneBlueprint.Editor
             _inspectorDrawer.SetBindingContext(_bindingContext);
             _inspectorDrawer.SetGraph(_viewModel.Graph);
 
-            // 8. 启用 Scene View 标记工具
-            SceneViewMarkerTool.Enable(actionRegistry, EnsureSpatialModeDescriptor());
+            // 8. 启用 Scene View 标记工具（P3：由 ToolContext 托管生命周期）
+            _toolContext.EnableMarkerTool(actionRegistry, EnsureSpatialModeDescriptor());
             SceneViewMarkerTool.OnMarkerCreated -= OnMarkerCreated;
             SceneViewMarkerTool.OnMarkerCreated += OnMarkerCreated;
 
@@ -630,24 +632,21 @@ namespace SceneBlueprint.Editor
 
             GUILayout.Space(8);
 
-            // 交互模式切换：
-            // 编辑模式 = 完全使用 Unity 原生变换（推荐用于摆放/调参）
-            // 拾取模式 = 启用 SceneBlueprint 自定义拾取（推荐用于快速点选 marker）
-            bool editMode = GUILayout.Toggle(
-                _markerInteractionMode == GizmoRenderPipeline.MarkerInteractionMode.Edit,
-                new GUIContent("编辑", "编辑模式：让位给 Unity 原生 Move/Rotate/Scale"),
+            bool useToolSelection = GUILayout.Toggle(
+                _useEditorToolSelectionInput,
+                new GUIContent("Tool选中", "启用 ToolContext 托管的标记选中/创建输入（P3）；关闭后回退兼容链路"),
                 EditorStyles.toolbarButton,
-                GUILayout.Width(42));
-            bool pickMode = GUILayout.Toggle(
-                _markerInteractionMode == GizmoRenderPipeline.MarkerInteractionMode.Pick,
-                new GUIContent("拾取", "拾取模式：点击 Gizmo 轮廓快速选中标记"),
-                EditorStyles.toolbarButton,
-                GUILayout.Width(42));
+                GUILayout.Width(68));
+            if (useToolSelection != _useEditorToolSelectionInput)
+                SetSelectionInputRouting(useToolSelection);
 
-            if (editMode && _markerInteractionMode != GizmoRenderPipeline.MarkerInteractionMode.Edit)
-                SetMarkerInteractionMode(GizmoRenderPipeline.MarkerInteractionMode.Edit);
-            else if (pickMode && _markerInteractionMode != GizmoRenderPipeline.MarkerInteractionMode.Pick)
-                SetMarkerInteractionMode(GizmoRenderPipeline.MarkerInteractionMode.Pick);
+            GUILayout.Space(6);
+
+            GUILayout.Label(
+                _useEditorToolSelectionInput
+                    ? "交互：Tool选中（P3）+ 原生变换"
+                    : "交互：兼容回退（duringSceneGui）+ 原生变换",
+                EditorStyles.miniLabel);
 
             GUILayout.FlexibleSpace();
 
@@ -1626,18 +1625,18 @@ namespace SceneBlueprint.Editor
         }
 
         /// <summary>
-        /// 切换 SceneView 交互模式并持久化。
-        /// 该模式只影响“点击选中 marker”的输入仲裁，不影响 Shift+右键创建。
+        /// 设置标记选中输入路由。
+        /// true  = ToolContext 托管（P3）。
+        /// false = 回退到 GizmoRenderPipeline(duringSceneGui) 兼容链路（P0）。
         /// </summary>
-        private void SetMarkerInteractionMode(
-            GizmoRenderPipeline.MarkerInteractionMode mode,
-            bool persist = true)
+        private void SetSelectionInputRouting(bool useEditorTool, bool persist = true)
         {
-            _markerInteractionMode = mode;
-            GizmoRenderPipeline.SetInteractionMode(mode);
+            _useEditorToolSelectionInput = useEditorTool;
 
             if (persist)
-                MarkerInteractionModeSettings.Save(mode);
+                MarkerSelectionInputRoutingSettings.SaveUseEditorTool(useEditorTool);
+
+            _toolContext.SetSelectionInputRouting(useEditorTool);
         }
 
         private void FocusFirstBlockingIssue(IReadOnlyList<WorkbenchIssue> issues)
@@ -2840,6 +2839,27 @@ namespace SceneBlueprint.Editor
         private void OnSceneMarkerSelected(string markerId)
         {
             if (_viewModel == null) return;
+
+            var marker = SceneMarkerSelectionBridge.FindMarkerInScene(markerId);
+            if (marker == null)
+            {
+                _viewModel.Selection.ClearSelection();
+                SceneMarkerSelectionBridge.ClearHighlight();
+                _viewModel.RequestRepaint();
+                Repaint();
+                return;
+            }
+
+            // M14：蓝图侧节点高亮同样受 Tag 过滤表达式约束，保持与 SceneView 可见性一致。
+            if (MarkerLayerSystem.HasTagFilter
+                && !Core.TagExpressionMatcher.Evaluate(MarkerLayerSystem.TagFilterExpression, marker.Tag))
+            {
+                _viewModel.Selection.ClearSelection();
+                SceneMarkerSelectionBridge.ClearHighlight();
+                _viewModel.RequestRepaint();
+                Repaint();
+                return;
+            }
 
             var registry = SceneBlueprintProfile.CreateActionRegistry();
             var nodeIds = new List<string>();

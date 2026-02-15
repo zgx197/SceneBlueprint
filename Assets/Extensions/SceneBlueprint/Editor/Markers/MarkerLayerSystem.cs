@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using SceneBlueprint.Core;
 
 namespace SceneBlueprint.Editor.Markers
 {
@@ -51,7 +52,14 @@ namespace SceneBlueprint.Editor.Markers
         // ─── 可见性状态（按图层 Id 索引） ───
 
         private static readonly Dictionary<string, bool> _visibility = new();
+        private static string _tagFilterExpression = "";
         private static bool _initialized;
+
+        /// <summary>当前 Tag 过滤表达式（为空表示不过滤）。</summary>
+        public static string TagFilterExpression => _tagFilterExpression;
+
+        /// <summary>是否启用了 Tag 表达式过滤。</summary>
+        public static bool HasTagFilter => !string.IsNullOrWhiteSpace(_tagFilterExpression);
 
         /// <summary>确保状态已初始化（所有图层默认可见）</summary>
         private static void EnsureInitialized()
@@ -75,6 +83,29 @@ namespace SceneBlueprint.Editor.Markers
             return true; // 未注册的图层默认可见
         }
 
+        /// <summary>
+        /// 设置 Tag 过滤表达式。
+        /// 支持逗号/分号/竖线分隔多个模式，任一命中即可见。
+        /// </summary>
+        public static void SetTagFilterExpression(string expression)
+        {
+            var normalized = string.IsNullOrWhiteSpace(expression)
+                ? ""
+                : expression.Trim();
+
+            if (string.Equals(_tagFilterExpression, normalized, StringComparison.Ordinal))
+                return;
+
+            _tagFilterExpression = normalized;
+            UnityEditor.SceneView.RepaintAll();
+        }
+
+        /// <summary>清空 Tag 过滤表达式。</summary>
+        public static void ClearTagFilterExpression()
+        {
+            SetTagFilterExpression("");
+        }
+
         /// <summary>设置某个图层的可见性</summary>
         public static void SetLayerVisible(string layerId, bool visible)
         {
@@ -86,12 +117,15 @@ namespace SceneBlueprint.Editor.Markers
         }
 
         /// <summary>
-        /// 根据 SceneMarker 的 Tag 前缀判断该标记是否在可见图层中。
+        /// 根据图层开关 + Tag 条件判断标记是否可见。
         /// 供 <see cref="MarkerGizmoDrawer"/> 调用。
         /// </summary>
-        public static bool IsMarkerVisible(string tagPrefix)
+        public static bool IsMarkerVisible(string tagPrefix, string fullTag)
         {
-            return IsLayerVisible(tagPrefix);
+            if (!IsLayerVisible(tagPrefix))
+                return false;
+
+            return !HasTagFilter || TagExpressionMatcher.Evaluate(_tagFilterExpression, fullTag);
         }
 
         /// <summary>设置所有图层为可见</summary>

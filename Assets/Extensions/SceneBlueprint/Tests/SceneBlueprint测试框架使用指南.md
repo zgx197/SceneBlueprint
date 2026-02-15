@@ -1,5 +1,9 @@
 # SceneBlueprint 测试框架使用指南
 
+> 状态：当前主使用说明  
+> doc_status: active  
+> last_reviewed: 2026-02-15
+
 ## 概述
 
 SceneBlueprint 测试框架基于 Unity Test Framework (NUnit)，专注于 **Editor 内的便捷测试体验**。

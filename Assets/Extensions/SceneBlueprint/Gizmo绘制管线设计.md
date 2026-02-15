@@ -1,5 +1,11 @@
 # Gizmo 绘制管线设计文档
 
+> 版本：v1.0  
+> 日期：2026-02-14  
+> 状态：核心管线已实现  
+> doc_status: frozen  
+> last_reviewed: 2026-02-15
+
 ## 1. 背景与动机
 
 当前 `MarkerGizmoDrawer` 使用 `[DrawGizmo]` + 散落的 `SceneView.duringSceneGui` 实现标记绘制，存在以下问题：

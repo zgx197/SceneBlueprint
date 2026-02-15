@@ -4,6 +4,8 @@
 > 日期：2026-02-14  
 > 状态：待实现  
 > 适用范围：`Assets/Extensions/SceneBlueprint` + `Assets/Extensions/NodeGraph`
+> doc_status: active  
+> last_reviewed: 2026-02-15
 
 ---
 
@@ -436,7 +438,7 @@ Assets/Extensions/SceneBlueprint/
 实现项：
 - 统一文档、删除过时入口。
 - 以工作台为唯一入口，移除旧配置入口与对应菜单项。
-- 新增验收记录文档：`Assets/Extensions/SceneBlueprint/C7_验收记录.md`。
+- 新增验收记录文档：`Assets/Extensions/SceneBlueprint/_archive/C7_验收记录.md`。
 
 即时验证：
 1. 完整执行 C1~C6 验证清单，形成最终验收记录。
