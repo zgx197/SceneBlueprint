@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
 using SceneBlueprint.Runtime.Markers;
+using SceneBlueprint.Runtime.Markers.Annotations;
 using Object = UnityEngine.Object;
 
 namespace SceneBlueprint.Editor.Markers.Pipeline
@@ -20,6 +21,7 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
     {
         private static readonly List<SceneMarker> _all = new();
         private static readonly Dictionary<Type, List<SceneMarker>> _byType = new();
+        private static readonly Dictionary<SceneMarker, MarkerAnnotation[]> _annotationCache = new();
         private static bool _dirty = true;
 
         static MarkerCache()
@@ -41,6 +43,18 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
             if (_byType.TryGetValue(typeof(T), out var list))
                 return list;
             return Array.Empty<SceneMarker>();
+        }
+
+        /// <summary>
+        /// 获取 Marker 上的所有 MarkerAnnotation（从缓存读取，零 GC）。
+        /// <para>缓存随 hierarchyChanged 自动失效，与标记缓存同步刷新。</para>
+        /// </summary>
+        public static MarkerAnnotation[] GetAnnotations(SceneMarker marker)
+        {
+            EnsureFresh();
+            return _annotationCache.TryGetValue(marker, out var annotations)
+                ? annotations
+                : Array.Empty<MarkerAnnotation>();
         }
 
         /// <summary>当前缓存的标记总数</summary>
@@ -65,6 +79,7 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
 
             _all.Clear();
             _byType.Clear();
+            _annotationCache.Clear();
 
             var markers = Object.FindObjectsOfType<SceneMarker>();
             foreach (var m in markers)
@@ -79,6 +94,11 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
                     _byType[type] = list;
                 }
                 list.Add(m);
+
+                // 缓存 Annotation 组件
+                var annotations = m.GetComponents<MarkerAnnotation>();
+                if (annotations.Length > 0)
+                    _annotationCache[m] = annotations;
             }
         }
     }

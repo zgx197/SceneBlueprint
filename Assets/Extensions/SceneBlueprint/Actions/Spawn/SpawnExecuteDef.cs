@@ -31,16 +31,17 @@ namespace SceneBlueprint.Actions.Spawn
                 Port.Out("out", "完成"),
 
                 // === Data 输入端口（必需）===
-                Port.DataIn("positions", "位置列表", DataTypes.Vector3Array,
+                // 新 API：使用泛型版本，代码更简洁
+                Port.DataIn<Vector3ArrayType>("positions", "位置列表",
                     required: true,
                     description: "刷怪位置列表，通常来自 Location 节点"),
 
-                Port.DataIn("monsters", "怪物配置", DataTypes.MonsterConfigArray,
+                Port.DataIn<MonsterConfigArrayType>("monsters", "怪物配置",
                     required: true,
                     description: "怪物配置列表，通常来自 Monster.Pool 节点"),
 
                 // === Data 输出端口 ===
-                Port.DataOut("spawnedEntities", "已刷出实体", DataTypes.EntityRefArray,
+                Port.DataOut<EntityRefArrayType>("spawnedEntities", "已刷出实体",
                     description: "刷出的实体引用列表，可传递给 Condition 节点监听")
             },
 

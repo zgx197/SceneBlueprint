@@ -5,6 +5,7 @@ using UnityEditor;
 using NodeGraph.Core;
 using NodeGraph.Unity;
 using SceneBlueprint.Core;
+using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers;
 using SceneBlueprint.Runtime.Markers;
 
@@ -21,8 +22,12 @@ namespace SceneBlueprint.Editor
     /// </summary>
     public class ActionNodeInspectorDrawer : INodeInspectorDrawer
     {
-        private readonly ActionRegistry _actionRegistry;
+        private Graph? _currentGraph;
+        private IActionRegistry? _actionRegistry;
         private BindingContext? _bindingContext;
+
+        /// <summary>属性修改回调（nodeId, nodeData）</summary>
+        public System.Action<string, ActionNodeData>? OnPropertyChanged;
 
         public ActionNodeInspectorDrawer(ActionRegistry actionRegistry)
         {
@@ -64,9 +69,6 @@ namespace SceneBlueprint.Editor
 
             return data.ActionTypeId;
         }
-
-        /// <summary>缓存的 Graph 引用（由 InspectorPanel 通过 DrawBlueprintInspector 传入）</summary>
-        private Graph? _currentGraph;
 
         public bool DrawInspector(Node node)
         {
@@ -115,7 +117,11 @@ namespace SceneBlueprint.Editor
                 }
 
                 if (DrawPropertyField(prop, data.Properties, node.Id))
+                {
                     changed = true;
+                    // 刷新预览（由调用方处理）
+                    OnPropertyChanged?.Invoke(node.Id, data);
+                }
             }
 
             // ── 场景绑定区（分组显示）──
@@ -135,7 +141,11 @@ namespace SceneBlueprint.Editor
                     }
 
                     if (DrawPropertyField(prop, data.Properties, node.Id))
+                    {
                         changed = true;
+                        // 刷新预览（由调用方处理）
+                        OnPropertyChanged?.Invoke(node.Id, data);
+                    }
                 }
             }
 
@@ -277,7 +287,38 @@ namespace SceneBlueprint.Editor
                     _bindingContext.Set(scopedBindingKey, result);
                     // PropertyBag 中存储 MarkerId（稳定唯一标识，不怕改名）
                     var marker = result != null ? result.GetComponent<SceneMarker>() : null;
-                    bag.Set(prop.Key, marker != null ? marker.MarkerId : "");
+                    var markerId = marker != null ? marker.MarkerId : "";
+                    bag.Set(prop.Key, markerId);
+
+                    SBLog.Info(
+                        SBLogTags.Binding,
+                        "SceneBinding修改: node={0}, prop={1}, go={2}, markerType={3}, markerId='{4}'",
+                        ownerNodeId,
+                        prop.Key,
+                        result != null ? result.name : "(null)",
+                        marker != null ? marker.GetType().Name : "(none)",
+                        markerId);
+
+                    if (result != null && marker == null)
+                    {
+                        SBLog.Warn(
+                            SBLogTags.Binding,
+                            "绑定对象缺少SceneMarker: node={0}, prop={1}, go={2}",
+                            ownerNodeId,
+                            prop.Key,
+                            result.name);
+                    }
+                    else if (marker != null && string.IsNullOrEmpty(markerId))
+                    {
+                        SBLog.Warn(
+                            SBLogTags.Binding,
+                            "SceneMarker存在但MarkerId为空: node={0}, prop={1}, go={2}, markerType={3}",
+                            ownerNodeId,
+                            prop.Key,
+                            result != null ? result.name : "(null)",
+                            marker.GetType().Name);
+                    }
+
                     EditorGUILayout.EndVertical();
                     return true;
                 }

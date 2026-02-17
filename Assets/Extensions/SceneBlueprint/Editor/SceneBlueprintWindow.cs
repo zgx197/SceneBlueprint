@@ -9,10 +9,15 @@ using NodeGraph.Math;
 using NodeGraph.View;
 using NodeGraph.Unity;
 using NodeGraph.Serialization;
+using SceneBlueprint.Core;
 using SceneBlueprint.Editor.Export;
+using GraphPort = NodeGraph.Core.Port;
+using GraphPortDefinition = NodeGraph.Core.PortDefinition;
+using CoreValidationSeverity = SceneBlueprint.Core.ValidationSeverity;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers;
 using SceneBlueprint.Editor.Markers.Pipeline;
+using SceneBlueprint.Editor.Preview;
 using SceneBlueprint.Editor.SpatialModes;
 using SceneBlueprint.Editor.Templates;
 using SceneBlueprint.Runtime;
@@ -89,6 +94,17 @@ namespace SceneBlueprint.Editor
         private IEditorSpatialModeDescriptor? _spatialModeDescriptor;
         private readonly SceneBlueprintToolContext _toolContext = new SceneBlueprintToolContext();
         private readonly ISceneBindingStore _sceneBindingStore = new SceneManagerBindingStore();
+        private readonly HashSet<string> _dirtyPreviewNodeIds = new HashSet<string>();
+        private bool _previewDirtyAll;
+        private bool _previewFlushScheduled;
+        private readonly Dictionary<string, HashSet<string>> _previewMarkerToNodeIds =
+            new Dictionary<string, HashSet<string>>();
+        private readonly Dictionary<string, string> _previewNodeToMarkerId =
+            new Dictionary<string, string>();
+        private readonly HashSet<string> _previewObservedNodeIds = new HashSet<string>();
+        private readonly Dictionary<string, int> _previewObservedMarkerSignatures =
+            new Dictionary<string, int>();
+        private int _previewObservedSubGraphFrameCount = -1;
 
         private enum WorkbenchTab
         {
@@ -192,8 +208,15 @@ namespace SceneBlueprint.Editor
             EditorApplication.hierarchyChanged += OnEditorHierarchyChanged;
             EditorApplication.projectChanged -= OnEditorProjectChanged;
             EditorApplication.projectChanged += OnEditorProjectChanged;
+            Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+            Undo.undoRedoPerformed += OnUndoRedoPerformed;
+            Undo.postprocessModifications -= OnUndoPostprocessModifications;
+            Undo.postprocessModifications += OnUndoPostprocessModifications;
 
             InitializeIfNeeded();
+
+            if (_viewModel != null && _viewModel.Graph.Nodes.Count > 0)
+                MarkPreviewDirtyAll("OnEnable");
         }
 
         private void OnDisable()
@@ -207,6 +230,9 @@ namespace SceneBlueprint.Editor
 
             EditorApplication.hierarchyChanged -= OnEditorHierarchyChanged;
             EditorApplication.projectChanged -= OnEditorProjectChanged;
+            Undo.undoRedoPerformed -= OnUndoRedoPerformed;
+            Undo.postprocessModifications -= OnUndoPostprocessModifications;
+            EditorApplication.delayCall -= FlushDirtyPreviews;
 
             SceneViewMarkerTool.OnMarkerCreated -= OnMarkerCreated;
             MarkerGroupCreationTool.OnGroupCreated -= OnMarkerGroupCreated;
@@ -220,6 +246,9 @@ namespace SceneBlueprint.Editor
             SceneMarkerSelectionBridge.ClearHighlight();
             Selection.selectionChanged -= OnUnitySelectionChanged;
 
+            // 清理预览
+            BlueprintPreviewManager.Instance.ClearAllPreviews();
+
             _viewModel = null;
             _renderer = null;
             _input = null;
@@ -231,6 +260,12 @@ namespace SceneBlueprint.Editor
             _currentAsset = null;
             _bindingContext = null;
             _actionRegistryCache = null;
+            _dirtyPreviewNodeIds.Clear();
+            _previewMarkerToNodeIds.Clear();
+            _previewNodeToMarkerId.Clear();
+            _previewDirtyAll = false;
+            _previewFlushScheduled = false;
+            ResetPreviewGraphShapeSnapshot();
         }
 
         /// <summary>初始化所有 NodeGraph 组件（仅首次或丢失引用时）</summary>
@@ -246,6 +281,14 @@ namespace SceneBlueprint.Editor
         /// </summary>
         private void InitializeWithGraph(Graph? existingGraph)
         {
+            _dirtyPreviewNodeIds.Clear();
+            _previewDirtyAll = false;
+            _previewFlushScheduled = false;
+            _previewMarkerToNodeIds.Clear();
+            _previewNodeToMarkerId.Clear();
+            _previewObservedMarkerSignatures.Clear();
+            EditorApplication.delayCall -= FlushDirtyPreviews;
+
             // 1. 确定使用哪个 GraphSettings
             //    加载已有图时，必须把 Action 类型注册到该图自己的 NodeTypeRegistry 中，
             //    否则 FrameBuilder 查不到 NodeTypeDef，节点颜色会 fallback 到灰色。
@@ -261,6 +304,7 @@ namespace SceneBlueprint.Editor
 
             // 3. 使用已有图或创建空白图
             var graph = existingGraph ?? new Graph(settings);
+            SyncPreviewGraphShapeSnapshot(graph);
 
             // 4. 创建 ViewModel
             _viewModel = new GraphViewModel(graph)
@@ -293,12 +337,14 @@ namespace SceneBlueprint.Editor
             // 7. 创建 Inspector 面板 + 绑定上下文
             var actionRegistry = SceneBlueprintProfile.CreateActionRegistry();
             _inspectorDrawer = new ActionNodeInspectorDrawer(actionRegistry);
+            _inspectorDrawer.OnPropertyChanged = OnNodePropertyChanged;
             _inspectorPanel = new InspectorPanel(_inspectorDrawer);
 
             if (_bindingContext == null)
                 _bindingContext = new BindingContext();
             _inspectorDrawer.SetBindingContext(_bindingContext);
             _inspectorDrawer.SetGraph(_viewModel.Graph);
+            RebuildPreviewMarkerNodeIndex();
 
             // 8. 启用 Scene View 标记工具（P3：由 ToolContext 托管生命周期）
             _toolContext.EnableMarkerTool(actionRegistry, EnsureSpatialModeDescriptor());
@@ -319,6 +365,10 @@ namespace SceneBlueprint.Editor
 
             // 10. 更新窗口标题
             UpdateTitle();
+
+            // 初始化完成后尝试刷新预览（支持未保存蓝图）
+            if (graph.Nodes.Count > 0)
+                MarkPreviewDirtyAll("InitializeWithGraph");
         }
 
         private JsonGraphSerializer CreateGraphSerializer()
@@ -332,6 +382,605 @@ namespace SceneBlueprint.Editor
                 ? _currentAsset.BlueprintName
                 : "未保存";
             titleContent = new GUIContent($"场景蓝图编辑器 - {name}");
+        }
+
+        private string GetPreviewContextId()
+        {
+            if (_currentAsset != null && !string.IsNullOrEmpty(_currentAsset.BlueprintId))
+                return _currentAsset.BlueprintId!;
+
+            return $"unsaved:{GetInstanceID()}";
+        }
+
+        /// <summary>
+        /// 标记单节点预览为脏，并在当前编辑器循环末尾合并刷新。
+        /// </summary>
+        private void MarkPreviewDirtyForNode(string nodeId, string reason)
+        {
+            if (string.IsNullOrEmpty(nodeId))
+                return;
+
+            MarkPreviewDirtyForNodes(new[] { nodeId }, reason);
+        }
+
+        /// <summary>
+        /// 标记一组节点预览为脏，并合并到下一次刷新批次。
+        /// </summary>
+        private void MarkPreviewDirtyForNodes(IEnumerable<string> nodeIds, string reason)
+        {
+            if (_previewDirtyAll)
+                return;
+
+            int addedCount = 0;
+            foreach (var nodeId in nodeIds)
+            {
+                if (string.IsNullOrEmpty(nodeId))
+                    continue;
+
+                if (_dirtyPreviewNodeIds.Add(nodeId))
+                    addedCount++;
+            }
+
+            if (addedCount <= 0)
+                return;
+
+            SBLog.Debug(
+                SBLogTags.Pipeline,
+                "MarkPreviewDirtyForNodes: added={0}, reason={1}, pendingNodes={2}",
+                addedCount,
+                reason,
+                _dirtyPreviewNodeIds.Count);
+
+            SchedulePreviewFlush();
+        }
+
+        private static bool TryGetRandomAreaMarkerId(ActionNodeData nodeData, out string markerId)
+        {
+            markerId = "";
+            if (nodeData.ActionTypeId != "Location.RandomArea")
+                return false;
+
+            markerId = nodeData.Properties.Get<string>("area") ?? "";
+            return !string.IsNullOrEmpty(markerId);
+        }
+
+        private void RemovePreviewMarkerNodeIndexForNode(string nodeId)
+        {
+            if (string.IsNullOrEmpty(nodeId))
+                return;
+
+            if (!_previewNodeToMarkerId.TryGetValue(nodeId, out string markerId))
+                return;
+
+            _previewNodeToMarkerId.Remove(nodeId);
+
+            if (_previewMarkerToNodeIds.TryGetValue(markerId, out var nodeSet))
+            {
+                nodeSet.Remove(nodeId);
+                if (nodeSet.Count == 0)
+                    _previewMarkerToNodeIds.Remove(markerId);
+            }
+        }
+
+        private void UpdatePreviewMarkerNodeIndexForNode(string nodeId, ActionNodeData? nodeData)
+        {
+            RemovePreviewMarkerNodeIndexForNode(nodeId);
+
+            if (string.IsNullOrEmpty(nodeId) || nodeData == null)
+                return;
+
+            if (!TryGetRandomAreaMarkerId(nodeData, out string markerId))
+                return;
+
+            if (!_previewMarkerToNodeIds.TryGetValue(markerId, out var nodeSet))
+            {
+                nodeSet = new HashSet<string>();
+                _previewMarkerToNodeIds[markerId] = nodeSet;
+            }
+
+            nodeSet.Add(nodeId);
+            _previewNodeToMarkerId[nodeId] = markerId;
+        }
+
+        private void RebuildPreviewMarkerNodeIndex()
+        {
+            _previewMarkerToNodeIds.Clear();
+            _previewNodeToMarkerId.Clear();
+
+            if (_viewModel == null)
+                return;
+
+            foreach (var node in _viewModel.Graph.Nodes)
+            {
+                if (node.UserData is ActionNodeData nodeData)
+                    UpdatePreviewMarkerNodeIndexForNode(node.Id, nodeData);
+            }
+        }
+
+        /// <summary>
+        /// 根据 Area MarkerId 定位并标记相关随机区域节点。
+        /// </summary>
+        private int MarkPreviewDirtyForNodesByAreaMarkerIds(IEnumerable<string> markerIds, string reason)
+        {
+            if (_viewModel == null)
+                return 0;
+
+            var markerIdSet = new HashSet<string>(
+                markerIds.Where(id => !string.IsNullOrEmpty(id)));
+
+            if (markerIdSet.Count == 0)
+                return 0;
+
+            var nodeIds = new HashSet<string>();
+            foreach (var markerId in markerIdSet)
+            {
+                if (_previewMarkerToNodeIds.TryGetValue(markerId, out var indexedNodeIds))
+                {
+                    foreach (var nodeId in indexedNodeIds)
+                        nodeIds.Add(nodeId);
+                }
+            }
+
+            // 索引可能在异常路径下不一致，命中为空时重建一次再查询。
+            if (nodeIds.Count == 0)
+            {
+                RebuildPreviewMarkerNodeIndex();
+                foreach (var markerId in markerIdSet)
+                {
+                    if (_previewMarkerToNodeIds.TryGetValue(markerId, out var indexedNodeIds))
+                    {
+                        foreach (var nodeId in indexedNodeIds)
+                            nodeIds.Add(nodeId);
+                    }
+                }
+            }
+
+            MarkPreviewDirtyForNodes(nodeIds, reason);
+            return nodeIds.Count;
+        }
+
+        /// <summary>
+        /// 标记所有 Location.RandomArea 节点（用于无法精准定位 marker 的兜底路径）。
+        /// </summary>
+        private int MarkPreviewDirtyForAllRandomAreaNodes(string reason)
+        {
+            if (_viewModel == null)
+                return 0;
+
+            var nodeIds = new List<string>();
+            foreach (var node in _viewModel.Graph.Nodes)
+            {
+                if (node.UserData is ActionNodeData nodeData
+                    && nodeData.ActionTypeId == "Location.RandomArea")
+                {
+                    nodeIds.Add(node.Id);
+                }
+            }
+
+            MarkPreviewDirtyForNodes(nodeIds, reason);
+            return nodeIds.Count;
+        }
+
+        /// <summary>
+        /// 标记当前尚未生成预览缓存的 RandomArea 节点。
+        /// </summary>
+        private int MarkPreviewDirtyForUncachedRandomAreaNodes(string reason)
+        {
+            if (_viewModel == null)
+                return 0;
+
+            var cachedNodeIdSet = new HashSet<string>(
+                BlueprintPreviewManager.Instance
+                    .GetCurrentBlueprintPreviews()
+                    .Select(p => p.NodeId));
+
+            var nodeIds = new List<string>();
+            foreach (var node in _viewModel.Graph.Nodes)
+            {
+                if (node.UserData is not ActionNodeData nodeData)
+                    continue;
+
+                if (nodeData.ActionTypeId != "Location.RandomArea")
+                    continue;
+
+                if (!cachedNodeIdSet.Contains(node.Id))
+                    nodeIds.Add(node.Id);
+            }
+
+            MarkPreviewDirtyForNodes(nodeIds, reason);
+            return nodeIds.Count;
+        }
+
+        private static Dictionary<string, SceneMarker> BuildMarkerLookupById()
+        {
+            var markerById = new Dictionary<string, SceneMarker>();
+            foreach (var marker in MarkerCache.GetAll())
+            {
+                if (marker == null || string.IsNullOrEmpty(marker.MarkerId))
+                    continue;
+
+                markerById[marker.MarkerId] = marker;
+            }
+
+            return markerById;
+        }
+
+        private static int QuantizeFloat(float value)
+        {
+            return Mathf.RoundToInt(value * 1000f);
+        }
+
+        private static int ComputeVector3Signature(Vector3 value)
+        {
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 31 + QuantizeFloat(value.x);
+                hash = hash * 31 + QuantizeFloat(value.y);
+                hash = hash * 31 + QuantizeFloat(value.z);
+                return hash;
+            }
+        }
+
+        private static int ComputeQuaternionSignature(Quaternion value)
+        {
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 31 + QuantizeFloat(value.x);
+                hash = hash * 31 + QuantizeFloat(value.y);
+                hash = hash * 31 + QuantizeFloat(value.z);
+                hash = hash * 31 + QuantizeFloat(value.w);
+                return hash;
+            }
+        }
+
+        private static int ComputeMarkerSignature(SceneMarker marker)
+        {
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 31 + (marker.MarkerTypeId?.GetHashCode() ?? 0);
+                hash = hash * 31 + ComputeVector3Signature(marker.transform.position);
+                hash = hash * 31 + ComputeQuaternionSignature(marker.transform.rotation);
+                hash = hash * 31 + ComputeVector3Signature(marker.transform.lossyScale);
+
+                if (marker is AreaMarker areaMarker)
+                {
+                    hash = hash * 31 + (int)areaMarker.Shape;
+                    hash = hash * 31 + ComputeVector3Signature(areaMarker.BoxSize);
+                    hash = hash * 31 + QuantizeFloat(areaMarker.Height);
+
+                    if (areaMarker.Vertices != null)
+                    {
+                        hash = hash * 31 + areaMarker.Vertices.Count;
+                        foreach (var vertex in areaMarker.Vertices)
+                            hash = hash * 31 + ComputeVector3Signature(vertex);
+                    }
+                    else
+                    {
+                        hash = hash * 31;
+                    }
+                }
+
+                return hash;
+            }
+        }
+
+        private List<string> CollectChangedPreviewMarkerIds(
+            IReadOnlyCollection<string> previewMarkerIds,
+            IReadOnlyDictionary<string, SceneMarker> markerById)
+        {
+            var changedMarkerIds = new List<string>();
+            foreach (var markerId in previewMarkerIds)
+            {
+                int currentSignature = markerById.TryGetValue(markerId, out var marker)
+                    ? ComputeMarkerSignature(marker)
+                    : int.MinValue;
+
+                if (!_previewObservedMarkerSignatures.TryGetValue(markerId, out int previousSignature)
+                    || previousSignature != currentSignature)
+                {
+                    changedMarkerIds.Add(markerId);
+                }
+            }
+
+            return changedMarkerIds;
+        }
+
+        private void SyncPreviewMarkerSignatureSnapshot()
+        {
+            _previewObservedMarkerSignatures.Clear();
+
+            var previewMarkerIds = BlueprintPreviewManager.Instance.GetCurrentPreviewMarkerIds();
+            if (previewMarkerIds.Count == 0)
+                return;
+
+            var markerById = BuildMarkerLookupById();
+            foreach (var markerId in previewMarkerIds)
+            {
+                int signature = markerById.TryGetValue(markerId, out var marker)
+                    ? ComputeMarkerSignature(marker)
+                    : int.MinValue;
+
+                _previewObservedMarkerSignatures[markerId] = signature;
+            }
+        }
+
+        private void MarkPreviewDirtyForHierarchyChange()
+        {
+            if (_viewModel == null)
+                return;
+
+            var previewMarkerIds = BlueprintPreviewManager.Instance.GetCurrentPreviewMarkerIds();
+            int markerMatchCount = 0;
+            if (previewMarkerIds.Count > 0)
+            {
+                var markerById = BuildMarkerLookupById();
+                var changedMarkerIds = CollectChangedPreviewMarkerIds(previewMarkerIds, markerById);
+
+                if (changedMarkerIds.Count > 0)
+                {
+                    markerMatchCount = MarkPreviewDirtyForNodesByAreaMarkerIds(
+                        changedMarkerIds,
+                        "HierarchyChanged.MarkerChanged");
+
+                    if (markerMatchCount == 0)
+                    {
+                        markerMatchCount = MarkPreviewDirtyForAllRandomAreaNodes(
+                            "HierarchyChanged.MarkerChangedFallback");
+                    }
+                }
+            }
+
+            int uncachedCount = MarkPreviewDirtyForUncachedRandomAreaNodes(
+                "HierarchyChanged.UncachedRandomArea");
+
+            if (previewMarkerIds.Count == 0 && markerMatchCount == 0 && uncachedCount == 0)
+                MarkPreviewDirtyForAllRandomAreaNodes("HierarchyChanged.RandomAreaFallback");
+        }
+
+        /// <summary>
+        /// 标记当前图预览全量刷新。
+        /// </summary>
+        private void MarkPreviewDirtyAll(string reason)
+        {
+            _previewDirtyAll = true;
+            _dirtyPreviewNodeIds.Clear();
+            SBLog.Debug(SBLogTags.Pipeline, "MarkPreviewDirtyAll: reason={0}", reason);
+            SchedulePreviewFlush();
+        }
+
+        private void SchedulePreviewFlush()
+        {
+            if (_previewFlushScheduled)
+                return;
+
+            _previewFlushScheduled = true;
+            EditorApplication.delayCall -= FlushDirtyPreviews;
+            EditorApplication.delayCall += FlushDirtyPreviews;
+        }
+
+        /// <summary>
+        /// 合并执行预览刷新（全量优先于单节点）。
+        /// </summary>
+        private void FlushDirtyPreviews()
+        {
+            EditorApplication.delayCall -= FlushDirtyPreviews;
+            _previewFlushScheduled = false;
+
+            if (_viewModel == null)
+            {
+                _previewDirtyAll = false;
+                _dirtyPreviewNodeIds.Clear();
+                return;
+            }
+
+            bool refreshAll = _previewDirtyAll;
+            var dirtyNodeIds = new List<string>(_dirtyPreviewNodeIds);
+            _previewDirtyAll = false;
+            _dirtyPreviewNodeIds.Clear();
+
+            if (!refreshAll && dirtyNodeIds.Count == 0)
+                return;
+
+            var graph = _viewModel.Graph;
+            string previewContextId = GetPreviewContextId();
+
+            // 刷新前让 Marker 缓存失效，避免使用同帧旧数据。
+            MarkerCache.SetDirty();
+
+            if (refreshAll)
+            {
+                Preview.BlueprintPreviewManager.Instance.RefreshAllPreviews(previewContextId, graph);
+                SyncPreviewMarkerSignatureSnapshot();
+                SBLog.Debug(
+                    SBLogTags.Pipeline,
+                    "FlushDirtyPreviews: 全量刷新完成, nodeCount={0}, context={1}",
+                    graph.Nodes.Count,
+                    previewContextId);
+                return;
+            }
+
+            int refreshedCount = 0;
+            var removedNodeIds = new List<string>();
+            foreach (var nodeId in dirtyNodeIds)
+            {
+                var node = graph.FindNode(nodeId);
+                if (node?.UserData is ActionNodeData nodeData)
+                {
+                    Preview.BlueprintPreviewManager.Instance.RefreshPreviewForNode(previewContextId, nodeId, nodeData);
+                    refreshedCount++;
+                }
+                else
+                {
+                    removedNodeIds.Add(nodeId);
+                }
+            }
+
+            int removedCount = removedNodeIds.Count > 0
+                ? Preview.BlueprintPreviewManager.Instance.RemovePreviews(removedNodeIds, repaint: false)
+                : 0;
+
+            if (refreshedCount > 0 || removedCount > 0)
+            {
+                SceneView.RepaintAll();
+                SyncPreviewMarkerSignatureSnapshot();
+            }
+
+            if (refreshedCount > 0 || removedCount > 0)
+            {
+                SBLog.Debug(
+                    SBLogTags.Pipeline,
+                    "FlushDirtyPreviews: 单节点刷新完成, refreshed={0}, removed={1}, context={2}",
+                    refreshedCount,
+                    removedCount,
+                    previewContextId);
+            }
+        }
+
+        private void OnUndoRedoPerformed()
+        {
+            MarkWorkbenchDataDirty();
+            MarkPreviewDirtyAll("UndoRedo");
+        }
+
+        private UndoPropertyModification[] OnUndoPostprocessModifications(
+            UndoPropertyModification[] modifications)
+        {
+            if (_viewModel == null || modifications == null || modifications.Length == 0)
+                return modifications;
+
+            var changedMarkerIds = new HashSet<string>();
+            foreach (var modification in modifications)
+                CollectChangedMarkerIds(modification, changedMarkerIds);
+
+            if (changedMarkerIds.Count > 0)
+            {
+                int matchedCount = MarkPreviewDirtyForNodesByAreaMarkerIds(
+                    changedMarkerIds,
+                    "Undo.PostprocessMarker");
+
+                if (matchedCount == 0)
+                    MarkPreviewDirtyForUncachedRandomAreaNodes("Undo.PostprocessMarker.UncachedFallback");
+            }
+
+            return modifications;
+        }
+
+        private static void CollectChangedMarkerIds(
+            UndoPropertyModification modification,
+            ISet<string> markerIds)
+        {
+            var currentTarget = modification.currentValue.target;
+            if (currentTarget is SceneMarker marker && !string.IsNullOrEmpty(marker.MarkerId))
+            {
+                markerIds.Add(marker.MarkerId);
+            }
+            else if (currentTarget is Transform transform)
+            {
+                var transformMarker = transform.GetComponent<SceneMarker>();
+                if (transformMarker != null && !string.IsNullOrEmpty(transformMarker.MarkerId))
+                    markerIds.Add(transformMarker.MarkerId);
+            }
+
+            // MarkerId 字段被修改时，补充旧值用于刷新引用旧ID的节点。
+            if (modification.currentValue.target is SceneMarker
+                && modification.currentValue.propertyPath == "_markerId")
+            {
+                string oldMarkerId = modification.previousValue.value ?? "";
+                if (!string.IsNullOrEmpty(oldMarkerId))
+                    markerIds.Add(oldMarkerId);
+
+                string newMarkerId = modification.currentValue.value ?? "";
+                if (!string.IsNullOrEmpty(newMarkerId))
+                    markerIds.Add(newMarkerId);
+            }
+        }
+
+        private void ResetPreviewGraphShapeSnapshot()
+        {
+            _previewObservedNodeIds.Clear();
+            _previewObservedMarkerSignatures.Clear();
+            _previewObservedSubGraphFrameCount = -1;
+        }
+
+        private void SyncPreviewGraphShapeSnapshot(Graph graph)
+        {
+            _previewObservedNodeIds.Clear();
+            foreach (var node in graph.Nodes)
+                _previewObservedNodeIds.Add(node.Id);
+
+            _previewObservedSubGraphFrameCount = graph.SubGraphFrames.Count;
+        }
+
+        private void DetectPreviewGraphShapeChange()
+        {
+            if (_viewModel == null)
+                return;
+
+            var graph = _viewModel.Graph;
+
+            if (_previewObservedSubGraphFrameCount < 0)
+            {
+                SyncPreviewGraphShapeSnapshot(graph);
+                return;
+            }
+
+            bool subGraphChanged = graph.SubGraphFrames.Count != _previewObservedSubGraphFrameCount;
+            int currentNodeCount = graph.Nodes.Count;
+            if (!subGraphChanged && currentNodeCount == _previewObservedNodeIds.Count)
+                return;
+
+            var currentNodeIds = new HashSet<string>(graph.Nodes.Select(n => n.Id));
+            var removedNodeIds = new List<string>();
+            foreach (var oldNodeId in _previewObservedNodeIds)
+            {
+                if (!currentNodeIds.Contains(oldNodeId))
+                    removedNodeIds.Add(oldNodeId);
+            }
+
+            var addedNodeIds = new List<string>();
+            foreach (var currentNodeId in currentNodeIds)
+            {
+                if (!_previewObservedNodeIds.Contains(currentNodeId))
+                    addedNodeIds.Add(currentNodeId);
+            }
+
+            bool changed = subGraphChanged || removedNodeIds.Count > 0 || addedNodeIds.Count > 0;
+
+            if (!changed)
+                return;
+
+            SBLog.Debug(
+                SBLogTags.Pipeline,
+                "DetectPreviewGraphShapeChange: added={0}, removed={1}, subGraphCount {2}->{3}",
+                addedNodeIds.Count,
+                removedNodeIds.Count,
+                _previewObservedSubGraphFrameCount,
+                graph.SubGraphFrames.Count);
+
+            if (addedNodeIds.Count > 0)
+            {
+                foreach (var addedNodeId in addedNodeIds)
+                {
+                    var addedNode = graph.FindNode(addedNodeId);
+                    if (addedNode?.UserData is ActionNodeData addedNodeData)
+                        UpdatePreviewMarkerNodeIndexForNode(addedNodeId, addedNodeData);
+                }
+
+                MarkPreviewDirtyForNodes(addedNodeIds, "GraphShapeChanged.NodeAdded");
+            }
+
+            if (removedNodeIds.Count > 0)
+            {
+                foreach (var removedNodeId in removedNodeIds)
+                    RemovePreviewMarkerNodeIndexForNode(removedNodeId);
+
+                MarkPreviewDirtyForNodes(removedNodeIds, "GraphShapeChanged.NodeRemoved");
+            }
+
+            SyncPreviewGraphShapeSnapshot(graph);
         }
 
         private void OnGUI()
@@ -429,6 +1078,13 @@ namespace SceneBlueprint.Editor
             }
             else if (IsInputEvent(evt) && graphRect.Contains(evt.mousePosition))
             {
+                List<string>? deletingNodeIds = null;
+                if (evt.type == EventType.KeyDown
+                    && (evt.keyCode == KeyCode.Delete || evt.keyCode == KeyCode.Backspace))
+                {
+                    deletingNodeIds = _viewModel.Selection.SelectedNodeIds.ToList();
+                }
+
                 // 输入事件：仅在画布区域内处理
                 _viewModel.PreUpdateNodeSizes();
                 _viewModel.ProcessInput(_input);
@@ -436,6 +1092,15 @@ namespace SceneBlueprint.Editor
                 // 仅在可能修改图数据的输入后标记为脏，避免纯导航/缩放导致关系与问题缓存失效
                 if (evt.type == EventType.KeyDown || evt.type == EventType.MouseUp)
                     MarkWorkbenchDataDirty();
+
+                // 键盘删除路径：按“即将删除的节点”精确标记预览脏数据。
+                if (deletingNodeIds != null && deletingNodeIds.Count > 0)
+                {
+                    foreach (var deletingNodeId in deletingNodeIds)
+                        RemovePreviewMarkerNodeIndexForNode(deletingNodeId);
+
+                    MarkPreviewDirtyForNodes(deletingNodeIds, "Input.DeleteKey");
+                }
 
                 // 标记事件已消费，防止 Unity IMGUI 将事件继续传播到
                 // Inspector 面板等其他控件，避免焦点抢夺和拖拽序列追踪失效
@@ -449,6 +1114,8 @@ namespace SceneBlueprint.Editor
                 _viewModel.RequestRepaint();
                 MarkWorkbenchDataDirty();
             }
+
+            DetectPreviewGraphShapeChange();
 
             // 请求重绘
             if (_viewModel.NeedsRepaint)
@@ -702,6 +1369,11 @@ namespace SceneBlueprint.Editor
                 ExportBlueprint();
             }
 
+            if (GUILayout.Button("刷新预览", EditorStyles.toolbarButton, GUILayout.Width(60)))
+            {
+                MarkPreviewDirtyAll("Toolbar.RefreshPreview");
+            }
+
             if (GUILayout.Button("居中", EditorStyles.toolbarButton, GUILayout.Width(40)))
             {
                 CenterView();
@@ -784,6 +1456,7 @@ namespace SceneBlueprint.Editor
         private void OnEditorHierarchyChanged()
         {
             MarkWorkbenchIssuesDirty();
+            MarkPreviewDirtyForHierarchyChange();
         }
 
         private void OnEditorProjectChanged()
@@ -1413,7 +2086,7 @@ namespace SceneBlueprint.Editor
                         issues,
                         dedupe,
                         WorkbenchIssueKind.MissingRequiredProperty,
-                        rule.Severity == ValidationSeverity.Error
+                        rule.Severity == Core.ValidationSeverity.Error
                             ? WorkbenchIssueSeverity.Error
                             : WorkbenchIssueSeverity.Warning,
                         message,
@@ -1782,21 +2455,17 @@ namespace SceneBlueprint.Editor
             if (_viewModel == null) return;
 
             var graph = _viewModel.Graph;
+            var commands = _viewModel.Commands;
 
-            // 检查是否已有 Start/End 节点（加载已有蓝图时不重复添加）
-            bool hasStart = graph.Nodes.Any(n => n.TypeId == "Flow.Start");
-            bool hasEnd = graph.Nodes.Any(n => n.TypeId == "Flow.End");
+            // 添加 Start 节点
+            var startPos = new Vec2(100, 100);
+            commands.Execute(new AddNodeCommand("Flow.Start", startPos));
 
-            if (!hasStart)
-            {
-                graph.AddNode("Flow.Start", new Vec2(-200, 0));
-            }
-            if (!hasEnd)
-            {
-                graph.AddNode("Flow.End", new Vec2(200, 0));
-            }
+            // 添加 End 节点
+            var endPos = new Vec2(400, 100);
+            commands.Execute(new AddNodeCommand("Flow.End", endPos));
 
-            _viewModel.PreUpdateNodeSizes();
+            _viewModel.RequestRepaint();
         }
 
         private void SaveBlueprint()
@@ -1888,6 +2557,9 @@ namespace SceneBlueprint.Editor
 
                 // 加载后运行绑定一致性验证
                 RunBindingValidation();
+
+                // 刷新预览
+                MarkPreviewDirtyAll("LoadBlueprint");
             }
             catch (System.Exception ex)
             {
@@ -1921,6 +2593,9 @@ namespace SceneBlueprint.Editor
 
                 // 加载后运行绑定一致性验证
                 RunBindingValidation();
+
+                // 刷新预览
+                MarkPreviewDirtyAll("LoadFromAsset");
             }
             catch (System.Exception ex)
             {
@@ -2084,10 +2759,10 @@ namespace SceneBlueprint.Editor
                 (_viewModel.PanOffset.Y * -1f + position.height / 2f) / _viewModel.ZoomLevel);
 
             // 定义默认边界端口：一个输入（激活）、一个输出（完成）
-            var boundaryPorts = new PortDefinition[]
+            var boundaryPorts = new GraphPortDefinition[]
             {
-                new PortDefinition("激活", PortDirection.Input, PortKind.Control, "exec", PortCapacity.Single, 0),
-                new PortDefinition("完成", PortDirection.Output, PortKind.Control, "exec", PortCapacity.Single, 0),
+                new GraphPortDefinition("激活", PortDirection.Input, PortKind.Control, "exec", PortCapacity.Single, 0),
+                new GraphPortDefinition("完成", PortDirection.Output, PortKind.Control, "exec", PortCapacity.Single, 0),
             };
 
             _viewModel.Commands.Execute(
@@ -2631,7 +3306,10 @@ namespace SceneBlueprint.Editor
                     menu.AddItem(new GUIContent(menuPath), false, () =>
                     {
                         if (_viewModel == null) return;
-                        _viewModel.Commands.Execute(new AddNodeCommand(capturedTypeId, capturedPos));
+                        var addNodeCmd = new AddNodeCommand(capturedTypeId, capturedPos);
+                        _viewModel.Commands.Execute(addNodeCmd);
+                        if (!string.IsNullOrEmpty(addNodeCmd.CreatedNodeId))
+                            MarkPreviewDirtyForNode(addNodeCmd.CreatedNodeId, "CanvasContext.AddNode");
                         _viewModel.RequestRepaint();
                         Repaint();
                     });
@@ -2664,6 +3342,7 @@ namespace SceneBlueprint.Editor
                                 CreateGraphSerializer(), capturedPos);
                             if (result != null)
                             {
+                                MarkPreviewDirtyForNodes(result.NodeIdMap.Values, "CanvasContext.InstantiateTemplate");
                                 _viewModel.RequestRepaint();
                                 Repaint();
                             }
@@ -2748,7 +3427,15 @@ namespace SceneBlueprint.Editor
             menu.AddItem(new GUIContent("删除节点 (Delete)"), false, () =>
             {
                 if (_viewModel == null) return;
+                var deletedNodeIds = _viewModel.Selection.SelectedNodeIds.ToList();
                 _viewModel.DeleteSelected();
+                if (deletedNodeIds.Count > 0)
+                {
+                    foreach (var deletedNodeId in deletedNodeIds)
+                        RemovePreviewMarkerNodeIndexForNode(deletedNodeId);
+
+                    MarkPreviewDirtyForNodes(deletedNodeIds, "NodeContext.DeleteSelected");
+                }
                 Repaint();
             });
 
@@ -2775,7 +3462,7 @@ namespace SceneBlueprint.Editor
         /// <summary>
         /// 右键点击端口的回调。显示该端口连线管理菜单。
         /// </summary>
-        private void OnPortContextMenu(Port port, Vec2 canvasPos)
+        private void OnPortContextMenu(GraphPort port, Vec2 canvasPos)
         {
             if (_viewModel == null) return;
 
@@ -2874,6 +3561,15 @@ namespace SceneBlueprint.Editor
 
             SBLog.Info(SBLogTags.Marker, $"已为 {result.ActionDisplayName} 创建蓝图节点，" +
                 $"关联 {result.CreatedMarkers.Count} 个标记");
+
+            if (!string.IsNullOrEmpty(cmd.CreatedNodeId))
+            {
+                var createdNode = graph.FindNode(cmd.CreatedNodeId);
+                if (createdNode?.UserData is Core.ActionNodeData createdNodeData)
+                    UpdatePreviewMarkerNodeIndexForNode(cmd.CreatedNodeId, createdNodeData);
+
+                MarkPreviewDirtyForNode(cmd.CreatedNodeId, "MarkerCreated");
+            }
 
             MarkWorkbenchDataDirty();
             _viewModel.RequestRepaint();
@@ -3087,6 +3783,29 @@ namespace SceneBlueprint.Editor
                 _viewModel.RequestRepaint();
                 Repaint();
             }
+        }
+
+        /// <summary>
+        /// 节点属性修改时的回调——刷新预览。
+        /// </summary>
+        private void OnNodePropertyChanged(string nodeId, ActionNodeData nodeData)
+        {
+            if (_viewModel == null) return;
+
+            string areaBindingId = nodeData.ActionTypeId == "Location.RandomArea"
+                ? (nodeData.Properties.Get<string>("area") ?? "")
+                : "";
+
+            SBLog.Info(
+                SBLogTags.Pipeline,
+                "OnNodePropertyChanged: node={0}, action={1}, areaId='{2}', previewContext={3}",
+                nodeId,
+                nodeData.ActionTypeId,
+                areaBindingId,
+                GetPreviewContextId());
+
+            UpdatePreviewMarkerNodeIndexForNode(nodeId, nodeData);
+            MarkPreviewDirtyForNode(nodeId, "NodePropertyChanged");
         }
 
         /// <summary>

@@ -9,6 +9,7 @@ using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers;
 using SceneBlueprint.Editor.Markers.Pipeline.Interaction;
 using SceneBlueprint.Runtime.Markers;
+using SceneBlueprint.Runtime.Markers.Annotations;
 
 namespace SceneBlueprint.Editor.Markers.Pipeline
 {
@@ -234,6 +235,9 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
             ExecutePhase(DrawPhase.Highlight);
             ExecutePhase(DrawPhase.Label);
 
+            // ── Decoration Phase（Annotation 装饰层）───
+            ExecuteDecorationPhase();
+
             // ── 拾取处理 ───
             // 收口策略：
             // - Tool 路由开启且 Tool 处于激活态时，仅走 Tool 入口，避免双通道重复处理；
@@ -280,10 +284,31 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
             foreach (var ctx in _drawList)
             {
                 if (!ctx.IsSelected) continue;
-                if (!_renderers.TryGetValue(ctx.Marker.GetType(), out var renderer)) continue;
+                
+                var renderer = GetRendererForMarker(ctx.Marker);
+                if (renderer == null) continue;
 
                 if (renderer.DrawInteractive(in ctx))
                     _interactiveSet.Add(ctx.Marker);
+            }
+        }
+
+        /// <summary>
+        /// Decoration 阶段——遍历 Marker 上的 MarkerAnnotation，调用 DrawGizmoDecoration。
+        /// <para>在 Label 阶段之后、拾取处理之前执行。</para>
+        /// </summary>
+        private static void ExecuteDecorationPhase()
+        {
+            foreach (var ctx in _drawList)
+            {
+                var annotations = MarkerCache.GetAnnotations(ctx.Marker);
+                for (int i = 0; i < annotations.Length; i++)
+                {
+                    if (annotations[i].HasGizmoDecoration)
+                    {
+                        annotations[i].DrawGizmoDecoration(ctx.IsSelected);
+                    }
+                }
             }
         }
 
@@ -291,7 +316,8 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
         {
             foreach (var ctx in _drawList)
             {
-                if (!_renderers.TryGetValue(ctx.Marker.GetType(), out var renderer))
+                var renderer = GetRendererForMarker(ctx.Marker);
+                if (renderer == null)
                     continue;
 
                 // Interactive 接管的标记跳过 Fill/Wireframe
@@ -318,6 +344,29 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
                         break;
                 }
             }
+        }
+
+        /// <summary>
+        /// 获取 Marker 的 Renderer（支持继承链查找）
+        /// </summary>
+        private static IMarkerGizmoRenderer? GetRendererForMarker(SceneMarker marker)
+        {
+            var markerType = marker.GetType();
+            
+            // 1. 精确匹配
+            if (_renderers.TryGetValue(markerType, out var renderer))
+                return renderer;
+            
+            // 2. 继承链查找（从子类向基类查找）
+            var currentType = markerType.BaseType;
+            while (currentType != null && typeof(SceneMarker).IsAssignableFrom(currentType))
+            {
+                if (_renderers.TryGetValue(currentType, out renderer))
+                    return renderer;
+                currentType = currentType.BaseType;
+            }
+            
+            return null;
         }
 
         // ─── 拾取 ───

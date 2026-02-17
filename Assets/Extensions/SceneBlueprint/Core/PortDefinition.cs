@@ -204,5 +204,69 @@ namespace SceneBlueprint.Core
                 Description = description
             };
         }
+
+        // ── 泛型重载版本（简化调用）──
+
+        /// <summary>
+        /// 创建数据输入端口（泛型版本）。
+        /// <para>
+        /// 使用示例：
+        /// <code>
+        /// Port.DataIn&lt;Vector3ArrayType&gt;("positions", "位置列表")
+        /// Port.DataIn&lt;MonsterConfigArrayType&gt;("monsters", "怪物配置", required: true)
+        /// </code>
+        /// </para>
+        /// </summary>
+        /// <typeparam name="TDataType">数据类型标记类（需标记 DataTypeAttribute）</typeparam>
+        /// <param name="id">端口 ID</param>
+        /// <param name="displayName">显示名</param>
+        /// <param name="required">是否必需，默认 false</param>
+        /// <param name="description">描述文本（可选）</param>
+        public static PortDefinition DataIn<TDataType>(string id, string displayName, 
+            bool required = false, string description = "")
+        {
+            var dataType = GetDataTypeId<TDataType>();
+            return DataIn(id, displayName, dataType, required, description);
+        }
+
+        /// <summary>
+        /// 创建数据输出端口（泛型版本）。
+        /// <para>
+        /// 使用示例：
+        /// <code>
+        /// Port.DataOut&lt;EntityRefArrayType&gt;("spawnedEntities", "已刷出实体")
+        /// Port.DataOut&lt;Vector3ArrayType&gt;("positions", "位置列表", "随机生成的位置")
+        /// </code>
+        /// </para>
+        /// </summary>
+        /// <typeparam name="TDataType">数据类型标记类（需标记 DataTypeAttribute）</typeparam>
+        /// <param name="id">端口 ID</param>
+        /// <param name="displayName">显示名</param>
+        /// <param name="description">描述文本（可选）</param>
+        public static PortDefinition DataOut<TDataType>(string id, string displayName, 
+            string description = "")
+        {
+            var dataType = GetDataTypeId<TDataType>();
+            return DataOut(id, displayName, dataType, description);
+        }
+
+        /// <summary>
+        /// 从泛型参数获取数据类型 ID
+        /// </summary>
+        private static string GetDataTypeId<TDataType>()
+        {
+            var type = typeof(TDataType);
+            var attr = (DataTypeAttribute?)System.Attribute.GetCustomAttribute(
+                type, typeof(DataTypeAttribute));
+
+            if (attr == null)
+            {
+                throw new System.InvalidOperationException(
+                    $"类型 {type.Name} 必须标记 [DataType] 特性");
+            }
+
+            return attr.TypeId;
+        }
     }
 }
+

@@ -86,6 +86,27 @@ namespace SceneBlueprint.Core.Export
 
         public string SourceSubGraph = "";
         public string SourceActionTypeId = "";
+
+        /// <summary>
+        /// 标注数据（由 MarkerAnnotation.CollectExportData 收集）。
+        /// <para>
+        /// 每个条目是一个 AnnotationTypeId → 属性字典的映射。
+        /// 例如 SpawnAnnotation 会写入 { "Spawn": { "monsterId": "skeleton", "level": 3 } }。
+        /// 无标注时为空数组。
+        /// </para>
+        /// </summary>
+        public AnnotationDataEntry[] Annotations = Array.Empty<AnnotationDataEntry>();
+    }
+
+    /// <summary>标注数据条目（一个 Annotation 组件的导出数据）</summary>
+    [Serializable]
+    public class AnnotationDataEntry
+    {
+        /// <summary>标注类型 ID（如 "Spawn", "Camera"）</summary>
+        public string TypeId = "";
+
+        /// <summary>标注属性（扁平化键值对）</summary>
+        public PropertyValue[] Properties = Array.Empty<PropertyValue>();
     }
 
     /// <summary>变量条目（黑板初始值，Phase 2+ 预留）</summary>

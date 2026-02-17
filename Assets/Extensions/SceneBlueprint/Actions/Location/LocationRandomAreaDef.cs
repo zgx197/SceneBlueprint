@@ -27,7 +27,8 @@ namespace SceneBlueprint.Actions.Location
             Ports = new[]
             {
                 // Provider 节点没有 Flow 端口，只有 Data 输出
-                Port.DataOut("positions", "位置列表", DataTypes.Vector3Array,
+                // 新 API：使用泛型版本，类型安全且简洁
+                Port.DataOut<Vector3ArrayType>("positions", "位置列表",
                     description: "在区域内随机生成的位置点列表")
             },
 

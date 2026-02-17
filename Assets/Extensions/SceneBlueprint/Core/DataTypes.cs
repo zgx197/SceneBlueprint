@@ -8,6 +8,10 @@ namespace SceneBlueprint.Core
     /// 用于 Data 端口的类型声明和连线验证。
     /// 这些常量确保类型字符串的一致性，避免拼写错误。
     /// </para>
+    /// <para>
+    /// 这些类型已在 <see cref="DataTypeRegistry"/> 中注册，
+    /// 支持类型兼容性检查和子类型验证。
+    /// </para>
     /// </summary>
     public static class DataTypes
     {

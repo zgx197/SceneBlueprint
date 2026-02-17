@@ -26,9 +26,9 @@ namespace SceneBlueprint.Actions.Monster
 
             Ports = new[]
             {
-                // Provider 节点只有 Data 输出
-                Port.DataOut("monsters", "怪物配置", DataTypes.MonsterConfigArray,
-                    description: "怪物配置列表，可被 Spawn 节点使用")
+                // Provider 节点没有 Flow 端口，只有 Data 输出
+                Port.DataOut<MonsterConfigArrayType>("monsters", "怪物列表",
+                    description: "根据选择模式生成的怪物配置列表")
             },
 
             Properties = new[]

@@ -84,8 +84,6 @@ namespace SceneBlueprint.Editor
             // SceneBlueprint.Core.PortDefinition.Kind 和 NodeGraph.Core.PortKind 使用相同的枚举值
             var kind = sbPort.Kind;
             var dataType = string.IsNullOrEmpty(sbPort.DataType) ? "exec" : sbPort.DataType;
-            
-            UnityEngine.Debug.Log($"[ActionNodeTypeAdapter] Converting port: {sbPort.Id}, Kind={sbPort.Kind} -> {kind}, DataType={dataType}");
 
             return new NGPortDef(
                 name: string.IsNullOrEmpty(sbPort.DisplayName) ? sbPort.Id : sbPort.DisplayName,

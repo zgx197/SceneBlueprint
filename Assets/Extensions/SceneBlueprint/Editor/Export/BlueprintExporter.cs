@@ -8,6 +8,8 @@ using SceneBlueprint.Core;
 using SceneBlueprint.Core.Export;
 using SceneBlueprint.Editor;
 using SceneBlueprint.Editor.Templates;
+using SceneBlueprint.Runtime.Markers;
+using SceneBlueprint.Runtime.Markers.Annotations;
 using SceneBlueprint.Runtime.Templates;
 
 namespace SceneBlueprint.Editor.Export
@@ -108,6 +110,9 @@ namespace SceneBlueprint.Editor.Export
                 messages,
                 exportOptions,
                 graph);
+
+            // ── Step 3.5: 收集 Annotation 数据（后处理）──
+            EnrichBindingsWithAnnotations(actions, registry, messages);
 
             // ── Step 4: 验证 ──
             Validate(graph, registry, actions, boundaryNodeIds, messages);
@@ -509,6 +514,100 @@ namespace SceneBlueprint.Editor.Export
         }
 
         // ══════════════════════════════════════
+        //  Annotation 数据收集（后处理）
+        // ══════════════════════════════════════
+
+        /// <summary>
+        /// 遍历所有 ActionEntry 的 SceneBindings，通过 StableObjectId（MarkerId）
+        /// 在场景中查找对应的 Marker，收集其上的 MarkerAnnotation 数据。
+        /// <para>
+        /// 特殊处理 AreaMarker 绑定：展开其子 PointMarker，为每个子点位生成
+        /// 独立的 SceneBindingEntry（含 Annotation 数据）。
+        /// </para>
+        /// </summary>
+        private static void EnrichBindingsWithAnnotations(
+            List<ActionEntry> actions,
+            ActionRegistry registry,
+            List<ValidationMessage> messages)
+        {
+            foreach (var action in actions)
+            {
+                if (action.SceneBindings.Length == 0) continue;
+
+                var expandedBindings = new List<SceneBindingEntry>();
+
+                foreach (var sb in action.SceneBindings)
+                {
+                    var markerId = sb.StableObjectId;
+                    if (string.IsNullOrEmpty(markerId))
+                    {
+                        expandedBindings.Add(sb);
+                        continue;
+                    }
+
+                    var marker = AnnotationExportHelper.FindMarkerById(markerId);
+                    if (marker == null)
+                    {
+                        expandedBindings.Add(sb);
+                        continue;
+                    }
+
+                    // ── AreaMarker：展开子 PointMarker ──
+                    if (marker is AreaMarker area)
+                    {
+                        var childPoints = AnnotationExportHelper.CollectChildPointMarkers(area);
+                        if (childPoints.Count == 0)
+                        {
+                            messages.Add(ValidationMessage.Warning(
+                                $"AreaMarker '{area.GetDisplayLabel()}' (ID: {area.MarkerId}) " +
+                                $"没有子 PointMarker (Action: {action.Id})"));
+                            expandedBindings.Add(sb);
+                        }
+                        else
+                        {
+                            // 为每个子 PointMarker 生成独立的 SceneBindingEntry
+                            foreach (var pm in childPoints)
+                            {
+                                var childSb = new SceneBindingEntry
+                                {
+                                    BindingKey = sb.BindingKey,
+                                    BindingType = "Transform",
+                                    SceneObjectId = pm.MarkerId,
+                                    StableObjectId = pm.MarkerId,
+                                    AdapterType = sb.AdapterType,
+                                    SpatialPayloadJson = sb.SpatialPayloadJson,
+                                    SourceSubGraph = sb.SourceSubGraph,
+                                    SourceActionTypeId = sb.SourceActionTypeId,
+                                    Annotations = AnnotationExportHelper.CollectAnnotations(
+                                        pm, action.TypeId)
+                                };
+                                expandedBindings.Add(childSb);
+                            }
+
+                            messages.Add(ValidationMessage.Info(
+                                $"AreaMarker '{area.GetDisplayLabel()}' 展开为 {childPoints.Count} 个子点位 " +
+                                $"(Action: {action.Id})"));
+                        }
+                    }
+                    // ── PointMarker：直接收集 Annotation ──
+                    else if (marker is PointMarker pm)
+                    {
+                        sb.Annotations = AnnotationExportHelper.CollectAnnotations(
+                            pm, action.TypeId);
+                        expandedBindings.Add(sb);
+                    }
+                    else
+                    {
+                        // 其他 Marker 类型：原样保留
+                        expandedBindings.Add(sb);
+                    }
+                }
+
+                action.SceneBindings = expandedBindings.ToArray();
+            }
+        }
+
+        // ══════════════════════════════════════
         //  验证
         // ══════════════════════════════════════
 
@@ -686,12 +785,13 @@ namespace SceneBlueprint.Editor.Export
         }
 
         /// <summary>将 ValidationSeverity 转为 ValidationMessage</summary>
-        private static ValidationMessage ToMessage(SceneBlueprint.Runtime.Templates.ValidationSeverity severity, string msg)
+        private static ValidationMessage ToMessage(Core.ValidationSeverity severity, string msg)
         {
             return severity switch
             {
-                SceneBlueprint.Runtime.Templates.ValidationSeverity.Error => ValidationMessage.Error(msg),
-                SceneBlueprint.Runtime.Templates.ValidationSeverity.Warning => ValidationMessage.Warning(msg),
+                Core.ValidationSeverity.Error => ValidationMessage.Error(msg),
+                Core.ValidationSeverity.Warning => ValidationMessage.Warning(msg),
+                Core.ValidationSeverity.Info => ValidationMessage.Info(msg),
                 _ => ValidationMessage.Info(msg)
             };
         }

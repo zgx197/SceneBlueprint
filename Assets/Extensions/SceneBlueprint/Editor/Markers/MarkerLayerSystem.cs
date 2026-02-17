@@ -32,8 +32,7 @@ namespace SceneBlueprint.Editor.Markers
     /// 由 <see cref="MarkerLayerOverlay"/> 提供 UI 控制。
     /// </para>
     /// <para>
-    /// 图层由 Tag 前缀自动映射：
-    /// Combat → 红色, Trigger → 蓝色, Environment → 黄色, Camera → 绿色, Narrative → 紫色
+    /// 图层由 Tag 前缀自动映射。未分类的标记默认可见。
     /// </para>
     /// </summary>
     public static class MarkerLayerSystem
@@ -42,11 +41,7 @@ namespace SceneBlueprint.Editor.Markers
 
         public static readonly MarkerLayer[] Layers = new[]
         {
-            new MarkerLayer("Combat",      "战斗",   new Color(0.9f, 0.2f, 0.2f), "●"),
-            new MarkerLayer("Trigger",     "触发",   new Color(0.2f, 0.5f, 0.9f), "●"),
-            new MarkerLayer("Environment", "环境",   new Color(0.9f, 0.8f, 0.2f), "●"),
-            new MarkerLayer("Camera",      "摄像机", new Color(0.2f, 0.8f, 0.4f), "●"),
-            new MarkerLayer("Narrative",   "叙事",   new Color(0.7f, 0.3f, 0.8f), "●"),
+            new MarkerLayer("Preview", "预览", new Color(0.3f, 1.0f, 0.3f), "●"),
         };
 
         // ─── 可见性状态（按图层 Id 索引） ───
@@ -147,5 +142,8 @@ namespace SceneBlueprint.Editor.Markers
                 _visibility[key] = false;
             UnityEditor.SceneView.RepaintAll();
         }
+
+        /// <summary>查询预览图层是否可见</summary>
+        public static bool IsPreviewVisible() => IsLayerVisible("Preview");
     }
 }

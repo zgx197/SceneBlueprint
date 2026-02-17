@@ -1,11 +1,11 @@
 # SceneMarker 系统设计
 
-> 版本：v0.3  
-> 日期：2026-02-14  
-> 状态：核心功能已实现（标记体系 + Gizmo 管线 + 绑定系统 + 双向联动 + 日志系统 + 标记定义注册表）  
-> 关联：[场景蓝图系统总体设计](场景蓝图系统总体设计.md) — Phase 4B-2 / Phase 5
+> 版本：v0.4  
+> 日期：2026-02-17  
+> 状态：核心功能已实现（标记体系 + Gizmo 管线 + 绑定系统 + 双向联动 + 日志系统 + 标记定义注册表 + **标记标注系统**）  
+> 关联：[场景蓝图系统总体设计](场景蓝图系统总体设计.md)、[标记标注系统设计](标记标注系统设计.md)  
 > doc_status: active  
-> last_reviewed: 2026-02-15
+> last_reviewed: 2026-02-17
 
 ---
 
@@ -531,7 +531,13 @@ Assets/Extensions/SceneBlueprint/
   │   │   ├── SceneMarker.cs                     ← 抽象基类（MarkerTypeId 字符串属性）
   │   │   ├── PointMarker.cs
   │   │   ├── AreaMarker.cs
-  │   │   └── EntityMarker.cs
+  │   │   ├── EntityMarker.cs
+  │   │   └── Annotations/                       ← 标记标注系统（v0.4 新增）
+  │   │       ├── MarkerAnnotation.cs            ← 标注抽象基类
+  │   │       ├── InitialBehavior.cs             ← 怪物初始行为枚举
+  │   │       ├── SpawnAnnotation.cs             ← 刷怪标注（MonsterId/Level/Behavior/GuardRadius）
+  │   │       ├── CameraAnnotation.cs            ← 摄像机标注（FOV/Transition/Easing）
+  │   │       └── CameraEasing.cs               ← （定义在 CameraAnnotation.cs 内）
   │   └── ...
   │
   ├── Editor/
@@ -570,6 +576,18 @@ Assets/Extensions/SceneBlueprint/
   │   │   │   ├── AreaMarkerRenderer.cs
   │   │   │   └── EntityMarkerRenderer.cs
   │   │   │
+  │   │   ├── Annotations/                       ← 标注定义注册表（v0.4 新增）
+  │   │   │   ├── AnnotationDefinition.cs        ← 标注元数据
+  │   │   │   ├── IAnnotationDefinitionProvider.cs ← 接口 + [AnnotationDef] 属性
+  │   │   │   ├── AnnotationDefinitionRegistry.cs ← AutoDiscover 注册表
+  │   │   │   └── Definitions/
+  │   │   │       ├── SpawnAnnotationDef.cs      ← 刷怪标注定义
+  │   │   │       └── CameraAnnotationDef.cs     ← 摄像机标注定义
+  │   │   │
+  │   │   ├── Tools/                             ← 标记编辑工具
+  │   │   │   ├── AreaMarkerEditor.cs            ← AreaMarker Inspector（含位置生成 + 自动标注）
+  │   │   │   └── PositionGenerator.cs           ← 位置生成算法
+  │   │   │
   │   │   ├── MarkerGizmoDrawer.cs               ← 遗留兼容（仅保留 GetMarkerColor）
   │   │   ├── MarkerLayerSystem.cs               ← 图层系统
   │   │   ├── MarkerLayerOverlay.cs              ← Scene View 图层面板
@@ -579,7 +597,8 @@ Assets/Extensions/SceneBlueprint/
   │   │   └── SceneMarkerSelectionBridge.cs      ← 双向联动事件桥
   │   │
   │   ├── Export/
-  │   │   ├── BlueprintExporter.cs               ← 导出器（合并 SO + Manager）
+  │   │   ├── BlueprintExporter.cs               ← 导出器（合并 SO + Manager + Annotation 后处理）
+  │   │   ├── AnnotationExportHelper.cs          ← Annotation 导出辅助（v0.4 新增）
   │   │   └── BlueprintSerializer.cs
   │   └── ...
   │
@@ -630,6 +649,41 @@ Assets/Extensions/SceneBlueprint/
   ❌ M16. 遭遇模板资产：EncounterTemplate (SO) 存储标记布局 + 子蓝图模板
   ❌ M17. 模板库面板 + 拖拽实例化
   ❌ M18. 空间热力图：事件密度可视化叠加层
+```
+
+### 标记标注系统 ✅（2026-02-17 完成）
+
+> 详细设计见 [标记标注系统设计](标记标注系统设计.md)
+
+```
+已完成步骤（Phase 1~6，共 21 步）：
+  ✅ 基础框架：MarkerAnnotation 抽象基类 + SpawnAnnotation + InitialBehavior 枚举
+  ✅ 注册表：AnnotationDefinitionRegistry（AutoDiscover，复用 MarkerDefinitionRegistry 模式）
+  ✅ Gizmo 集成：MarkerCache 缓存 Annotation + Decoration 阶段 + 颜色覆盖优先级
+  ✅ 位置生成工具：AreaMarkerEditor 自动添加标注选项（从 Registry 动态获取）
+  ✅ 导出集成：SceneBindingEntry.Annotations + AnnotationExportHelper + AreaMarker 展开子点位
+  ✅ 扩展验证：CameraAnnotation（FOV/过渡/缓动 + 视锥线框 Gizmo）
+
+新增文件清单：
+  Runtime/Markers/Annotations/MarkerAnnotation.cs      ← 标注抽象基类
+  Runtime/Markers/Annotations/InitialBehavior.cs       ← 怪物初始行为枚举
+  Runtime/Markers/Annotations/SpawnAnnotation.cs       ← 刷怪标注
+  Runtime/Markers/Annotations/CameraAnnotation.cs      ← 摄像机标注
+  Editor/Markers/Annotations/AnnotationDefinition.cs   ← 标注元数据
+  Editor/Markers/Annotations/IAnnotationDefinitionProvider.cs ← 接口 + Attribute
+  Editor/Markers/Annotations/AnnotationDefinitionRegistry.cs  ← AutoDiscover 注册表
+  Editor/Markers/Annotations/Definitions/SpawnAnnotationDef.cs
+  Editor/Markers/Annotations/Definitions/CameraAnnotationDef.cs
+  Editor/Export/AnnotationExportHelper.cs               ← Annotation 导出辅助
+
+修改文件清单：
+  Editor/Markers/Pipeline/MarkerCache.cs               ← 新增 _annotationCache + GetAnnotations()
+  Editor/Markers/Pipeline/GizmoStyleConstants.cs       ← 颜色覆盖优先级
+  Editor/Markers/Pipeline/GizmoRenderPipeline.cs       ← 新增 ExecuteDecorationPhase
+  Editor/Markers/Tools/AreaMarkerEditor.cs             ← 自动添加标注选项
+  Editor/Export/BlueprintExporter.cs                   ← EnrichBindingsWithAnnotations 后处理
+  Core/Export/SceneBlueprintData.cs                    ← AnnotationDataEntry
+  Actions/Spawn/SpawnPresetDef.cs                      ← 双绑定槽
 ```
 
 ---

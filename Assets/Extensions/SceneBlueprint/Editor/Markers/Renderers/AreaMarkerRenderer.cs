@@ -1,11 +1,14 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEditor;
 using UnityEditor.IMGUI.Controls;
+using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Runtime.Markers;
 using SceneBlueprint.Editor.Markers.Pipeline;
+using SceneBlueprint.Editor.Preview;
 
 namespace SceneBlueprint.Editor.Markers.Renderers
 {
@@ -349,10 +352,139 @@ namespace SceneBlueprint.Editor.Markers.Renderers
             Handles.SphereHandleCap(0, center, Quaternion.identity, glowRadius * 2f, EventType.Repaint);
         }
 
+        /// <summary>
+        /// 绘制 Blueprint 预览（位置点、路径等）
+        /// </summary>
+        private void DrawBlueprintPreview(in GizmoDrawContext ctx)
+        {
+            // 检查预览图层是否可见
+            if (!MarkerLayerSystem.IsPreviewVisible())
+                return;
+
+            // 获取当前 Blueprint 的所有预览
+            var previews = BlueprintPreviewManager.Instance.GetCurrentBlueprintPreviews();
+            int previewCount = previews.Count();
+            SBLog.Debug(
+                SBLogTags.Pipeline,
+                "DrawBlueprintPreview: marker={0}, previewCount={1}",
+                ctx.Marker.MarkerId,
+                previewCount);
+            
+            foreach (var preview in previews)
+            {
+                // 只绘制属于当前 Marker 的预览
+                if (ctx.Marker.MarkerId != preview.SourceMarkerId)
+                    continue;
+                
+                // 根据预览类型绘制
+                if (preview.PreviewType == PreviewType.SpawnPositions && preview.Positions != null)
+                {
+                    DrawSpawnPositionsPreview(preview.Positions);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 绘制生成位置预览
+        /// </summary>
+        private void DrawSpawnPositionsPreview(Vector3[] positions)
+        {
+            if (positions == null || positions.Length == 0) return;
+
+            var cubeSize = Vector3.one * 0.5f;
+            var cubeColor = new Color(0.3f, 1f, 0.3f, 0.4f); // 绿色半透明
+            var lineColor = new Color(0.3f, 1f, 0.3f, 0.8f);
+
+            // 1. 绘制立方体
+            for (int i = 0; i < positions.Length; i++)
+            {
+                var pos = positions[i];
+
+                // 填充立方体
+                Handles.color = cubeColor;
+                DrawCubeFilled(pos, cubeSize);
+
+                // 线框
+                Handles.color = lineColor;
+                DrawCubeWireframe(pos, cubeSize);
+            }
+
+            // 2. 连接线（虚线）
+            if (positions.Length > 1)
+            {
+                Handles.color = lineColor;
+                for (int i = 0; i < positions.Length - 1; i++)
+                {
+                    DrawDashedLine(positions[i], positions[i + 1], 3f);
+                }
+            }
+
+            // 3. 序号标签
+            for (int i = 0; i < positions.Length; i++)
+            {
+                var labelPos = positions[i] + Vector3.up * 0.7f;
+                GizmoLabelUtil.DrawCustomLabel($"#{i + 1}", labelPos, Color.white, 10);
+            }
+
+            SBLog.Debug(
+                SBLogTags.Pipeline,
+                "DrawSpawnPositionsPreview: count={0}",
+                positions.Length);
+        }
+
+        /// <summary>
+        /// 绘制填充立方体
+        /// </summary>
+        private void DrawCubeFilled(Vector3 center, Vector3 size)
+        {
+            var half = size * 0.5f;
+            var matrix = Handles.matrix;
+            Handles.matrix = Matrix4x4.TRS(center, Quaternion.identity, Vector3.one);
+
+            DrawAllBoxFaces(size, Handles.color);
+
+            Handles.matrix = matrix;
+        }
+
+        /// <summary>
+        /// 绘制立方体线框
+        /// </summary>
+        private void DrawCubeWireframe(Vector3 center, Vector3 size)
+        {
+            var matrix = Handles.matrix;
+            Handles.matrix = Matrix4x4.TRS(center, Quaternion.identity, Vector3.one);
+
+            DrawBoxWireLines(size, Handles.color);
+
+            Handles.matrix = matrix;
+        }
+
+        /// <summary>
+        /// 绘制虚线
+        /// </summary>
+        private void DrawDashedLine(Vector3 from, Vector3 to, float dashSize)
+        {
+            var dir = to - from;
+            var distance = dir.magnitude;
+            var dashCount = Mathf.CeilToInt(distance / dashSize);
+
+            for (int i = 0; i < dashCount; i += 2)
+            {
+                var t0 = i / (float)dashCount;
+                var t1 = Mathf.Min((i + 1) / (float)dashCount, 1f);
+                Handles.DrawLine(
+                    Vector3.Lerp(from, to, t0),
+                    Vector3.Lerp(from, to, t1));
+            }
+        }
+
         // ─── Phase 5: Label ───
 
         public void DrawLabel(in GizmoDrawContext ctx)
         {
+            // 预览应独立于“高亮态”存在，避免首次绑定后必须重选节点才可见。
+            DrawBlueprintPreview(ctx);
+
             var am = (AreaMarker)ctx.Marker;
             var labelPos = am.GetRepresentativePosition() + Vector3.up * (am.Height + 0.5f);
             GizmoLabelUtil.DrawStandardLabel(ctx.Marker, labelPos, ctx.EffectiveColor);

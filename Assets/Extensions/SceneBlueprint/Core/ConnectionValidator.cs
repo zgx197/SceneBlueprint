@@ -42,6 +42,7 @@ namespace SceneBlueprint.Core
     public enum ValidationSeverity
     {
         None,
+        Info,
         Warning,
         Error
     }
@@ -104,27 +105,15 @@ namespace SceneBlueprint.Core
         }
 
         /// <summary>
-        /// 检查两个数据类型是否兼容
+        /// 检查两个数据类型是否兼容（使用 DataTypeRegistry 支持子类型检查）
         /// </summary>
         /// <param name="sourceType">源类型</param>
         /// <param name="targetType">目标类型</param>
         /// <returns>是否兼容</returns>
         public bool IsTypeCompatible(string sourceType, string targetType)
         {
-            // 精确匹配
-            if (sourceType == targetType)
-                return true;
-
-            // 空类型检查
-            if (string.IsNullOrEmpty(sourceType) || string.IsNullOrEmpty(targetType))
-                return false;
-
-            // 未来扩展：子类型检查
-            // 例如：MonsterConfig 是 UnitConfig 的子类型
-            // if (IsSubTypeOf(sourceType, targetType))
-            //     return true;
-
-            return false;
+            // 使用 DataTypeRegistry 进行兼容性检查（支持子类型）
+            return DataTypeRegistry.Instance.IsCompatible(sourceType, targetType);
         }
 
         /// <summary>

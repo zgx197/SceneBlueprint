@@ -114,22 +114,29 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
 
         // ─── 颜色工具方法 ───
 
-        /// <summary>根据标记的 Tag 前缀获取图层颜色</summary>
+        /// <summary>
+        /// 根据标记获取 Gizmo 颜色。
+        /// <para>
+        /// 优先级：Marker 自定义颜色 > Annotation 覆盖色 > 默认颜色
+        /// </para>
+        /// </summary>
         public static Color GetLayerColor(SceneMarker marker)
         {
-            // 优先级：Marker 自定义颜色 > 图层颜色 > 默认颜色。
+            // 1. Marker 自定义颜色（最高优先级）
             if (marker.UseCustomGizmoColor)
                 return marker.CustomGizmoColor;
 
-            return marker.GetLayerPrefix() switch
+            // 2. Annotation 颜色覆盖（取第一个非 null 的）
+            var annotations = MarkerCache.GetAnnotations(marker);
+            for (int i = 0; i < annotations.Length; i++)
             {
-                "Combat"      => CombatColor,
-                "Trigger"     => TriggerColor,
-                "Environment" => EnvironmentColor,
-                "Camera"      => CameraColor,
-                "Narrative"   => NarrativeColor,
-                _             => DefaultColor,
-            };
+                var colorOverride = annotations[i].GetGizmoColorOverride();
+                if (colorOverride.HasValue)
+                    return colorOverride.Value;
+            }
+
+            // 3. 默认颜色
+            return DefaultColor;
         }
 
         /// <summary>将颜色加亮（用于高亮效果）</summary>

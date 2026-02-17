@@ -1,5 +1,6 @@
 #nullable enable
 using UnityEngine;
+using SceneBlueprint.Core;
 
 namespace SceneBlueprint.Runtime.Templates
 {
@@ -16,16 +17,6 @@ namespace SceneBlueprint.Runtime.Templates
 
         /// <summary>子蓝图内至少 N 个节点</summary>
         MinNodesInSubGraph,
-    }
-
-    /// <summary>
-    /// 验证严重级别。
-    /// </summary>
-    public enum ValidationSeverity
-    {
-        Info,
-        Warning,
-        Error
     }
 
     /// <summary>

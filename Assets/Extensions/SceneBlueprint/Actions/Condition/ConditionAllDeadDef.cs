@@ -26,13 +26,13 @@ namespace SceneBlueprint.Actions.Condition
 
             Ports = new[]
             {
-                // === Data 输入端口（必需）===
-                Port.DataIn("entities", "监听实体", DataTypes.EntityRefArray,
+                // Data 输入：监听的实体列表
+                Port.DataIn<EntityRefArrayType>("entities", "监听实体",
                     required: true,
-                    description: "要监听的实体列表，通常来自 Spawn.Execute 的输出"),
+                    description: "要监听的实体引用列表，通常来自 Spawn.Execute 节点"),
 
-                // === Event 输出端口 ===
-                Port.Event("onAllDead", "全部死亡时")
+                // Event 输出：全部死亡时触发
+                Port.Event("onAllDead", "全部死亡")
             },
 
             Properties = new[]
