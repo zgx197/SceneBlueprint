@@ -4,10 +4,10 @@ using NodeGraph.Core;
 namespace SceneBlueprint.Core
 {
     /// <summary>
-    /// 场景对象代理节点数据——代表场景中的标记或标记组。
+    /// 场景对象代理节点数据——代表场景中的标记。
     /// <para>
     /// SceneObjectProxy 是一种特殊节点，不是 Action，而是场景对象在图中的"影子"。
-    /// 它的作用是让场景对象（Marker/MarkerGroup）可以在图中被可视化，并通过连线与 Action 节点绑定。
+    /// 它的作用是让场景对象（Marker）可以在图中被可视化，并通过连线与 Action 节点绑定。
     /// </para>
     /// <para>
     /// 设计原则：
@@ -19,7 +19,7 @@ namespace SceneBlueprint.Core
     public class SceneObjectProxyData : INodeData
     {
         /// <summary>
-        /// 场景对象类型（Marker/MarkerGroup/Area 等）
+        /// 场景对象类型（Point/Area/Entity 等）
         /// </summary>
         public string ObjectType { get; set; } = "";
 

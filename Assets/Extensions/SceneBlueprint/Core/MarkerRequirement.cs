@@ -13,20 +13,14 @@ namespace SceneBlueprint.Core
     ///   <item>多步创建流程：按声明顺序引导设计师逐步放置标记</item>
     /// </list>
     /// </para>
-    /// <para>
-    /// 标记的创建参数（显示名称、颜色、尺寸等）由 <c>MarkerPresetSO</c> 统一管理。
-    /// 通过 <see cref="PresetId"/> 引用预设，实现"声明与创建配置分离"。
-    /// </para>
     /// </summary>
     /// <example>
     /// <code>
-    /// // Spawn Action 声明需要一个区域和多个点位
+    /// // Spawn.Preset 声明需要一个刷怪区域
     /// SceneRequirements = new[]
     /// {
     ///     new MarkerRequirement("spawnArea", MarkerTypeIds.Area,
-    ///         presetId: "Combat.SpawnArea", required: true),
-    ///     new MarkerRequirement("spawnPoints", MarkerTypeIds.Point,
-    ///         presetId: "Combat.SpawnPoint", allowMultiple: true, minCount: 1),
+    ///         required: true, displayName: "刷怪区域"),
     /// };
     /// </code>
     /// </example>
@@ -34,25 +28,16 @@ namespace SceneBlueprint.Core
     {
         /// <summary>
         /// 绑定键名——与 <see cref="PropertyDefinition.Key"/> 类似，作为绑定映射的 key。
-        /// <para>如 "spawnArea", "spawnPoints", "cameraPosition"</para>
+        /// <para>如 "spawnArea", "triggerArea", "cameraPosition"</para>
         /// </summary>
         public string BindingKey { get; set; } = "";
 
         /// <summary>
         /// 需要的标记类型 ID——对应 <see cref="MarkerTypeIds"/> 中定义的常量，
         /// 也可以是自定义的字符串 ID。
-        /// <para>如 "Point", "Area", "Entity", "Path"</para>
+        /// <para>如 "Point", "Area"</para>
         /// </summary>
         public string MarkerTypeId { get; set; } = "";
-
-        /// <summary>
-        /// 引用的标记预设 ID——对应 <c>MarkerPresetSO.PresetId</c>。
-        /// <para>
-        /// 创建标记时从预设读取显示名称、颜色、尺寸等配置。
-        /// 为空时回退到基础标记类型的默认行为。
-        /// </para>
-        /// </summary>
-        public string PresetId { get; set; } = "";
 
         /// <summary>
         /// 是否必需——未绑定时显示警告，阻止导出
@@ -69,54 +54,30 @@ namespace SceneBlueprint.Core
         /// </summary>
         public int MinCount { get; set; }
 
-        // ── 向后兼容字段（PresetId 为空时回退使用） ──
-
-        /// <summary>
-        /// [向后兼容] 显示名称——优先使用 PresetSO.DisplayName，无预设时回退到此字段。
-        /// </summary>
+        /// <summary>显示名称（用于 Inspector 和验证信息）</summary>
         public string DisplayName { get; set; } = "";
 
-        /// <summary>
-        /// [向后兼容] 默认 Tag——优先使用 PresetSO.DefaultTag，无预设时回退到此字段。
-        /// </summary>
+        /// <summary>默认 Tag（创建标记时的默认分类标签）</summary>
         public string DefaultTag { get; set; } = "";
 
         /// <summary>无参构造函数（序列化需要）</summary>
         public MarkerRequirement() { }
 
-        /// <summary>推荐构造函数——使用 PresetId 引用预设</summary>
         public MarkerRequirement(
             string bindingKey,
             string markerTypeId,
-            string presetId = "",
-            bool required = false,
-            bool allowMultiple = false,
-            int minCount = 0)
-        {
-            BindingKey = bindingKey;
-            MarkerTypeId = markerTypeId;
-            PresetId = presetId;
-            Required = required;
-            AllowMultiple = allowMultiple;
-            MinCount = minCount;
-        }
-
-        /// <summary>[向后兼容] 旧构造函数——displayName 和 defaultTag 直接嵌入</summary>
-        public MarkerRequirement(
-            string bindingKey,
-            string markerTypeId,
-            string displayName,
             bool required = false,
             bool allowMultiple = false,
             int minCount = 0,
+            string displayName = "",
             string defaultTag = "")
         {
             BindingKey = bindingKey;
             MarkerTypeId = markerTypeId;
-            DisplayName = displayName;
             Required = required;
             AllowMultiple = allowMultiple;
             MinCount = minCount;
+            DisplayName = displayName;
             DefaultTag = defaultTag;
         }
     }

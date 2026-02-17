@@ -1,0 +1,126 @@
+#nullable enable
+using System.Collections.Generic;
+using SceneBlueprint.Core.Export;
+using UnityEngine;
+
+namespace SceneBlueprint.Runtime.Interpreter.Systems
+{
+    /// <summary>
+    /// 转换系统——负责端口事件路由和下游节点激活。
+    /// <para>
+    /// 核心职责：
+    /// 1. 扫描所有 Completed 状态的 Action，根据 Transition 表生成 PortEvent
+    /// 2. 消费 PendingEvents 队列，激活目标 Action（Idle → Running）
+    /// 3. 评估 Transition 上的 Condition（Phase 1 仅支持 Immediate）
+    /// </para>
+    /// <para>
+    /// 执行顺序：Order = 900（在所有业务 System 之后执行）。
+    /// 原因：业务 System 在本帧可能把 Action 标记为 Completed，
+    /// TransitionSystem 需要在同一帧内捕获并路由到下游，避免遗漏。
+    /// </para>
+    /// <para>
+    /// 对齐 FrameSyncEngine 的信号传播机制：
+    /// 类似于帧同步中 Signal/Event 的帧内路由。
+    /// </para>
+    /// </summary>
+    public class TransitionSystem : BlueprintSystemBase
+    {
+        public override string Name => "TransitionSystem";
+        public override int Order => 900; // 在所有业务 System 之后执行
+
+        // 临时列表，避免每帧分配
+        private readonly List<PortEvent> _newEvents = new();
+
+        public override void Update(BlueprintFrame frame)
+        {
+            // ── 阶段1：扫描 Completed Action → 生成 PortEvent ──
+            _newEvents.Clear();
+
+            // CustomInt == 1 表示该 Completed Action 已经传播过出边，不再重复处理
+            for (int i = 0; i < frame.States.Length; i++)
+            {
+                if (frame.States[i].Phase != ActionPhase.Completed)
+                    continue;
+
+                if (frame.States[i].CustomInt == 1)
+                    continue; // 已传播过，跳过
+
+                // 标记为已传播
+                frame.States[i].CustomInt = 1;
+
+                // 获取该 Action 的所有出边 Transition
+                var transitionIndices = frame.GetOutgoingTransitionIndices(i);
+                for (int t = 0; t < transitionIndices.Count; t++)
+                {
+                    var transition = frame.Transitions[transitionIndices[t]];
+
+                    // Phase 1：仅处理 Immediate 条件（默认条件）
+                    if (!EvaluateCondition(transition.Condition, frame))
+                        continue;
+
+                    // 查找目标 Action 索引
+                    var toIndex = frame.GetActionIndex(transition.ToActionId);
+                    if (toIndex < 0)
+                    {
+                        Debug.LogWarning($"[TransitionSystem] 目标 Action 未找到: {transition.ToActionId}");
+                        continue;
+                    }
+
+                    _newEvents.Add(new PortEvent(i, transition.FromPortId, toIndex, transition.ToPortId));
+                }
+            }
+
+            // 将新事件合入 PendingEvents
+            if (_newEvents.Count > 0)
+            {
+                frame.PendingEvents.AddRange(_newEvents);
+            }
+
+            // ── 阶段2：消费 PendingEvents → 激活目标 Action ──
+            for (int i = 0; i < frame.PendingEvents.Count; i++)
+            {
+                var evt = frame.PendingEvents[i];
+                ref var targetState = ref frame.States[evt.ToActionIndex];
+
+                // 只激活 Idle 状态的 Action（避免重复激活）
+                if (targetState.Phase == ActionPhase.Idle)
+                {
+                    targetState.Phase = ActionPhase.Running;
+                    targetState.TicksInPhase = 0;
+
+                    var typeId = frame.GetTypeId(evt.ToActionIndex);
+                    Debug.Log($"[TransitionSystem] 激活: {typeId} (index={evt.ToActionIndex}) ← {evt}");
+                }
+            }
+
+            // 清空已消费的事件
+            frame.ClearEvents();
+        }
+
+        /// <summary>
+        /// 评估 Transition 条件。
+        /// Phase 1 仅支持 Immediate（始终通过）；后续扩展 Delay、Expression 等。
+        /// </summary>
+        private static bool EvaluateCondition(ConditionData? condition, BlueprintFrame frame)
+        {
+            if (condition == null) return true;
+
+            switch (condition.Type)
+            {
+                case "Immediate":
+                case "":
+                    return true;
+
+                // Phase 2+ 扩展：
+                // case "Delay":     return frame.TickCount >= delayTicks;
+                // case "Expression": return EvaluateExpression(condition.Expression, frame);
+                // case "AllOf":     return condition.Children.All(c => EvaluateCondition(c, frame));
+                // case "AnyOf":     return condition.Children.Any(c => EvaluateCondition(c, frame));
+
+                default:
+                    Debug.LogWarning($"[TransitionSystem] 未支持的条件类型: {condition.Type}，默认通过");
+                    return true;
+            }
+        }
+    }
+}

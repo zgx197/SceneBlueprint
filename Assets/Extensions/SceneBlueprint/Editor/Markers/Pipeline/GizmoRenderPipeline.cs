@@ -48,7 +48,6 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
 
         // ─── 每帧复用的列表（避免 GC）───
         private static readonly List<GizmoDrawContext> _drawList = new();
-        private static readonly HashSet<SceneMarker> _interactiveSet = new();
 
         // ─── 交互服务（M2 拆分）───
         private static readonly IMarkerHitTestService _hitTestService = new DefaultMarkerHitTestService();
@@ -224,14 +223,11 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
                 return;
             }
 
-            // ── Phase 3 Interactive 先行执行（记录接管标记集合）───
-            _interactiveSet.Clear();
-            ExecuteInteractivePhase();
-
             // ── 按 Phase 顺序绘制 ───
             ExecutePhase(DrawPhase.Fill);
             ExecutePhase(DrawPhase.Wireframe);
             ExecutePhase(DrawPhase.Icon);
+            ExecuteInteractivePhase();
             ExecutePhase(DrawPhase.Highlight);
             ExecutePhase(DrawPhase.Label);
 
@@ -288,8 +284,7 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
                 var renderer = GetRendererForMarker(ctx.Marker);
                 if (renderer == null) continue;
 
-                if (renderer.DrawInteractive(in ctx))
-                    _interactiveSet.Add(ctx.Marker);
+                renderer.DrawInteractive(in ctx);
             }
         }
 
@@ -318,11 +313,6 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
             {
                 var renderer = GetRendererForMarker(ctx.Marker);
                 if (renderer == null)
-                    continue;
-
-                // Interactive 接管的标记跳过 Fill/Wireframe
-                if (_interactiveSet.Contains(ctx.Marker)
-                    && (phase == DrawPhase.Fill || phase == DrawPhase.Wireframe))
                     continue;
 
                 switch (phase)
@@ -442,9 +432,6 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
                         bounds.Encapsulate(bounds.center + Vector3.up * am.Height);
                         return bounds;
                     }
-
-                case EntityMarker:
-                    return new Bounds(pos, Vector3.one * 2f);
 
                 default:
                     return new Bounds(pos, Vector3.one * 2f);

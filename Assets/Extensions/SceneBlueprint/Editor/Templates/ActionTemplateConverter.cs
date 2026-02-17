@@ -211,43 +211,14 @@ namespace SceneBlueprint.Editor.Templates
 
         private static MarkerRequirement ConvertRequirement(ActionTemplateSO.SceneRequirementEntry r)
         {
-            // 优先使用 PresetRef.PresetId；若 PresetRef 存在但 PresetId 为空，
-            // 回退到兼容字段，避免丢失旧数据链路。
-            if (r.PresetRef != null && !string.IsNullOrWhiteSpace(r.PresetRef.PresetId))
-            {
-                return new MarkerRequirement(
-                    bindingKey: r.BindingKey,
-                    markerTypeId: r.MarkerTypeId,
-                    presetId: r.PresetRef.PresetId,
-                    required: r.Required,
-                    allowMultiple: r.AllowMultiple,
-                    minCount: r.MinCount);
-            }
-
-            string fallbackDisplayName = r.DisplayName;
-            string fallbackDefaultTag = r.DefaultTag;
-
-            if (r.PresetRef != null)
-            {
-                // PresetRef 存在但 PresetId 为空时，尽量从预设本体补全旧字段，
-                // 保持向后兼容的创建体验。
-                if (string.IsNullOrWhiteSpace(fallbackDisplayName))
-                    fallbackDisplayName = string.IsNullOrWhiteSpace(r.PresetRef.DisplayName)
-                        ? r.PresetRef.NamePrefix
-                        : r.PresetRef.DisplayName;
-
-                if (string.IsNullOrWhiteSpace(fallbackDefaultTag))
-                    fallbackDefaultTag = r.PresetRef.DefaultTag;
-            }
-
             return new MarkerRequirement(
                 bindingKey: r.BindingKey,
                 markerTypeId: r.MarkerTypeId,
-                displayName: fallbackDisplayName,
                 required: r.Required,
                 allowMultiple: r.AllowMultiple,
                 minCount: r.MinCount,
-                defaultTag: fallbackDefaultTag);
+                displayName: r.DisplayName,
+                defaultTag: r.DefaultTag);
         }
     }
 }

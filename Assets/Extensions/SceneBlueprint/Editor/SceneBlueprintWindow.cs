@@ -47,7 +47,10 @@ namespace SceneBlueprint.Editor
         private ActionNodeInspectorDrawer? _inspectorDrawer;
 
         // ── 蓝图资产 ──
-        private BlueprintAsset? _currentAsset;
+        [SerializeField] private BlueprintAsset? _currentAsset;
+
+        // ── Domain Reload 恢复 ──
+        [SerializeField] private string _graphJsonBeforeReload = "";
 
         // ── 场景绑定 ──
         private BindingContext? _bindingContext;
@@ -63,8 +66,6 @@ namespace SceneBlueprint.Editor
         private const float SplitterWidth = 4f;
         private const float MinCanvasWidth = 260f;
         private const int MaxIssueRenderCount = 300;
-        private const int MaxRelationGroupRenderCount = 200;
-        private const int MaxRelationUsageRenderCountPerGroup = 120;
         private const string WorkbenchVisiblePrefsKey = "SceneBlueprint.Workbench.Visible";
         private const string WorkbenchWidthPrefsKey = "SceneBlueprint.Workbench.Width";
         private const string WorkbenchTabPrefsKey = "SceneBlueprint.Workbench.Tab";
@@ -78,16 +79,13 @@ namespace SceneBlueprint.Editor
         private bool _showWorkbench = true;
         private Vector2 _guideScroll;
         private Vector2 _issueScroll;
-        private Vector2 _relationScroll;
         private WorkbenchTab _workbenchTab = WorkbenchTab.Guide;
         private IssueSeverityFilter _issueSeverityFilter = IssueSeverityFilter.All;
         private IssueKindFilter _issueKindFilter = IssueKindFilter.All;
         private readonly List<WorkbenchIssue> _workbenchIssues = new List<WorkbenchIssue>();
         private readonly Dictionary<IssueSourceGroup, bool> _issueGroupExpandedState =
             new Dictionary<IssueSourceGroup, bool>();
-        private readonly List<WorkbenchRelationGroup> _workbenchRelationGroups = new List<WorkbenchRelationGroup>();
         private bool _workbenchIssuesDirty = true;
-        private bool _workbenchRelationsDirty = true;
         private bool _hasWorkbenchIssueScan;
         private bool _useEditorToolSelectionInput = true;
         private Core.ActionRegistry? _actionRegistryCache;
@@ -109,8 +107,7 @@ namespace SceneBlueprint.Editor
         private enum WorkbenchTab
         {
             Guide,
-            Issues,
-            Relations
+            Issues
         }
 
         private enum WorkbenchIssueKind
@@ -163,23 +160,6 @@ namespace SceneBlueprint.Editor
             public string? MarkerId;
         }
 
-        private sealed class WorkbenchRelationUsage
-        {
-            public string ActionTypeId = "";
-            public string ActionDisplayName = "";
-            public string BindingKey = "";
-            public string? NodeId;
-            public bool FromCurrentGraph;
-        }
-
-        private sealed class WorkbenchRelationGroup
-        {
-            public string PresetId = "";
-            public string Title = "";
-            public bool HasPresetAsset;
-            public List<WorkbenchRelationUsage> Usages = new List<WorkbenchRelationUsage>();
-        }
-
         [MenuItem("SceneBlueprint/蓝图编辑器 &B")]
         public static void Open()
         {
@@ -202,7 +182,6 @@ namespace SceneBlueprint.Editor
             _toolContext.Attach(_useEditorToolSelectionInput);
             GizmoRenderPipeline.SetInteractionMode(GizmoRenderPipeline.MarkerInteractionMode.Edit);
             _workbenchIssuesDirty = true;
-            _workbenchRelationsDirty = true;
 
             EditorApplication.hierarchyChanged -= OnEditorHierarchyChanged;
             EditorApplication.hierarchyChanged += OnEditorHierarchyChanged;
@@ -213,7 +192,15 @@ namespace SceneBlueprint.Editor
             Undo.postprocessModifications -= OnUndoPostprocessModifications;
             Undo.postprocessModifications += OnUndoPostprocessModifications;
 
-            InitializeIfNeeded();
+            // Domain Reload 恢复：检测是否有之前保存的图数据
+            if (!string.IsNullOrEmpty(_graphJsonBeforeReload))
+            {
+                TryRestoreAfterDomainReload();
+            }
+            else
+            {
+                InitializeIfNeeded();
+            }
 
             if (_viewModel != null && _viewModel.Graph.Nodes.Count > 0)
                 MarkPreviewDirtyAll("OnEnable");
@@ -234,8 +221,6 @@ namespace SceneBlueprint.Editor
             Undo.postprocessModifications -= OnUndoPostprocessModifications;
             EditorApplication.delayCall -= FlushDirtyPreviews;
 
-            SceneViewMarkerTool.OnMarkerCreated -= OnMarkerCreated;
-            MarkerGroupCreationTool.OnGroupCreated -= OnMarkerGroupCreated;
             _toolContext.Detach();
 
             // 取消双向联动订阅
@@ -245,6 +230,21 @@ namespace SceneBlueprint.Editor
             SceneMarkerSelectionBridge.OnFrameNodeForMarkerRequested -= OnSceneMarkerDoubleClicked;
             SceneMarkerSelectionBridge.ClearHighlight();
             Selection.selectionChanged -= OnUnitySelectionChanged;
+
+            // Domain Reload 前保存图数据（_currentAsset 由 [SerializeField] 自动保留）
+            if (_viewModel != null)
+            {
+                try
+                {
+                    var serializer = CreateGraphSerializer();
+                    _graphJsonBeforeReload = serializer.Serialize(_viewModel.Graph);
+                }
+                catch (System.Exception ex)
+                {
+                    SBLog.Error(SBLogTags.Blueprint, $"Domain Reload 前保存图数据失败: {ex.Message}");
+                    _graphJsonBeforeReload = "";
+                }
+            }
 
             // 清理预览
             BlueprintPreviewManager.Instance.ClearAllPreviews();
@@ -257,7 +257,7 @@ namespace SceneBlueprint.Editor
             _profile = null;
             _inspectorPanel = null;
             _inspectorDrawer = null;
-            _currentAsset = null;
+            // 注意：_currentAsset 不清空，由 [SerializeField] 在 Domain Reload 后保留
             _bindingContext = null;
             _actionRegistryCache = null;
             _dirtyPreviewNodeIds.Clear();
@@ -266,6 +266,33 @@ namespace SceneBlueprint.Editor
             _previewDirtyAll = false;
             _previewFlushScheduled = false;
             ResetPreviewGraphShapeSnapshot();
+        }
+
+        /// <summary>
+        /// Domain Reload 后恢复编辑中的蓝图。
+        /// 从 _graphJsonBeforeReload 反序列化图数据，恢复到编辑状态。
+        /// </summary>
+        private void TryRestoreAfterDomainReload()
+        {
+            try
+            {
+                var serializer = CreateGraphSerializer();
+                var graph = serializer.Deserialize(_graphJsonBeforeReload);
+                _graphJsonBeforeReload = "";
+
+                InitializeWithGraph(graph);
+                RestoreBindingsFromScene();
+                MarkWorkbenchDataDirty();
+
+                SBLog.Info(SBLogTags.Blueprint,
+                    $"Domain Reload 后恢复蓝图成功（节点: {graph.Nodes.Count}, 连线: {graph.Edges.Count}）");
+            }
+            catch (System.Exception ex)
+            {
+                SBLog.Error(SBLogTags.Blueprint, $"Domain Reload 后恢复蓝图失败: {ex.Message}");
+                _graphJsonBeforeReload = "";
+                InitializeIfNeeded();
+            }
         }
 
         /// <summary>初始化所有 NodeGraph 组件（仅首次或丢失引用时）</summary>
@@ -348,11 +375,6 @@ namespace SceneBlueprint.Editor
 
             // 8. 启用 Scene View 标记工具（P3：由 ToolContext 托管生命周期）
             _toolContext.EnableMarkerTool(actionRegistry, EnsureSpatialModeDescriptor());
-            SceneViewMarkerTool.OnMarkerCreated -= OnMarkerCreated;
-            SceneViewMarkerTool.OnMarkerCreated += OnMarkerCreated;
-            MarkerGroupCreationTool.OnGroupCreated -= OnMarkerGroupCreated;
-            MarkerGroupCreationTool.OnGroupCreated += OnMarkerGroupCreated;
-
             // 9. 双向联动：订阅蓝图选中变化 + 场景侧事件 + Unity 场景选中监听
             _viewModel.Selection.OnSelectionChanged -= OnBlueprintSelectionChanged;
             _viewModel.Selection.OnSelectionChanged += OnBlueprintSelectionChanged;
@@ -1206,45 +1228,6 @@ namespace SceneBlueprint.Editor
             }
         }
 
-        private void AppendBrokenReferenceIssues(
-            List<WorkbenchIssue> issues,
-            HashSet<string> dedupe,
-            Core.ActionRegistry registry,
-            Dictionary<string, MarkerPresetSO> presetById)
-        {
-            if (_viewModel == null)
-                return;
-
-            foreach (var node in _viewModel.Graph.Nodes)
-            {
-                if (node.UserData is not Core.ActionNodeData actionData)
-                    continue;
-                if (!registry.TryGet(actionData.ActionTypeId, out var actionDef))
-                    continue;
-
-                foreach (var req in actionDef.SceneRequirements)
-                {
-                    if (string.IsNullOrEmpty(req.PresetId))
-                        continue;
-
-                    if (presetById.ContainsKey(req.PresetId))
-                        continue;
-
-                    string message =
-                        $"节点 '{node.Id}' (TypeId: {actionData.ActionTypeId}) 引用了不存在的 PresetId: {req.PresetId} (BindingKey: {req.BindingKey})";
-                    AddWorkbenchIssue(
-                        issues,
-                        dedupe,
-                        WorkbenchIssueKind.BrokenReference,
-                        WorkbenchIssueSeverity.Error,
-                        message,
-                        "PresetReference",
-                        node.Id,
-                        null);
-                }
-            }
-        }
-
         // ── 工具栏 ──
 
         private void DrawToolbar()
@@ -1297,37 +1280,6 @@ namespace SceneBlueprint.Editor
                 CollapseAllSubGraphs(false);
             }
 
-            GUILayout.Space(6);
-
-            // 显示已注册的节点类型数量
-            int typeCount = _profile?.NodeTypes?.GetAll()?.Count() ?? 0;
-            GUILayout.Label($"已注册 {typeCount} 种行动类型", EditorStyles.miniLabel);
-            
-            // 刷新节点按钮（解决程序集延迟加载导致的节点遗漏问题）
-            if (GUILayout.Button(new GUIContent("刷新", "重新扫描并加载所有节点类型"), 
-                EditorStyles.toolbarButton, GUILayout.Width(40)))
-            {
-                RefreshNodeTypes();
-            }
-
-            GUILayout.Space(8);
-
-            bool useToolSelection = GUILayout.Toggle(
-                _useEditorToolSelectionInput,
-                new GUIContent("Tool选中", "启用 ToolContext 托管的标记选中/创建输入（P3）；关闭后回退兼容链路"),
-                EditorStyles.toolbarButton,
-                GUILayout.Width(68));
-            if (useToolSelection != _useEditorToolSelectionInput)
-                SetSelectionInputRouting(useToolSelection);
-
-            GUILayout.Space(6);
-
-            GUILayout.Label(
-                _useEditorToolSelectionInput
-                    ? "交互：Tool选中（P3）+ 原生变换"
-                    : "交互：兼容回退（duringSceneGui）+ 原生变换",
-                EditorStyles.miniLabel);
-
             GUILayout.FlexibleSpace();
 
             // 状态信息
@@ -1369,21 +1321,6 @@ namespace SceneBlueprint.Editor
                 ExportBlueprint();
             }
 
-            if (GUILayout.Button("刷新预览", EditorStyles.toolbarButton, GUILayout.Width(60)))
-            {
-                MarkPreviewDirtyAll("Toolbar.RefreshPreview");
-            }
-
-            if (GUILayout.Button("居中", EditorStyles.toolbarButton, GUILayout.Width(40)))
-            {
-                CenterView();
-            }
-
-            if (GUILayout.Button("帮助", EditorStyles.toolbarButton, GUILayout.Width(40)))
-            {
-                ShowHelp();
-            }
-
             GUILayout.Space(6);
 
             GUILayout.EndHorizontal();
@@ -1410,9 +1347,6 @@ namespace SceneBlueprint.Editor
                         case WorkbenchTab.Issues:
                             DrawWorkbenchIssues();
                             break;
-                        case WorkbenchTab.Relations:
-                            DrawWorkbenchRelations();
-                            break;
                     }
                 }
                 EditorGUILayout.EndVertical();
@@ -1432,17 +1366,11 @@ namespace SceneBlueprint.Editor
                 if (GUILayout.Toggle(_workbenchTab == WorkbenchTab.Issues, "问题中心", EditorStyles.toolbarButton))
                     _workbenchTab = WorkbenchTab.Issues;
 
-                if (GUILayout.Toggle(_workbenchTab == WorkbenchTab.Relations, "关系面板", EditorStyles.toolbarButton))
-                    _workbenchTab = WorkbenchTab.Relations;
-
                 GUILayout.FlexibleSpace();
 
                 if (GUILayout.Button("刷新", EditorStyles.toolbarButton, GUILayout.Width(40)))
                 {
-                    if (_workbenchTab == WorkbenchTab.Relations)
-                        RefreshWorkbenchRelations();
-                    else
-                        RefreshWorkbenchIssues(includeExportValidation: false);
+                    RefreshWorkbenchIssues(includeExportValidation: false);
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -1760,188 +1688,6 @@ namespace SceneBlueprint.Editor
             EditorGUILayout.EndScrollView();
         }
 
-        private void DrawWorkbenchRelations()
-        {
-            if (_viewModel == null)
-                return;
-
-            if (_workbenchRelationsDirty)
-            {
-                EditorGUILayout.HelpBox(
-                    "关系数据已变更。为避免切页卡顿，默认不自动重算，请点击顶部“刷新”。",
-                    MessageType.Info);
-            }
-
-            _relationScroll = EditorGUILayout.BeginScrollView(_relationScroll);
-            {
-                if (_workbenchRelationGroups.Count == 0)
-                {
-                    EditorGUILayout.HelpBox("未找到 Preset 引用。", MessageType.Info);
-                }
-                else
-                {
-                    int renderedGroupCount = 0;
-                    foreach (var group in _workbenchRelationGroups)
-                    {
-                        if (renderedGroupCount >= MaxRelationGroupRenderCount)
-                            break;
-                        renderedGroupCount++;
-
-                        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                        {
-                            EditorGUILayout.LabelField(group.Title, EditorStyles.boldLabel);
-                            EditorGUILayout.LabelField($"PresetId: {group.PresetId}", EditorStyles.miniLabel);
-
-                            if (!group.HasPresetAsset)
-                                EditorGUILayout.HelpBox("该 PresetId 在项目中不存在。", MessageType.Error);
-
-                            if (group.Usages.Count == 0)
-                            {
-                                EditorGUILayout.HelpBox("未被任何 Action 引用。", MessageType.Warning);
-                            }
-                            else
-                            {
-                                int usageRenderCount = 0;
-                                foreach (var usage in group.Usages)
-                                {
-                                    if (usageRenderCount >= MaxRelationUsageRenderCountPerGroup)
-                                        break;
-                                    usageRenderCount++;
-
-                                    EditorGUILayout.BeginHorizontal();
-                                    {
-                                        string scopeLabel = usage.FromCurrentGraph ? "当前图" : "定义";
-                                        EditorGUILayout.LabelField(
-                                            $"- [{scopeLabel}] {usage.ActionDisplayName} ({usage.ActionTypeId}) · {usage.BindingKey}",
-                                            EditorStyles.wordWrappedMiniLabel);
-
-                                        if (!string.IsNullOrEmpty(usage.NodeId)
-                                            && GUILayout.Button("定位节点", GUILayout.Width(60)))
-                                        {
-                                            NavigateToNode(usage.NodeId!);
-                                        }
-                                    }
-                                    EditorGUILayout.EndHorizontal();
-                                }
-
-                                if (group.Usages.Count > MaxRelationUsageRenderCountPerGroup)
-                                {
-                                    EditorGUILayout.LabelField(
-                                        $"... 其余 {group.Usages.Count - MaxRelationUsageRenderCountPerGroup} 条引用已省略（性能保护）",
-                                        EditorStyles.miniLabel);
-                                }
-                            }
-                        }
-                        EditorGUILayout.EndVertical();
-                    }
-
-                    if (_workbenchRelationGroups.Count > MaxRelationGroupRenderCount)
-                    {
-                        EditorGUILayout.HelpBox(
-                            $"关系组较多，仅渲染前 {MaxRelationGroupRenderCount} 组（性能保护）。",
-                            MessageType.Info);
-                    }
-                }
-            }
-            EditorGUILayout.EndScrollView();
-        }
-
-        private void RefreshWorkbenchRelations()
-        {
-            if (_viewModel == null)
-                return;
-
-            var registry = GetActionRegistry();
-            var presets = MarkerPresetRegistry.GetAll();
-            var presetById = BuildPresetLookup(presets);
-            var relationMap = new Dictionary<string, List<WorkbenchRelationUsage>>(System.StringComparer.OrdinalIgnoreCase);
-
-            foreach (var actionDef in registry.GetAll())
-            {
-                foreach (var req in actionDef.SceneRequirements)
-                {
-                    if (string.IsNullOrEmpty(req.PresetId))
-                        continue;
-
-                    if (!relationMap.TryGetValue(req.PresetId, out var list))
-                    {
-                        list = new List<WorkbenchRelationUsage>();
-                        relationMap[req.PresetId] = list;
-                    }
-
-                    list.Add(new WorkbenchRelationUsage
-                    {
-                        ActionTypeId = actionDef.TypeId,
-                        ActionDisplayName = actionDef.DisplayName,
-                        BindingKey = req.BindingKey,
-                        NodeId = null,
-                        FromCurrentGraph = false
-                    });
-                }
-            }
-
-            foreach (var node in _viewModel.Graph.Nodes)
-            {
-                if (node.UserData is not Core.ActionNodeData actionData)
-                    continue;
-                if (!registry.TryGet(actionData.ActionTypeId, out var actionDef))
-                    continue;
-
-                foreach (var req in actionDef.SceneRequirements)
-                {
-                    if (string.IsNullOrEmpty(req.PresetId))
-                        continue;
-
-                    if (!relationMap.TryGetValue(req.PresetId, out var list))
-                    {
-                        list = new List<WorkbenchRelationUsage>();
-                        relationMap[req.PresetId] = list;
-                    }
-
-                    list.Add(new WorkbenchRelationUsage
-                    {
-                        ActionTypeId = actionDef.TypeId,
-                        ActionDisplayName = actionDef.DisplayName,
-                        BindingKey = req.BindingKey,
-                        NodeId = node.Id,
-                        FromCurrentGraph = true
-                    });
-                }
-            }
-
-            var orderedPresetIds = relationMap.Keys
-                .Concat(presetById.Keys)
-                .Distinct(System.StringComparer.OrdinalIgnoreCase)
-                .OrderBy(id => id)
-                .ToList();
-
-            _workbenchRelationGroups.Clear();
-            foreach (var presetId in orderedPresetIds)
-            {
-                relationMap.TryGetValue(presetId, out var refs);
-                bool hasPresetAsset = presetById.TryGetValue(presetId, out var preset);
-
-                var group = new WorkbenchRelationGroup
-                {
-                    PresetId = presetId,
-                    Title = hasPresetAsset ? preset!.DisplayName : "(缺失预设资产)",
-                    HasPresetAsset = hasPresetAsset,
-                    Usages = refs == null
-                        ? new List<WorkbenchRelationUsage>()
-                        : refs
-                            .OrderByDescending(v => v.FromCurrentGraph)
-                            .ThenBy(v => v.ActionDisplayName)
-                            .ThenBy(v => v.ActionTypeId)
-                            .ThenBy(v => v.BindingKey)
-                            .ToList()
-                };
-
-                _workbenchRelationGroups.Add(group);
-            }
-
-            _workbenchRelationsDirty = false;
-        }
-
         private void RefreshWorkbenchIssues(bool includeExportValidation = false)
         {
             if (_viewModel == null)
@@ -1950,7 +1696,6 @@ namespace SceneBlueprint.Editor
             var nextIssues = new List<WorkbenchIssue>();
             var dedupe = new HashSet<string>();
             var registry = GetActionRegistry();
-            var presetById = BuildPresetLookup(MarkerPresetRegistry.GetAll());
 
             var markerReport = MarkerBindingValidator.Validate(_viewModel.Graph, registry);
             foreach (var entry in markerReport.Entries)
@@ -1974,7 +1719,6 @@ namespace SceneBlueprint.Editor
             }
 
             AppendRequiredPropertyIssues(nextIssues, dedupe);
-            AppendBrokenReferenceIssues(nextIssues, dedupe, registry, presetById);
 
             if (includeExportValidation)
             {
@@ -2030,15 +1774,9 @@ namespace SceneBlueprint.Editor
             _hasWorkbenchIssueScan = false;
         }
 
-        private void MarkWorkbenchRelationsDirty()
-        {
-            _workbenchRelationsDirty = true;
-        }
-
         private void MarkWorkbenchDataDirty()
         {
             MarkWorkbenchIssuesDirty();
-            MarkWorkbenchRelationsDirty();
         }
 
         private Core.ActionRegistry GetActionRegistry()
@@ -2180,21 +1918,6 @@ namespace SceneBlueprint.Editor
             };
         }
 
-        private static Dictionary<string, MarkerPresetSO> BuildPresetLookup(IReadOnlyList<MarkerPresetSO> presets)
-        {
-            var map = new Dictionary<string, MarkerPresetSO>(System.StringComparer.OrdinalIgnoreCase);
-            foreach (var preset in presets)
-            {
-                if (string.IsNullOrEmpty(preset.PresetId))
-                    continue;
-
-                if (!map.ContainsKey(preset.PresetId))
-                    map[preset.PresetId] = preset;
-            }
-
-            return map;
-        }
-
         private bool PassIssueFilters(WorkbenchIssue issue)
         {
             if (_issueSeverityFilter != IssueSeverityFilter.All)
@@ -2237,8 +1960,7 @@ namespace SceneBlueprint.Editor
             if (string.Equals(source, "BlueprintExporter", System.StringComparison.Ordinal))
                 return IssueSourceGroup.Exporter;
 
-            if (string.Equals(source, "ValidationRule", System.StringComparison.Ordinal)
-                || string.Equals(source, "PresetReference", System.StringComparison.Ordinal))
+            if (string.Equals(source, "ValidationRule", System.StringComparison.Ordinal))
             {
                 return IssueSourceGroup.Rule;
             }
@@ -2609,7 +2331,7 @@ namespace SceneBlueprint.Editor
         {
             if (_viewModel == null) return;
 
-            var registry = SceneBlueprintProfile.CreateActionRegistry();
+            var registry = GetActionRegistry();
             var report = MarkerBindingValidator.Validate(_viewModel.Graph, registry);
             MarkerBindingValidator.LogReport(report);
         }
@@ -2649,7 +2371,7 @@ namespace SceneBlueprint.Editor
         {
             if (_viewModel == null) return;
 
-            var registry = SceneBlueprintProfile.CreateActionRegistry();
+            var registry = GetActionRegistry();
 
             // 从场景绑定存储收集绑定数据
             var sceneBindings = CollectSceneBindingsForExport();
@@ -2776,94 +2498,6 @@ namespace SceneBlueprint.Editor
         }
 
         /// <summary>
-        /// 刷新节点类型——重新扫描并加载所有 ActionDefinition。
-        /// 用于解决程序集延迟加载导致的节点遗漏问题。
-        /// </summary>
-        private void RefreshNodeTypes()
-        {
-            if (_viewModel == null) return;
-
-            int oldCount = _profile?.NodeTypes?.GetAll()?.Count() ?? 0;
-
-            UnityEngine.Debug.Log("=== 刷新节点开始 ===");
-            UnityEngine.Debug.Log($"刷新前 NodeTypeRegistry 节点数: {oldCount}");
-
-            // 保存当前图数据
-            var serializer = CreateGraphSerializer();
-            string graphJson = serializer.Serialize(_viewModel.Graph);
-
-            // 重新初始化（会创建新的 NodeTypeRegistry 和 Profile）
-            _viewModel = null;
-            _profile = null;
-            InitializeIfNeeded();
-
-            // 恢复图数据
-            try
-            {
-                var graph = serializer.Deserialize(graphJson);
-                _viewModel = null;
-                InitializeWithGraph(graph);
-            }
-            catch (System.Exception ex)
-            {
-                SBLog.Error(SBLogTags.Blueprint, $"刷新节点类型时恢复图数据失败: {ex}");
-                InitializeIfNeeded();
-            }
-
-            // === 诊断步骤1：检查 ActionRegistry ===
-            UnityEngine.Debug.Log("--- 步骤1：检查 ActionRegistry ---");
-            var testActionRegistry = SceneBlueprintProfile.CreateActionRegistry();
-            var allActions = testActionRegistry.GetAll();
-            UnityEngine.Debug.Log($"ActionRegistry 总节点数: {allActions.Count}");
-            bool hasVFXInActionRegistry = allActions.Any(a => a.Category == "VFX");
-            UnityEngine.Debug.Log($"ActionRegistry 中是否有 VFX: {hasVFXInActionRegistry}");
-            if (hasVFXInActionRegistry)
-            {
-                var vfxActions = allActions.Where(a => a.Category == "VFX").ToList();
-                foreach (var vfx in vfxActions)
-                {
-                    UnityEngine.Debug.Log($"  • {vfx.TypeId} → \"{vfx.DisplayName}\"");
-                }
-            }
-
-            int newCount = _profile?.NodeTypes?.GetAll()?.Count() ?? 0;
-
-            // 诊断日志：输出 NodeTypeRegistry 的内容
-            UnityEngine.Debug.Log("=== NodeTypeRegistry 诊断（刷新后）===");
-            var allNodeTypes = _profile?.NodeTypes?.GetAll();
-            if (allNodeTypes != null)
-            {
-                var groupedNodeTypes = allNodeTypes
-                    .GroupBy(def => string.IsNullOrEmpty(def.Category) ? "未分类" : def.Category)
-                    .OrderBy(g => g.Key);
-                
-                foreach (var group in groupedNodeTypes)
-                {
-                    UnityEngine.Debug.Log($"<color=yellow>【{group.Key}】</color> ({group.Count()} 个)");
-                    foreach (var def in group.OrderBy(d => d.DisplayName))
-                    {
-                        UnityEngine.Debug.Log($"  • {def.TypeId} → \"{def.DisplayName}\"");
-                    }
-                }
-            }
-            UnityEngine.Debug.Log("=== 诊断结束 ===");
-
-            if (newCount != oldCount)
-            {
-                SBLog.Info(SBLogTags.Blueprint, $"节点类型已刷新：{oldCount} → {newCount}");
-                EditorUtility.DisplayDialog("刷新完成", 
-                    $"已重新扫描节点类型\n\n旧: {oldCount} 种\n新: {newCount} 种\n\n右键菜单已更新。", "确定");
-            }
-            else
-            {
-                EditorUtility.DisplayDialog("刷新完成", 
-                    $"节点类型数量未变化（{newCount} 种）", "确定");
-            }
-
-            Repaint();
-        }
-
-        /// <summary>
         /// 从场景绑定存储恢复绑定数据到 BindingContext。
         /// 在加载蓝图后调用。
         /// </summary>
@@ -2893,7 +2527,7 @@ namespace SceneBlueprint.Editor
             }
 
             // 策略 2：对于未恢复的绑定，用 PropertyBag 中的 MarkerId 回退查找
-            var registry = SceneBlueprintProfile.CreateActionRegistry();
+            var registry = GetActionRegistry();
             foreach (var node in _viewModel.Graph.Nodes)
             {
                 if (node.UserData is not Core.ActionNodeData data) continue;
@@ -2968,7 +2602,7 @@ namespace SceneBlueprint.Editor
 
             // 2. 按子蓝图分组构建绑定数据
             var graph = _viewModel.Graph;
-            var registry = SceneBlueprintProfile.CreateActionRegistry();
+            var registry = GetActionRegistry();
             var bindingGroups = new List<SubGraphBindingGroup>();
 
             foreach (var sgf in graph.SubGraphFrames)
@@ -3039,7 +2673,7 @@ namespace SceneBlueprint.Editor
         /// <summary>从场景绑定存储或 BindingContext 收集绑定数据供导出使用</summary>
         private List<BlueprintExporter.SceneBindingData>? CollectSceneBindingsForExport()
         {
-            var registry = SceneBlueprintProfile.CreateActionRegistry();
+            var registry = GetActionRegistry();
             var currentAsset = _currentAsset;
 
             // 优先从场景绑定存储读取（持久化数据）
@@ -3246,31 +2880,6 @@ namespace SceneBlueprint.Editor
             }
 
             return group.Bindings.Count > 0 ? group : null;
-        }
-
-        private void ShowHelp()
-        {
-            EditorUtility.DisplayDialog("场景蓝图编辑器 - 操作帮助",
-                "基本操作：\n" +
-                "• 右键空白区域 → 添加节点\n" +
-                "• 左键拖拽端口 → 创建连线\n" +
-                "• 中键拖拽 → 平移画布\n" +
-                "• 滚轮 → 缩放\n" +
-                "• Delete → 删除选中\n" +
-                "• Ctrl+Z / Ctrl+Y → 撤销/重做\n" +
-                "• F → 聚焦选中节点\n" +
-                "• Space → 打开添加节点菜单\n" +
-                "\n子蓝图：\n" +
-                "• [+ 子蓝图] → 创建新子蓝图（带激活/完成端口）\n" +
-                "• 点击子蓝图标题栏左侧折叠按钮 → 折叠/展开\n" +
-                "• [全部折叠] / [全部展开] → 快速切换视图\n" +
-                "\n场景绑定：\n" +
-                "• 选中含 SceneBinding 的节点 → Inspector 显示 ObjectField\n" +
-                "• 拖入场景对象 → 完成绑定\n" +
-                "• [同步到场景] → 将绑定数据写入 Manager\n" +
-                "\n快捷键：\n" +
-                "• Alt+B → 打开此窗口",
-                "知道了");
         }
 
         // ── 上下文菜单回调（由框架层 ContextMenuHandler 触发）──
@@ -3511,120 +3120,6 @@ namespace SceneBlueprint.Editor
             menu.ShowAsContext();
         }
 
-        // ── Scene View 标记创建回调 ──
-
-        /// <summary>
-        /// Scene View 中创建标记后的回调。
-        /// 在蓝图中自动创建对应 Action 节点，并自动绑定创建的标记。
-        /// </summary>
-        private void OnMarkerCreated(MarkerCreationResult result)
-        {
-            if (_viewModel == null || _profile == null) return;
-
-            // 在画布中心位置创建对应 Action 节点
-            var graph = _viewModel.Graph;
-            var nodeType = graph.Settings.NodeTypes.GetDefinition(result.ActionTypeId);
-            if (nodeType == null)
-            {
-                SBLog.Warn(SBLogTags.Marker, $"未找到 Action 类型: {result.ActionTypeId}");
-                return;
-            }
-
-            // 计算画布中心位置
-            var canvasCenter = new Vec2(
-                (-_viewModel.PanOffset.X + position.width / 2f) / _viewModel.ZoomLevel,
-                (-_viewModel.PanOffset.Y + position.height / 2f) / _viewModel.ZoomLevel);
-
-            var cmd = new AddNodeCommand(result.ActionTypeId, canvasCenter);
-            _viewModel.Commands.Execute(cmd);
-
-            // ── 自动绑定：将刚创建的标记写入 BindingContext + PropertyBag ──
-            if (cmd.CreatedNodeId != null && _bindingContext != null)
-            {
-                var node = graph.FindNode(cmd.CreatedNodeId);
-                if (node?.UserData is Core.ActionNodeData data)
-                {
-                    foreach (var entry in result.CreatedMarkers)
-                    {
-                        string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(graph, node.Id, entry.BindingKey);
-
-                        // BindingContext 持有 GameObject 引用
-                        _bindingContext.Set(scopedBindingKey, entry.MarkerGameObject);
-                        // PropertyBag 存储 MarkerId（稳定唯一标识）
-                        data.Properties.Set(entry.BindingKey, entry.MarkerId);
-                    }
-
-                    SBLog.Info(SBLogTags.Binding,
-                        $"已自动绑定 {result.CreatedMarkers.Count} 个标记到节点 {result.ActionDisplayName}");
-                }
-            }
-
-            SBLog.Info(SBLogTags.Marker, $"已为 {result.ActionDisplayName} 创建蓝图节点，" +
-                $"关联 {result.CreatedMarkers.Count} 个标记");
-
-            if (!string.IsNullOrEmpty(cmd.CreatedNodeId))
-            {
-                var createdNode = graph.FindNode(cmd.CreatedNodeId);
-                if (createdNode?.UserData is Core.ActionNodeData createdNodeData)
-                    UpdatePreviewMarkerNodeIndexForNode(cmd.CreatedNodeId, createdNodeData);
-
-                MarkPreviewDirtyForNode(cmd.CreatedNodeId, "MarkerCreated");
-            }
-
-            MarkWorkbenchDataDirty();
-            _viewModel.RequestRepaint();
-            Repaint();
-        }
-
-        /// <summary>
-        /// MarkerGroup 创建完成后的回调。
-        /// 在蓝图中自动创建对应的 SceneObjectProxy 节点，表示场景中的标记组。
-        /// </summary>
-        private void OnMarkerGroupCreated(Runtime.Markers.MarkerGroup group)
-        {
-            if (_viewModel == null || _profile == null || group == null) return;
-
-            var graph = _viewModel.Graph;
-            
-            // 验证 ProxyNode 类型是否已注册
-            string proxyTypeId = Core.SceneObjectProxyTypes.Group;
-            var nodeType = graph.Settings.NodeTypes.GetDefinition(proxyTypeId);
-            if (nodeType == null)
-            {
-                SBLog.Warn(SBLogTags.Marker, $"未找到 ProxyNode 类型: {proxyTypeId}");
-                return;
-            }
-
-            // 计算画布中心位置（与标记创建节点类似）
-            var canvasCenter = new Vec2(
-                (-_viewModel.PanOffset.X + position.width / 2f) / _viewModel.ZoomLevel,
-                (-_viewModel.PanOffset.Y + position.height / 2f) / _viewModel.ZoomLevel);
-
-            // 创建 ProxyNode
-            var cmd = new NodeGraph.Commands.AddNodeCommand(proxyTypeId, canvasCenter);
-            _viewModel.Commands.Execute(cmd);
-
-            // 设置 ProxyNode 的数据（关联场景对象）
-            if (cmd.CreatedNodeId != null)
-            {
-                var node = graph.FindNode(cmd.CreatedNodeId);
-                if (node != null)
-                {
-                    node.UserData = new Core.SceneObjectProxyData(
-                        objectType: Core.MarkerTypeIds.Group,
-                        sceneObjectId: group.MarkerId,
-                        displayName: group.GetDisplayLabel());
-
-                    SBLog.Info(SBLogTags.Marker, 
-                        $"已为 MarkerGroup '{group.GetDisplayLabel()}' 创建 ProxyNode");
-                }
-            }
-
-            MarkWorkbenchDataDirty();
-            _viewModel.RequestRepaint();
-            Repaint();
-        }
-
         // ── 双向联动回调 ──
 
         /// <summary>
@@ -3637,7 +3132,7 @@ namespace SceneBlueprint.Editor
 
             var markerIds = new List<string>();
             var graph = _viewModel.Graph;
-            var registry = SceneBlueprintProfile.CreateActionRegistry();
+            var registry = GetActionRegistry();
 
             foreach (var nodeId in _viewModel.Selection.SelectedNodeIds)
             {
@@ -3665,7 +3160,6 @@ namespace SceneBlueprint.Editor
                             if (marker != null)
                             {
                                 boundObj = marker.gameObject;
-                                // 回填到 BindingContext 以便后续使用
                                 _bindingContext?.Set(scopedBindingKey, boundObj);
                             }
                         }
@@ -3710,7 +3204,7 @@ namespace SceneBlueprint.Editor
                 return;
             }
 
-            var registry = SceneBlueprintProfile.CreateActionRegistry();
+            var registry = GetActionRegistry();
             var nodeIds = new List<string>();
 
             foreach (var node in _viewModel.Graph.Nodes)

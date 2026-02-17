@@ -12,11 +12,11 @@ namespace SceneBlueprint.Actions.Spawn
     /// - <b>Spawn.Preset</b>：瞬时型，一次性在策划预设的精确点位放置怪物
     /// </para>
     /// <para>
-    /// 双绑定槽设计：
-    /// - <b>spawnArea</b>（可选）：绑定 AreaMarker，导出时自动收集其子 PointMarker
-    /// - <b>spawnPoints</b>（可选）：直接绑定独立的 PointMarker（不在任何 AreaMarker 下）
-    /// - 至少一个非空；两者都有时合并所有点位
-    /// - 每个 PointMarker 上的 SpawnAnnotation 数据会被自动收集到导出数据中
+    /// 工作流：
+    /// 1. 策划在 SceneView 中创建 AreaMarker，使用位置生成工具铺设子 PointMarker
+    /// 2. 在每个 PointMarker 上添加 SpawnAnnotation 标注怪物信息
+    /// 3. Blueprint 中创建 Spawn.Preset 节点，绑定该 AreaMarker
+    /// 4. 导出时自动展开子 PointMarker，收集 SpawnAnnotation 数据
     /// </para>
     /// <para>典型用途：Boss 出场、埋伏怪、NPC 守卫等需要精确位置的场景。</para>
     /// <para>节点拓扑：[前置] ─in→ [Spawn.Preset] ─out→ [后续]</para>
@@ -29,7 +29,7 @@ namespace SceneBlueprint.Actions.Spawn
             TypeId = "Spawn.Preset",
             DisplayName = "放置预设怪",
             Category = "Spawn",
-            Description = "在场景预设点位瞬时放置怪物（支持区域批量 + 独立点位）",
+            Description = "在场景预设点位瞬时放置怪物（绑定 AreaMarker，自动收集子点位 + 标注）",
             ThemeColor = new Color4(0.2f, 0.7f, 0.3f), // 深绿色 - 与 Spawn.Wave 统一
             Duration = ActionDuration.Instant, // 瞬时型——一次性放置
             Ports = new[]
@@ -39,26 +39,15 @@ namespace SceneBlueprint.Actions.Spawn
             },
             Properties = new[]
             {
-                // 怪物模板——全局默认配置，PointMarker 无 SpawnAnnotation 时回退使用
-                Prop.AssetRef("template", "怪物模板（默认）", order: 0),
-
-                // 刷怪区域——绑定 AreaMarker，导出时自动收集其子 PointMarker + Annotation
-                Prop.SceneBinding("spawnArea", "刷怪区域", BindingType.Area, order: 1),
-
-                // 独立点位——直接绑定不在 AreaMarker 下的 PointMarker
-                Prop.SceneBinding("spawnPoints", "独立点位", BindingType.Transform, order: 2)
+                // 刷怪区域——绑定 AreaMarker，导出时自动收集其子 PointMarker + SpawnAnnotation
+                Prop.SceneBinding("spawnArea", "刷怪区域", BindingType.Area, order: 0)
             },
 
             // ─── 场景标记需求 ───
             SceneRequirements = new[]
             {
-                // 刷怪区域——可选，绑定后自动收集子 PointMarker
                 new MarkerRequirement("spawnArea", MarkerTypeIds.Area,
-                    presetId: "Combat.SpawnArea", required: false),
-
-                // 独立点位——可选，允许多个（与 spawnArea 至少一个非空）
-                new MarkerRequirement("spawnPoints", MarkerTypeIds.Point,
-                    presetId: "Combat.PresetPoint", required: false, allowMultiple: true, minCount: 0),
+                    required: true, displayName: "刷怪区域"),
             }
         };
     }

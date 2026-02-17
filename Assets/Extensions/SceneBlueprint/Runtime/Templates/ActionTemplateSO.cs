@@ -185,11 +185,8 @@ namespace SceneBlueprint.Runtime.Templates
             [Tooltip("绑定键名（如 'spawnArea'）")]
             public string BindingKey = "";
 
-            [Tooltip("标记类型 ID（如 'Point', 'Area', 'Entity'）")]
+            [Tooltip("标记类型 ID（如 'Point', 'Area'）")]
             public string MarkerTypeId = "Point";
-
-            [Tooltip("引用标记预设（拖拽 MarkerPresetSO 资产，控制创建时的名称、颜色、尺寸等）")]
-            public MarkerPresetSO? PresetRef;
 
             [Tooltip("是否必需")]
             public bool Required = true;
@@ -200,12 +197,10 @@ namespace SceneBlueprint.Runtime.Templates
             [Tooltip("最少数量（AllowMultiple 时有效）")]
             public int MinCount;
 
-            [Header("── 向后兼容（有 PresetRef 时忽略） ──")]
-
-            [Tooltip("[向后兼容] 显示名称")]
+            [Tooltip("显示名称")]
             public string DisplayName = "";
 
-            [Tooltip("[向后兼容] 创建标记时的默认 Tag")]
+            [Tooltip("创建标记时的默认 Tag")]
             public string DefaultTag = "";
         }
     }

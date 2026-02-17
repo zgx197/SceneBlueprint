@@ -85,19 +85,46 @@ namespace SceneBlueprint.Editor.Export
         }
 
         /// <summary>
-        /// 通过 MarkerId 在场景中查找 SceneMarker。
+        /// 通过 MarkerId 或 StableObjectId 在场景中查找 SceneMarker。
+        /// <para>支持 "marker:xxx" 格式的 StableObjectId，自动去除前缀。</para>
         /// </summary>
-        public static SceneMarker? FindMarkerById(string markerId)
+        public static SceneMarker? FindMarkerById(string markerIdOrStableId)
         {
-            if (string.IsNullOrEmpty(markerId)) return null;
+            if (string.IsNullOrEmpty(markerIdOrStableId)) return null;
+
+            // 解析 StableObjectId 前缀（如 "marker:154eb90985ea" → "154eb90985ea"）
+            const string markerPrefix = "marker:";
+            var pureId = markerIdOrStableId.StartsWith(markerPrefix)
+                ? markerIdOrStableId.Substring(markerPrefix.Length)
+                : markerIdOrStableId;
 
             var allMarkers = MarkerCache.GetAll();
             foreach (var marker in allMarkers)
             {
-                if (marker != null && marker.MarkerId == markerId)
+                if (marker != null && marker.MarkerId == pureId)
                     return marker;
             }
             return null;
+        }
+
+        /// <summary>
+        /// 为 PointMarker 构建空间载荷 JSON（position + rotation）。
+        /// </summary>
+        public static string BuildPointSpatialPayload(PointMarker pointMarker)
+        {
+            var t = pointMarker.transform;
+            return JsonUtility.ToJson(new PointSpatialData
+            {
+                position = t.position,
+                rotation = t.rotation.eulerAngles
+            });
+        }
+
+        [System.Serializable]
+        private struct PointSpatialData
+        {
+            public Vector3 position;
+            public Vector3 rotation;
         }
 
         private static string InferValueType(object value)

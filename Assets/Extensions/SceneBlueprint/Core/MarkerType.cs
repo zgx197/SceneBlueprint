@@ -20,11 +20,5 @@ namespace SceneBlueprint.Core
 
         /// <summary>区域标记——多边形或 Box 区域（如触发区、刷怪区、灯光区）</summary>
         public const string Area = "Area";
-
-        /// <summary>实体标记——Prefab 实例引用（如预设怪物、可交互物体）</summary>
-        public const string Entity = "Entity";
-
-        /// <summary>标记组——一组相关标记的集合（如刷怪点组、巡逻路线、阵型组）</summary>
-        public const string Group = "Group";
     }
 }

@@ -31,10 +31,10 @@ namespace SceneBlueprint.Editor.Markers.Pipeline
         /// <summary>
         /// Phase 3: 选中时绘制交互编辑 Handle（拖拽顶点、Box Handle 等）。
         /// <para>仅在 <c>ctx.IsSelected == true</c> 时由管线调用。</para>
-        /// <para>返回 <c>true</c> 表示本 Renderer 接管了 Fill/Wireframe 的绘制，
-        /// 管线将跳过该标记的 Phase 0 和 Phase 1。</para>
+        /// <para>此方法只负责绘制编辑 Handle，不影响其他 Phase 的执行。
+        /// Fill/Wireframe 始终由管线独立执行。</para>
         /// </summary>
-        bool DrawInteractive(in GizmoDrawContext ctx) => false;
+        void DrawInteractive(in GizmoDrawContext ctx) { }
 
         /// <summary>Phase 4: 绘制高亮效果（脉冲光晕等，仅 IsHighlighted 时调用）</summary>
         void DrawHighlight(in GizmoDrawContext ctx) { }

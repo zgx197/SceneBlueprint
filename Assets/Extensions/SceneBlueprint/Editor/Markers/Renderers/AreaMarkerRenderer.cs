@@ -214,22 +214,14 @@ namespace SceneBlueprint.Editor.Markers.Renderers
 
         // ─── Phase 3: Interactive ───
 
-        public bool DrawInteractive(in GizmoDrawContext ctx)
+        public void DrawInteractive(in GizmoDrawContext ctx)
         {
             var am = (AreaMarker)ctx.Marker;
 
             if (am.Shape == AreaShape.Box)
-            {
                 DrawBoxEditHandles(am, ctx);
-                // Box 模式接管 Fill/Wireframe，因为 BoxBoundsHandle 自带线框
-                return true;
-            }
             else
-            {
                 DrawPolygonEditHandles(am, ctx);
-                // Polygon 不完全接管，仍需管线绘制 Fill/Wireframe
-                return false;
-            }
         }
 
         private void DrawBoxEditHandles(AreaMarker am, in GizmoDrawContext ctx)
@@ -241,10 +233,6 @@ namespace SceneBlueprint.Editor.Markers.Renderers
 
             _boxHandle.center = Vector3.zero;
             _boxHandle.size = am.BoxSize;
-
-            // 绘制填充（编辑模式，6 面完整绘制）
-            var fillColor = ctx.FillColor;
-            DrawAllBoxFaces(am.BoxSize, fillColor);
 
             EditorGUI.BeginChangeCheck();
             _boxHandle.DrawHandle();
@@ -342,9 +330,19 @@ namespace SceneBlueprint.Editor.Markers.Renderers
         public void DrawHighlight(in GizmoDrawContext ctx)
         {
             var am = (AreaMarker)ctx.Marker;
-            var center = am.GetRepresentativePosition();
+
+            // 脉冲外扩线框（Box 模式）
+            if (am.Shape == AreaShape.Box)
+            {
+                var matrix = Handles.matrix;
+                Handles.matrix = ctx.Transform.localToWorldMatrix;
+                var glowColor = new Color(ctx.EffectiveColor.r, ctx.EffectiveColor.g, ctx.EffectiveColor.b, ctx.PulseAlpha * 0.5f);
+                DrawBoxWireLines(am.BoxSize * ctx.PulseScale, glowColor);
+                Handles.matrix = matrix;
+            }
 
             // 中心光晕
+            var center = am.GetRepresentativePosition();
             float glowRadius = 2f;
             Handles.color = new Color(
                 ctx.EffectiveColor.r, ctx.EffectiveColor.g, ctx.EffectiveColor.b,

@@ -25,6 +25,8 @@
 !/Assets/Extensions/SceneBlueprint.meta
 !/Assets/GameAssets/SceneBlueprint/
 !/Assets/GameAssets/SceneBlueprint.meta
+!/Packages/com.ifreetalk.framesync-framework/
+!/Packages/com.ifreetalk.framesync-framework.meta
 
 # =================================================== #
 #  目标目录内部的忽略规则                                #

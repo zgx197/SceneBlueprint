@@ -17,12 +17,6 @@ namespace SceneBlueprint.Core
         /// <summary>区域标记代理</summary>
         public const string Area = "Proxy.Area";
 
-        /// <summary>实体标记代理</summary>
-        public const string Entity = "Proxy.Entity";
-
-        /// <summary>标记组代理</summary>
-        public const string Group = "Proxy.Group";
-
         /// <summary>
         /// 根据标记类型 ID 生成 Proxy 节点类型 ID
         /// </summary>

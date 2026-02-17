@@ -101,7 +101,7 @@ namespace SceneBlueprint.Editor.Export
             }
 
             // ── Step 2: 展平连线（合并穿过边界节点的连线）──
-            var transitions = ExportEdgesFlattened(graph, boundaryNodeIds, messages);
+            var transitions = ExportEdgesFlattened(graph, boundaryNodeIds, registry, messages);
 
             // ── Step 3: 合并场景绑定（同时将 bindingKey 统一升级为 scoped key）──
             MergeSceneBindings(
@@ -261,7 +261,7 @@ namespace SceneBlueprint.Editor.Export
         /// - 不涉及边界节点的连线直接导出
         /// </summary>
         private static TransitionEntry[] ExportEdgesFlattened(
-            Graph graph, HashSet<string> boundaryNodeIds, List<ValidationMessage> messages)
+            Graph graph, HashSet<string> boundaryNodeIds, ActionRegistry registry, List<ValidationMessage> messages)
         {
             if (boundaryNodeIds.Count == 0)
             {
@@ -269,7 +269,7 @@ namespace SceneBlueprint.Editor.Export
                 var simple = new List<TransitionEntry>();
                 foreach (var edge in graph.Edges)
                 {
-                    var entry = ExportEdgeDirect(edge, graph, messages);
+                    var entry = ExportEdgeDirect(edge, graph, registry, messages);
                     if (entry != null) simple.Add(entry);
                 }
                 return simple.ToArray();
@@ -333,9 +333,9 @@ namespace SceneBlueprint.Editor.Export
                     transitions.Add(new TransitionEntry
                     {
                         FromActionId = sp.NodeId,
-                        FromPortId = sp.Name,
+                        FromPortId = ResolvePortSemanticId(graph, sp, registry),
                         ToActionId = tp.NodeId,
-                        ToPortId = tp.Name,
+                        ToPortId = ResolvePortSemanticId(graph, tp, registry),
                         Condition = new ConditionData { Type = "Immediate" }
                     });
                 }
@@ -349,9 +349,9 @@ namespace SceneBlueprint.Editor.Export
                             transitions.Add(new TransitionEntry
                             {
                                 FromActionId = realSource.NodeId,
-                                FromPortId = realSource.Name,
+                                FromPortId = ResolvePortSemanticId(graph, realSource, registry),
                                 ToActionId = tp.NodeId,
-                                ToPortId = tp.Name,
+                                ToPortId = ResolvePortSemanticId(graph, tp, registry),
                                 Condition = new ConditionData { Type = "Immediate" }
                             });
                         }
@@ -367,9 +367,9 @@ namespace SceneBlueprint.Editor.Export
                             transitions.Add(new TransitionEntry
                             {
                                 FromActionId = sp.NodeId,
-                                FromPortId = sp.Name,
+                                FromPortId = ResolvePortSemanticId(graph, sp, registry),
                                 ToActionId = realTarget.NodeId,
-                                ToPortId = realTarget.Name,
+                                ToPortId = ResolvePortSemanticId(graph, realTarget, registry),
                                 Condition = new ConditionData { Type = "Immediate" }
                             });
                         }
@@ -382,7 +382,7 @@ namespace SceneBlueprint.Editor.Export
         }
 
         private static TransitionEntry? ExportEdgeDirect(
-            Edge edge, Graph graph, List<ValidationMessage> messages)
+            Edge edge, Graph graph, ActionRegistry registry, List<ValidationMessage> messages)
         {
             var sourcePort = graph.FindPort(edge.SourcePortId);
             var targetPort = graph.FindPort(edge.TargetPortId);
@@ -397,11 +397,38 @@ namespace SceneBlueprint.Editor.Export
             return new TransitionEntry
             {
                 FromActionId = sourcePort.NodeId,
-                FromPortId = sourcePort.Name,
+                FromPortId = ResolvePortSemanticId(graph, sourcePort, registry),
                 ToActionId = targetPort.NodeId,
-                ToPortId = targetPort.Name,
+                ToPortId = ResolvePortSemanticId(graph, targetPort, registry),
                 Condition = new ConditionData { Type = "Immediate" }
             };
+        }
+
+        /// <summary>
+        /// 从 Port.Name（显示名）反查 ActionDefinition 中的语义 ID。
+        /// <para>适配器层将 SBPortDef.DisplayName 传给了 NGPortDef.Name，
+        /// 导出时需要还原为原始的语义 ID（如 "in"/"out"）。</para>
+        /// </summary>
+        private static string ResolvePortSemanticId(
+            Graph graph, NodeGraph.Core.Port port, ActionRegistry registry)
+        {
+            var node = graph.FindNode(port.NodeId);
+            if (node?.UserData is ActionNodeData data
+                && registry.TryGet(data.ActionTypeId, out var actionDef))
+            {
+                foreach (var sbPort in actionDef.Ports)
+                {
+                    // 通过显示名 + 方向匹配回语义 ID
+                    var displayName = string.IsNullOrEmpty(sbPort.DisplayName) ? sbPort.Id : sbPort.DisplayName;
+                    if (displayName == port.Name
+                        && sbPort.Direction == port.Direction)
+                    {
+                        return sbPort.Id;
+                    }
+                }
+            }
+            // 回退：无法反查时使用原始 Name（边界节点等特殊情况）
+            return port.Name;
         }
 
         // ══════════════════════════════════════
@@ -568,14 +595,15 @@ namespace SceneBlueprint.Editor.Export
                             // 为每个子 PointMarker 生成独立的 SceneBindingEntry
                             foreach (var pm in childPoints)
                             {
+                                var pmStableId = "marker:" + pm.MarkerId;
                                 var childSb = new SceneBindingEntry
                                 {
                                     BindingKey = sb.BindingKey,
                                     BindingType = "Transform",
-                                    SceneObjectId = pm.MarkerId,
-                                    StableObjectId = pm.MarkerId,
+                                    SceneObjectId = pmStableId,
+                                    StableObjectId = pmStableId,
                                     AdapterType = sb.AdapterType,
-                                    SpatialPayloadJson = sb.SpatialPayloadJson,
+                                    SpatialPayloadJson = AnnotationExportHelper.BuildPointSpatialPayload(pm),
                                     SourceSubGraph = sb.SourceSubGraph,
                                     SourceActionTypeId = sb.SourceActionTypeId,
                                     Annotations = AnnotationExportHelper.CollectAnnotations(

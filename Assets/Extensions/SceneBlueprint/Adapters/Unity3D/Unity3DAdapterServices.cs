@@ -204,7 +204,99 @@ namespace SceneBlueprint.Adapters.Unity3D
                 throw new System.ArgumentNullException(nameof(sceneObject));
 
             var id = _identityService.GetOrCreateStableId(sceneObject);
-            return new SceneBindingPayload(id, bindingType, "{}", Unity3DAdapterServices.AdapterType);
+            string payloadJson = BuildSpatialPayload(sceneObject, bindingType);
+            return new SceneBindingPayload(id, bindingType, payloadJson, Unity3DAdapterServices.AdapterType);
+        }
+
+        private static string BuildSpatialPayload(object sceneObject, BindingType bindingType)
+        {
+            var go = AsGameObject(sceneObject);
+            if (go == null) return "{}";
+
+            var t = go.transform;
+
+            switch (bindingType)
+            {
+                case BindingType.Area:
+                    var area = go.GetComponent<AreaMarker>();
+                    if (area != null)
+                    {
+                        if (area.Shape == AreaShape.Box)
+                        {
+                            return JsonUtility.ToJson(new AreaBoxPayload
+                            {
+                                shape = "Box",
+                                position = t.position,
+                                rotation = t.rotation.eulerAngles,
+                                boxSize = area.BoxSize,
+                                height = area.Height
+                            });
+                        }
+                        else
+                        {
+                            var worldVerts = area.GetWorldVertices();
+                            var verts = new Vector3[worldVerts.Count];
+                            for (int i = 0; i < worldVerts.Count; i++)
+                                verts[i] = worldVerts[i];
+                            return JsonUtility.ToJson(new AreaPolygonPayload
+                            {
+                                shape = "Polygon",
+                                position = t.position,
+                                rotation = t.rotation.eulerAngles,
+                                vertices = verts,
+                                height = area.Height
+                            });
+                        }
+                    }
+                    break;
+
+                case BindingType.Transform:
+                    return JsonUtility.ToJson(new TransformPayload
+                    {
+                        position = t.position,
+                        rotation = t.rotation.eulerAngles,
+                        scale = t.localScale
+                    });
+            }
+
+            return "{}";
+        }
+
+        private static GameObject? AsGameObject(object sceneObject)
+        {
+            if (sceneObject is GameObject go) return go;
+            if (sceneObject is Component component) return component.gameObject;
+            return null;
+        }
+
+        // ── 空间载荷数据结构（JsonUtility 序列化）──
+
+        [System.Serializable]
+        private struct TransformPayload
+        {
+            public Vector3 position;
+            public Vector3 rotation;
+            public Vector3 scale;
+        }
+
+        [System.Serializable]
+        private struct AreaBoxPayload
+        {
+            public string shape;
+            public Vector3 position;
+            public Vector3 rotation;
+            public Vector3 boxSize;
+            public float height;
+        }
+
+        [System.Serializable]
+        private struct AreaPolygonPayload
+        {
+            public string shape;
+            public Vector3 position;
+            public Vector3 rotation;
+            public Vector3[] vertices;
+            public float height;
         }
 
         public bool TryDecode(in SceneBindingPayload payload, out object? sceneObject)
