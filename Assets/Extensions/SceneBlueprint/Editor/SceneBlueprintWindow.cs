@@ -2514,13 +2514,9 @@ namespace SceneBlueprint.Editor
                 {
                     foreach (var binding in group.Bindings)
                     {
-                        string scopedBindingKey = BindingScopeUtility.NormalizeManagerBindingKey(
-                            binding.BindingKey,
-                            group.SubGraphFrameId);
-
-                        if (!string.IsNullOrEmpty(scopedBindingKey) && binding.BoundObject != null)
+                        if (!string.IsNullOrEmpty(binding.BindingKey) && binding.BoundObject != null)
                         {
-                            _bindingContext.Set(scopedBindingKey, binding.BoundObject);
+                            _bindingContext.Set(binding.BindingKey, binding.BoundObject);
                         }
                     }
                 }
@@ -2536,7 +2532,7 @@ namespace SceneBlueprint.Editor
                 foreach (var prop in actionDef.Properties)
                 {
                     if (prop.SceneBindingType == null) continue;
-                    string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(_viewModel.Graph, node.Id, prop.Key);
+                    string scopedBindingKey = BindingScopeUtility.BuildScopedKey(node.Id, prop.Key);
                     if (_bindingContext.Get(scopedBindingKey) != null) continue; // 已恢复，跳过
 
                     var storedId = data.Properties.Get<string>(prop.Key);
@@ -2624,7 +2620,7 @@ namespace SceneBlueprint.Editor
                     foreach (var prop in actionDef.Properties)
                     {
                         if (prop.Type != Core.PropertyType.SceneBinding) continue;
-                        string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(graph, node.Id, prop.Key);
+                        string scopedBindingKey = BindingScopeUtility.BuildScopedKey(node.Id, prop.Key);
                         if (seenKeys.Contains(scopedBindingKey)) continue;
                         seenKeys.Add(scopedBindingKey);
 
@@ -2686,10 +2682,6 @@ namespace SceneBlueprint.Editor
                 {
                     foreach (var binding in group.Bindings)
                     {
-                        string scopedBindingKey = BindingScopeUtility.NormalizeManagerBindingKey(
-                            binding.BindingKey,
-                            group.SubGraphFrameId);
-
                         EncodeBindingForExport(
                             binding.BoundObject,
                             binding.BindingType,
@@ -2699,7 +2691,7 @@ namespace SceneBlueprint.Editor
 
                         list.Add(new BlueprintExporter.SceneBindingData
                         {
-                            BindingKey = scopedBindingKey,
+                            BindingKey = binding.BindingKey,
                             BindingType = binding.BindingType.ToString(),
                             StableObjectId = stableObjectId,
                             AdapterType = adapterType,
@@ -2759,10 +2751,7 @@ namespace SceneBlueprint.Editor
                 {
                     if (prop.Type != Core.PropertyType.SceneBinding) continue;
                     if (string.IsNullOrEmpty(prop.Key)) continue;
-                    string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(
-                        _viewModel.Graph,
-                        node.Id,
-                        prop.Key);
+                    string scopedBindingKey = BindingScopeUtility.BuildScopedKey(node.Id, prop.Key);
                     map[scopedBindingKey] = prop.SceneBindingType ?? Core.BindingType.Transform;
                 }
             }
@@ -2863,7 +2852,7 @@ namespace SceneBlueprint.Editor
                 foreach (var prop in actionDef.Properties)
                 {
                     if (prop.Type != Core.PropertyType.SceneBinding) continue;
-                    string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(graph, node.Id, prop.Key);
+                    string scopedBindingKey = BindingScopeUtility.BuildScopedKey(node.Id, prop.Key);
                     if (seenKeys.Contains(scopedBindingKey)) continue;
                     seenKeys.Add(scopedBindingKey);
 
@@ -3145,7 +3134,7 @@ namespace SceneBlueprint.Editor
                 {
                     if (prop.SceneBindingType == null) continue;
 
-                    string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(graph, node.Id, prop.Key);
+                    string scopedBindingKey = BindingScopeUtility.BuildScopedKey(node.Id, prop.Key);
 
                     // 策略 1：从 BindingContext 获取 GameObject 引用
                     GameObject? boundObj = _bindingContext?.Get(scopedBindingKey);

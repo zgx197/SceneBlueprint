@@ -23,8 +23,7 @@ namespace SceneBlueprint.Runtime
         public List<SceneBindingSlot> Bindings = new List<SceneBindingSlot>();
 
         /// <summary>
-        /// 根据 bindingKey 查找绑定。
-        /// 优先精确匹配 scopedBindingKey；未命中时兼容 raw key 回退。
+        /// 根据 scopedBindingKey（nodeId/bindingKey）精确查找绑定。
         /// </summary>
         public SceneBindingSlot? FindBinding(string bindingKey)
         {
@@ -37,26 +36,7 @@ namespace SceneBlueprint.Runtime
                     return b;
             }
 
-            string rawBindingKey = ExtractRawBindingKey(bindingKey);
-            foreach (var b in Bindings)
-            {
-                if (ExtractRawBindingKey(b.BindingKey) == rawBindingKey)
-                    return b;
-            }
-
             return null;
-        }
-
-        private static string ExtractRawBindingKey(string scopedOrRawKey)
-        {
-            if (string.IsNullOrEmpty(scopedOrRawKey))
-                return "";
-
-            int idx = scopedOrRawKey.IndexOf('/');
-            if (idx < 0 || idx + 1 >= scopedOrRawKey.Length)
-                return scopedOrRawKey;
-
-            return scopedOrRawKey[(idx + 1)..];
         }
 
         /// <summary>所有绑定是否都已配置</summary>

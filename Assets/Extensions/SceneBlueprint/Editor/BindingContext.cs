@@ -10,9 +10,8 @@ namespace SceneBlueprint.Editor
     /// 绑定数据不存储在 PropertyBag（Core 层无 Unity 引用）中，
     /// 而是由此上下文持有，保存时写入场景绑定存储，加载时从存储恢复。
     /// 
-    /// 键格式："scopedBindingKey"（subGraphId/bindingKey）。
-    /// C5 起同名 bindingKey 在不同子图内隔离存储，避免覆盖。
-    /// 旧数据中的纯 bindingKey 在恢复链路中会被归一化到 scoped 形式。
+    /// 键格式："scopedBindingKey"（nodeId/bindingKey）。
+    /// 每个节点实例拥有独立的绑定作用域，同名 bindingKey 在不同节点间互不冲突。
     /// </summary>
     public class BindingContext
     {

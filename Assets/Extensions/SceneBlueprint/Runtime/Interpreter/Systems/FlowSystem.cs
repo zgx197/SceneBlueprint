@@ -27,6 +27,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             ProcessFlowStart(frame);
             ProcessFlowEnd(frame);
             ProcessFlowDelay(frame);
+            ProcessFlowJoin(frame);
         }
 
         /// <summary>处理 Flow.Start：Running → 立即 Completed</summary>
@@ -46,7 +47,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             }
         }
 
-        /// <summary>处理 Flow.End：Running → 标记蓝图完成</summary>
+        /// <summary>处理 Flow.End：Running → Completed，标记蓝图执行结束</summary>
         private void ProcessFlowEnd(BlueprintFrame frame)
         {
             var indices = frame.GetActionIndices("Flow.End");
@@ -100,6 +101,29 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.Phase = ActionPhase.Completed;
                     Debug.Log($"[FlowSystem] Flow.Delay (index={idx}) → Completed (waited {state.TicksInPhase} ticks)");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 处理 Flow.Join：Running → 立即 Completed。
+        /// <para>
+        /// Flow.Join 由 TransitionSystem 激活（收齐所有输入后），
+        /// FlowSystem 负责将其立即标记为 Completed 并触发输出。
+        /// </para>
+        /// </summary>
+        private void ProcessFlowJoin(BlueprintFrame frame)
+        {
+            var indices = frame.GetActionIndices("Flow.Join");
+            for (int i = 0; i < indices.Count; i++)
+            {
+                var idx = indices[i];
+                ref var state = ref frame.States[idx];
+
+                if (state.Phase == ActionPhase.Running)
+                {
+                    state.Phase = ActionPhase.Completed;
+                    Debug.Log($"[FlowSystem] Flow.Join (index={idx}) → Completed");
                 }
             }
         }

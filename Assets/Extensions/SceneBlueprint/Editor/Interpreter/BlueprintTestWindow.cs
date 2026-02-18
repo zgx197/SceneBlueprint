@@ -3,6 +3,7 @@ using UnityEditor;
 using UnityEngine;
 using SceneBlueprint.Runtime.Interpreter;
 using SceneBlueprint.Runtime.Interpreter.Systems;
+using SceneBlueprint.Runtime;
 
 namespace SceneBlueprint.Editor.Interpreter
 {
@@ -32,6 +33,9 @@ namespace SceneBlueprint.Editor.Interpreter
         private BlueprintRunner? _runner;
         private string _statusText = "未加载";
         private Vector2 _scrollPos;
+
+        /// <summary>运行时配置（从全局设置读取）</summary>
+        private BlueprintRuntimeSettings Settings => BlueprintRuntimeSettings.Instance;
 
         // ══════════════════════════════════════════
         //  GUI
@@ -78,7 +82,7 @@ namespace SceneBlueprint.Editor.Interpreter
 
                 if (GUILayout.Button("执行 10 Ticks", GUILayout.Height(24)))
                 {
-                    StepTicks(10);
+                    StepTicks(Settings.BatchTickCount);
                 }
 
                 GUI.enabled = _runner != null;
@@ -176,7 +180,8 @@ namespace SceneBlueprint.Editor.Interpreter
             runner.RegisterSystems(
                 new TransitionSystem(),
                 new FlowSystem(),
-                new SpawnPresetSystem()
+                new SpawnPresetSystem(),
+                new SpawnWaveSystem()
             );
 
             return runner;
@@ -199,11 +204,11 @@ namespace SceneBlueprint.Editor.Interpreter
             UnityEngine.Debug.Log("  蓝图运行时测试 - 开始执行");
             UnityEngine.Debug.Log("══════════════════════════════════════════");
 
-            var ticks = _runner.RunUntilComplete(maxTicks: 1000);
+            var ticks = _runner.RunUntilComplete(maxTicks: Settings.MaxTicksLimit);
 
             _statusText = _runner.IsCompleted
                 ? $"执行完毕！共 {ticks} Tick，{_runner.Frame.ActionCount} 个 Action"
-                : $"达到最大 Tick 限制 (1000)，尚未完成";
+                : $"达到最大 Tick 限制 ({Settings.MaxTicksLimit})，尚未完成";
 
             UnityEngine.Debug.Log("══════════════════════════════════════════");
             UnityEngine.Debug.Log($"  蓝图运行时测试 - {_statusText}");

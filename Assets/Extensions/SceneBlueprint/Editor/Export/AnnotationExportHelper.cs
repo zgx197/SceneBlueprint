@@ -108,6 +108,49 @@ namespace SceneBlueprint.Editor.Export
         }
 
         /// <summary>
+        /// 从任意 SceneMarker 上收集所有 MarkerAnnotation 的导出数据。
+        /// <para>用于从 AreaMarker 自身收集 WaveSpawnConfig 等 Annotation。</para>
+        /// </summary>
+        public static AnnotationDataEntry[] CollectAnnotationsFromMarker(
+            SceneMarker marker, string actionTypeId)
+        {
+            var annotations = MarkerCache.GetAnnotations(marker);
+            if (annotations.Length == 0)
+            {
+                SBLog.Info(SBLogTags.Export,
+                    $"Marker '{marker.GetDisplayLabel()}' (ID: {marker.MarkerId}) " +
+                    $"无 MarkerAnnotation (Action: '{actionTypeId}')");
+                return System.Array.Empty<AnnotationDataEntry>();
+            }
+
+            var entries = new List<AnnotationDataEntry>();
+            foreach (var annotation in annotations)
+            {
+                var data = new Dictionary<string, object>();
+                annotation.CollectExportData(data);
+
+                var properties = new List<PropertyValue>();
+                foreach (var kvp in data)
+                {
+                    properties.Add(new PropertyValue
+                    {
+                        Key = kvp.Key,
+                        ValueType = InferValueType(kvp.Value),
+                        Value = SerializeValue(kvp.Value)
+                    });
+                }
+
+                entries.Add(new AnnotationDataEntry
+                {
+                    TypeId = annotation.AnnotationTypeId,
+                    Properties = properties.ToArray()
+                });
+            }
+
+            return entries.ToArray();
+        }
+
+        /// <summary>
         /// 为 PointMarker 构建空间载荷 JSON（position + rotation）。
         /// </summary>
         public static string BuildPointSpatialPayload(PointMarker pointMarker)
@@ -120,11 +163,35 @@ namespace SceneBlueprint.Editor.Export
             });
         }
 
+        /// <summary>
+        /// 为 AreaMarker 构建区域几何载荷 JSON（center + rotation + size + shape）。
+        /// </summary>
+        public static string BuildAreaSpatialPayload(AreaMarker area)
+        {
+            var t = area.transform;
+            return JsonUtility.ToJson(new AreaSpatialData
+            {
+                center = t.position,
+                rotation = t.rotation.eulerAngles,
+                size = area.BoxSize,
+                shape = area.Shape.ToString()
+            });
+        }
+
         [System.Serializable]
         private struct PointSpatialData
         {
             public Vector3 position;
             public Vector3 rotation;
+        }
+
+        [System.Serializable]
+        private struct AreaSpatialData
+        {
+            public Vector3 center;
+            public Vector3 rotation;
+            public Vector3 size;
+            public string shape;
         }
 
         private static string InferValueType(object value)

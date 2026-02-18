@@ -4,10 +4,11 @@ namespace SceneBlueprint.SpatialAbstraction
 {
     /// <summary>
     /// 绑定作用域策略接口。
-    /// 统一生成导出和恢复链路使用的 scoped key。
+    /// 以 nodeId 为作用域，生成全局唯一的 scoped key。
+    /// 键格式：nodeId/bindingKey。
     /// </summary>
     public interface IBindingScopePolicy
     {
-        string BuildScopedKey(string subGraphId, string bindingKey, string nodeId);
+        string BuildScopedKey(string nodeId, string bindingKey);
     }
 }

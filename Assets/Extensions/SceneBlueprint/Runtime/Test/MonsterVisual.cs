@@ -5,6 +5,7 @@ namespace SceneBlueprint.Runtime.Test
 {
     /// <summary>
     /// 怪物可视化组件——用彩色 Cube 表示怪物，显示信息标签和警戒范围。
+    /// 使用 Unlit/Color 内置 Shader 确保在任何渲染管线下都能正常显示。
     /// </summary>
     public class MonsterVisual : MonoBehaviour
     {
@@ -62,11 +63,9 @@ namespace SceneBlueprint.Runtime.Test
             _meshRenderer = GetComponent<MeshRenderer>();
             if (_meshRenderer == null) return;
 
-            // 创建独立材质实例
-            _material = new Material(Shader.Find("Standard")!);
-            _material.color = _cubeColor;
-            // 半透明模式（用于区分不同怪物）
-            _material.SetFloat("_Mode", 0); // Opaque
+            // 使用 Unlit/Color —— 最简单、最可靠的内置 Shader
+            _material = new Material(Shader.Find("Unlit/Color")!);
+            _material.SetColor("_Color", _cubeColor);
             _meshRenderer.material = _material;
         }
 
@@ -74,26 +73,22 @@ namespace SceneBlueprint.Runtime.Test
         {
             if (!_showGuardRadius) return;
 
-            // 绘制警戒范围圆圈
-            var basePos = transform.position - Vector3.up * 0.5f; // 地面高度
+            var basePos = transform.position - Vector3.up * 0.5f;
 
             if (Behavior == "Guard" && GuardRadius > 0.1f)
             {
                 Gizmos.color = new Color(_cubeColor.r, _cubeColor.g, _cubeColor.b, 0.3f);
                 DrawWireCircle(basePos + Vector3.up * 0.05f, GuardRadius, 32);
 
-                // 半透明填充
                 Gizmos.color = new Color(_cubeColor.r, _cubeColor.g, _cubeColor.b, 0.08f);
                 Gizmos.DrawSphere(basePos + Vector3.up * 0.05f, GuardRadius);
             }
 
             // 朝向箭头
             Gizmos.color = Color.yellow;
-            var fwd = transform.forward * 1.5f;
-            Gizmos.DrawRay(transform.position, fwd);
+            Gizmos.DrawRay(transform.position, transform.forward * 1.5f);
         }
 
-        /// <summary>在 Scene 视图绘制线框圆</summary>
         private void DrawWireCircle(Vector3 center, float radius, int segments)
         {
             float step = 360f / segments;
@@ -112,9 +107,8 @@ namespace SceneBlueprint.Runtime.Test
             if (Camera.main == null) return;
 
             var screenPos = Camera.main.WorldToScreenPoint(transform.position + Vector3.up * 1.5f);
-            if (screenPos.z < 0) return; // 在相机后面
+            if (screenPos.z < 0) return;
 
-            // 转换为 GUI 坐标系（Y 翻转）
             screenPos.y = Screen.height - screenPos.y;
 
             var label = $"{MonsterId} Lv{Level}\n[{Behavior}]";
@@ -129,7 +123,6 @@ namespace SceneBlueprint.Runtime.Test
             var size = style.CalcSize(new GUIContent(label));
             var rect = new Rect(screenPos.x - size.x / 2, screenPos.y - size.y / 2, size.x, size.y);
 
-            // 绘制背景
             var bgRect = new Rect(rect.x - 4, rect.y - 2, rect.width + 8, rect.height + 4);
             GUI.Box(bgRect, GUIContent.none);
             GUI.Label(rect, label, style);
@@ -138,6 +131,18 @@ namespace SceneBlueprint.Runtime.Test
         private void OnDestroy()
         {
             if (_material != null) Destroy(_material);
+        }
+
+        // ── 颜色工具（Unlit/Color 统一使用 _Color） ──
+
+        public static void SetMaterialColor(Material mat, Color color)
+        {
+            mat.SetColor("_Color", color);
+        }
+
+        public static Color GetMaterialColor(Material mat)
+        {
+            return mat.GetColor("_Color");
         }
     }
 }

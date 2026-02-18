@@ -266,7 +266,7 @@ namespace SceneBlueprint.Editor
         private bool DrawSceneBindingField(PropertyDefinition prop, PropertyBag bag, string ownerNodeId)
         {
             string bindingTypeStr = prop.SceneBindingType?.ToString() ?? "Unknown";
-            string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(_currentGraph, ownerNodeId, prop.Key);
+            string scopedBindingKey = BindingScopeUtility.BuildScopedKey(ownerNodeId, prop.Key);
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
@@ -467,7 +467,7 @@ namespace SceneBlueprint.Editor
                     {
                         foreach (var (prop, _, nodeId) in bindings)
                         {
-                            string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(_currentGraph, nodeId, prop.Key);
+                            string scopedBindingKey = BindingScopeUtility.BuildScopedKey(nodeId, prop.Key);
                             if (_bindingContext.Get(scopedBindingKey) != null) bound++;
                         }
                     }
@@ -491,7 +491,7 @@ namespace SceneBlueprint.Editor
                     var bindings = CollectSubGraphBindings(sgf);
                     foreach (var (prop, _, nodeId) in bindings)
                     {
-                        string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(_currentGraph, nodeId, prop.Key);
+                        string scopedBindingKey = BindingScopeUtility.BuildScopedKey(nodeId, prop.Key);
                         if (_bindingContext.Get(scopedBindingKey) == null)
                             allUnbound.Add((sgf.Title, prop, nodeId));
                     }
@@ -505,7 +505,7 @@ namespace SceneBlueprint.Editor
                     foreach (var (title, prop, nodeId) in allUnbound)
                     {
                         string bindingType = prop.SceneBindingType?.ToString() ?? "?";
-                        string scopedBindingKey = BindingScopeUtility.BuildScopedKeyForNode(_currentGraph, nodeId, prop.Key);
+                        string scopedBindingKey = BindingScopeUtility.BuildScopedKey(nodeId, prop.Key);
                         EditorGUILayout.BeginVertical(EditorStyles.helpBox);
                         EditorGUILayout.LabelField($"⚠️ {title} / {prop.DisplayName} ({bindingType})",
                             EditorStyles.miniLabel);

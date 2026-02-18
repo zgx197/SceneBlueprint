@@ -32,6 +32,8 @@ namespace SceneBlueprint.Runtime.Interpreter
                 return null;
             }
 
+            Debug.Log($"[BlueprintLoader] 开始解析 JSON，长度: {jsonText.Length} 字符");
+
             // 注意：JsonUtility 对 ConditionData.Children（递归自引用）会产生
             // "Serialization depth limit 10 exceeded" 警告，不影响数据正确性。
             // Phase 1 不使用 Children 字段；后续迁移到帧同步框架时会使用自定义解析器。
@@ -52,6 +54,20 @@ namespace SceneBlueprint.Runtime.Interpreter
                 return null;
             }
 
+            Debug.Log($"[BlueprintLoader] JSON 解析成功: BlueprintId={data.BlueprintId}, " +
+                      $"Actions={data.Actions?.Length ?? 0}, Transitions={data.Transitions?.Length ?? 0}");
+
+            // 打印所有 Action 的 TypeId
+            if (data.Actions != null && data.Actions.Length > 0)
+            {
+                Debug.Log($"[BlueprintLoader] Actions 列表:");
+                for (int i = 0; i < data.Actions.Length; i++)
+                {
+                    var action = data.Actions[i];
+                    Debug.Log($"  [{i}] TypeId={action.TypeId}, Id={action.Id}");
+                }
+            }
+
             return BuildFrame(data);
         }
 
@@ -60,6 +76,8 @@ namespace SceneBlueprint.Runtime.Interpreter
         /// </summary>
         public static BlueprintFrame? BuildFrame(SceneBlueprintData data)
         {
+            Debug.Log($"[BlueprintLoader.BuildFrame] 开始构建 Frame，Actions 数量: {data.Actions?.Length ?? 0}");
+
             if (data.Actions == null || data.Actions.Length == 0)
             {
                 Debug.LogWarning("[BlueprintLoader] 蓝图中无 Action 数据");
@@ -74,6 +92,8 @@ namespace SceneBlueprint.Runtime.Interpreter
                 Transitions = data.Transitions ?? Array.Empty<TransitionEntry>(),
             };
 
+            Debug.Log($"[BlueprintLoader.BuildFrame] Frame 创建完成，Actions={frame.Actions.Length}, Transitions={frame.Transitions.Length}");
+
             // ── 1. 构建 ActionId → Index 映射 ──
             var idToIndex = new Dictionary<string, int>(data.Actions.Length);
             for (int i = 0; i < data.Actions.Length; i++)
@@ -85,6 +105,7 @@ namespace SceneBlueprint.Runtime.Interpreter
                 }
             }
             frame.ActionIdToIndex = idToIndex;
+            Debug.Log($"[BlueprintLoader.BuildFrame] ActionId 映射表构建完成，共 {idToIndex.Count} 个映射");
 
             // ── 2. 构建 TypeId → ActionIndex 列表 ──
             var byType = new Dictionary<string, List<int>>();
@@ -108,6 +129,13 @@ namespace SceneBlueprint.Runtime.Interpreter
             frame.ActionsByTypeId = byType;
             frame.StartActionIndex = startIndex;
 
+            Debug.Log($"[BlueprintLoader.BuildFrame] TypeId 索引构建完成:");
+            foreach (var kvp in byType)
+            {
+                Debug.Log($"  {kvp.Key}: {kvp.Value.Count} 个节点 (indices: {string.Join(", ", kvp.Value)})");
+            }
+            Debug.Log($"[BlueprintLoader.BuildFrame] Flow.Start 索引: {startIndex}");
+
             // ── 3. 构建出边索引（ActionIndex → 出发的 Transition 索引列表）──
             var outgoing = new Dictionary<int, List<int>>();
             for (int i = 0; i < frame.Transitions.Length; i++)
@@ -124,6 +152,7 @@ namespace SceneBlueprint.Runtime.Interpreter
                 }
             }
             frame.OutgoingTransitions = outgoing;
+            Debug.Log($"[BlueprintLoader.BuildFrame] 出边索引构建完成，共 {outgoing.Count} 个节点有出边");
 
             // ── 4. 初始化运行时状态数组（全部 Idle）──
             var states = new ActionRuntimeState[data.Actions.Length];
@@ -132,6 +161,7 @@ namespace SceneBlueprint.Runtime.Interpreter
                 states[i].Reset();
             }
             frame.States = states;
+            Debug.Log($"[BlueprintLoader.BuildFrame] 运行时状态数组初始化完成，长度: {states.Length}");
 
             // ── 5. 初始化 Blackboard ──
             var bb = new Blackboard();
@@ -146,6 +176,9 @@ namespace SceneBlueprint.Runtime.Interpreter
                 }
             }
             frame.Blackboard = bb;
+            Debug.Log($"[BlueprintLoader.BuildFrame] Blackboard 初始化完成");
+
+            Debug.Log($"[BlueprintLoader.BuildFrame] ✓ Frame 构建完成，最终 ActionCount={frame.ActionCount}");
 
             return frame;
         }

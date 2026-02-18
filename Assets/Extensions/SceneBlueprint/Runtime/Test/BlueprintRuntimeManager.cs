@@ -11,8 +11,8 @@ namespace SceneBlueprint.Runtime.Test
     /// 职责：
     /// 1. 加载蓝图 JSON 数据
     /// 2. 创建 BlueprintRunner 并注册 System
-    /// 3. 将 MonsterSpawner 注入 SpawnPresetSystem
-    /// 4. 执行蓝图直到完毕
+    /// 3. 将 MonsterSpawner 注入 SpawnPresetSystem / SpawnWaveSystem
+    /// 4. 逐帧驱动 Tick 使波次间隔等持续型行为在视觉上可观察
     /// 5. 提供运行时状态展示（UI）
     /// </para>
     /// </summary>
@@ -22,31 +22,67 @@ namespace SceneBlueprint.Runtime.Test
         [Tooltip("拖入导出的蓝图 JSON 文件")]
         [SerializeField] private TextAsset? _blueprintJson;
 
-        [Header("自动执行")]
-        [Tooltip("场景启动后自动加载并执行蓝图")]
-        [SerializeField] private bool _autoRun = true;
-
         [Header("组件引用")]
         [SerializeField] private MonsterSpawner? _monsterSpawner;
 
-        // 运行时状态
         private BlueprintRunner? _runner;
-        private bool _executed;
+        private bool _running;
+        private bool _loaded;
         private string _statusText = "等待加载...";
+        private float _tickAccumulator = 0f;
 
         /// <summary>当前 Runner 实例（外部访问用）</summary>
         public BlueprintRunner? Runner => _runner;
 
+        /// <summary>运行时配置（从全局设置读取）</summary>
+        private BlueprintRuntimeSettings Settings => BlueprintRuntimeSettings.Instance;
+
         private void Start()
         {
-            if (_autoRun && _blueprintJson != null)
+            if (Settings.AutoRunInTestScene && _blueprintJson != null)
             {
-                LoadAndRun();
+                LoadBlueprint();
             }
         }
 
-        /// <summary>加载蓝图并立即执行到结束</summary>
-        public void LoadAndRun()
+        private void Update()
+        {
+            if (!_running || _runner == null || _runner.IsCompleted)
+                return;
+
+            // 根据目标 Tick 率计算每帧应执行的 Tick 数
+            int ticksPerFrame = Settings.TicksPerFrame;
+            if (ticksPerFrame == 0)
+            {
+                // 自动模式：根据实际帧率动态计算
+                float targetTickRate = Settings.TargetTickRate;
+                _tickAccumulator += targetTickRate * Time.deltaTime;
+                ticksPerFrame = Mathf.FloorToInt(_tickAccumulator);
+                _tickAccumulator -= ticksPerFrame;
+            }
+
+            ticksPerFrame = Mathf.Max(1, ticksPerFrame);
+
+            for (int i = 0; i < ticksPerFrame; i++)
+            {
+                _runner.Tick();
+                if (_runner.IsCompleted)
+                {
+                    _running = false;
+                    _statusText = $"执行完毕 — 共 {_runner.TickCount} Tick";
+                    Debug.Log($"[BlueprintRuntimeManager] {_statusText}");
+                    break;
+                }
+            }
+
+            if (_running)
+            {
+                _statusText = $"执行中 — Tick {_runner.TickCount}";
+            }
+        }
+
+        /// <summary>加载蓝图并开始逐帧执行</summary>
+        public void LoadBlueprint()
         {
             if (_blueprintJson == null)
             {
@@ -55,10 +91,8 @@ namespace SceneBlueprint.Runtime.Test
                 return;
             }
 
-            // 清除之前的怪物
             if (_monsterSpawner != null) _monsterSpawner.ClearAll();
 
-            // 创建 Runner
             _runner = new BlueprintRunner
             {
                 Log = msg => Debug.Log(msg),
@@ -66,30 +100,27 @@ namespace SceneBlueprint.Runtime.Test
                 LogError = msg => Debug.LogError(msg)
             };
 
-            // 创建并注册 System
-            var spawnSystem = new SpawnPresetSystem();
+            var spawnPresetSystem = new SpawnPresetSystem();
+            var spawnWaveSystem = new SpawnWaveSystem();
             if (_monsterSpawner != null)
             {
-                spawnSystem.SpawnHandler = _monsterSpawner;
+                spawnPresetSystem.SpawnHandler = _monsterSpawner;
+                spawnWaveSystem.SpawnHandler = _monsterSpawner;
             }
 
             _runner.RegisterSystems(
                 new TransitionSystem(),
                 new FlowSystem(),
-                spawnSystem
+                spawnPresetSystem,
+                spawnWaveSystem
             );
 
-            // 加载蓝图
             _statusText = "正在加载...";
             _runner.Load(_blueprintJson.text);
 
-            // 执行蓝图
-            _statusText = "正在执行...";
-            int ticks = _runner.RunUntilComplete(1000);
-
-            _executed = true;
-            _statusText = $"执行完毕 — 共 {ticks} Tick";
-            Debug.Log($"[BlueprintRuntimeManager] {_statusText}");
+            _loaded = true;
+            _running = true;
+            _statusText = "执行中 — Tick 0";
         }
 
         /// <summary>重新加载并执行</summary>
@@ -97,8 +128,9 @@ namespace SceneBlueprint.Runtime.Test
         {
             _runner?.Shutdown();
             _runner = null;
-            _executed = false;
-            LoadAndRun();
+            _running = false;
+            _loaded = false;
+            LoadBlueprint();
         }
 
         // ── 简易运行时 UI ──
@@ -112,12 +144,12 @@ namespace SceneBlueprint.Runtime.Test
                 padding = new RectOffset(10, 10, 8, 8)
             };
 
-            var area = new Rect(10, 10, 320, 100);
+            var area = new Rect(10, 10, 320, 120);
             GUI.Box(area, "", boxStyle);
 
-            GUILayout.BeginArea(new Rect(20, 18, 300, 80));
+            GUILayout.BeginArea(new Rect(20, 18, 300, 100));
 
-            GUILayout.Label($"<b>蓝图运行时测试</b>", new GUIStyle(GUI.skin.label) { richText = true, fontSize = 14 });
+            GUILayout.Label("<b>蓝图运行时测试</b>", new GUIStyle(GUI.skin.label) { richText = true, fontSize = 14 });
             GUILayout.Label($"状态: {_statusText}");
 
             if (_blueprintJson != null)
@@ -125,16 +157,27 @@ namespace SceneBlueprint.Runtime.Test
                 GUILayout.Label($"蓝图: {_blueprintJson.name}");
             }
 
-            GUILayout.EndArea();
-
-            // 控制按钮
-            if (GUI.Button(new Rect(10, 115, 100, 30), _executed ? "重新加载" : "加载执行"))
+            if (_runner != null)
             {
-                if (_executed) Reload();
-                else LoadAndRun();
+                int ticksPerFrame = Settings.TicksPerFrame;
+                if (ticksPerFrame == 0)
+                {
+                    GUILayout.Label($"Tick 率: {Settings.TargetTickRate}/秒 (自动)");
+                }
+                else
+                {
+                    GUILayout.Label($"Tick/帧: {ticksPerFrame} (手动)");
+                }
             }
 
-            // 操作提示
+            GUILayout.EndArea();
+
+            if (GUI.Button(new Rect(10, 135, 100, 30), _loaded ? "重新加载" : "加载执行"))
+            {
+                if (_loaded) Reload();
+                else LoadBlueprint();
+            }
+
             var helpRect = new Rect(Screen.width - 240, 10, 230, 70);
             GUI.Box(helpRect, "");
             GUI.Label(new Rect(helpRect.x + 8, helpRect.y + 6, 220, 60),

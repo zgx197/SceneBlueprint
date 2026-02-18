@@ -7,15 +7,15 @@ namespace SceneBlueprint.SpatialAbstraction.Defaults
 {
     /// <summary>
     /// 默认的作用域键生成策略。
+    /// 键格式：nodeId/bindingKey —— 每个节点实例拥有独立作用域，彻底避免同名 key 冲突。
     /// </summary>
     public sealed class DefaultBindingScopePolicy : IBindingScopePolicy
     {
-        public string BuildScopedKey(string subGraphId, string bindingKey, string nodeId)
+        public string BuildScopedKey(string nodeId, string bindingKey)
         {
-            var sg = string.IsNullOrEmpty(subGraphId) ? "__root__" : subGraphId;
+            var nid = string.IsNullOrEmpty(nodeId) ? "__unknown__" : nodeId;
             var bk = string.IsNullOrEmpty(bindingKey) ? "__empty__" : bindingKey;
-            _ = nodeId; // 预留扩展位，默认不参与键拼接
-            return sg + "/" + bk;
+            return nid + "/" + bk;
         }
     }
 

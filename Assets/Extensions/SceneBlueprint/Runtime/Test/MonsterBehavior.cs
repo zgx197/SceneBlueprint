@@ -40,7 +40,7 @@ namespace SceneBlueprint.Runtime.Test
             _renderer = GetComponent<MeshRenderer>();
             if (_renderer != null && _renderer.material != null)
             {
-                _originalColor = _renderer.material.color;
+                _originalColor = MonsterVisual.GetMaterialColor(_renderer.material);
                 _alertColor = new Color(
                     Mathf.Min(_originalColor.r + 0.4f, 1f),
                     _originalColor.g * 0.3f,
@@ -116,8 +116,9 @@ namespace SceneBlueprint.Runtime.Test
         {
             if (_renderer != null && _renderer.material != null)
             {
-                _renderer.material.color = Color.Lerp(_renderer.material.color, _alertColor,
-                    Time.deltaTime * 8f);
+                var current = MonsterVisual.GetMaterialColor(_renderer.material);
+                MonsterVisual.SetMaterialColor(_renderer.material,
+                    Color.Lerp(current, _alertColor, Time.deltaTime * 8f));
             }
         }
 
@@ -125,8 +126,9 @@ namespace SceneBlueprint.Runtime.Test
         {
             if (_renderer != null && _renderer.material != null)
             {
-                _renderer.material.color = Color.Lerp(_renderer.material.color, _originalColor,
-                    Time.deltaTime * 4f);
+                var current = MonsterVisual.GetMaterialColor(_renderer.material);
+                MonsterVisual.SetMaterialColor(_renderer.material,
+                    Color.Lerp(current, _originalColor, Time.deltaTime * 4f));
             }
         }
     }

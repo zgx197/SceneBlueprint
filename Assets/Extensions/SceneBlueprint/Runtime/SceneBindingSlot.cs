@@ -10,14 +10,14 @@ namespace SceneBlueprint.Runtime
     /// 将蓝图中声明的 SceneBinding 属性（如 "spawnArea"）映射到场景中的具体 GameObject。
     /// 
     /// 设计原则：
-    /// - bindingKey 使用 scoped 形式（subGraphId/bindingKey），bindingType 由蓝图声明自动填充
+    /// - bindingKey 使用 scoped 形式（nodeId/bindingKey），每个节点实例拥有独立作用域
     /// - boundObject 由策划在 Inspector 中拖入场景对象
     /// - 导出时根据 bindingType 从 boundObject 提取数据（坐标/顶点/路径点/ID）
     /// </summary>
     [Serializable]
     public class SceneBindingSlot
     {
-        [Tooltip("绑定键名（scopedBindingKey：subGraphId/bindingKey）")]
+        [Tooltip("绑定键名（scopedBindingKey：nodeId/bindingKey）")]
         public string BindingKey = "";
 
         [Tooltip("绑定类型（决定导出时如何提取数据）")]

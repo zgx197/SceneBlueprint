@@ -73,23 +73,70 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             // 将新事件合入 PendingEvents
             if (_newEvents.Count > 0)
             {
+                Debug.Log($"[TransitionSystem] 生成 {_newEvents.Count} 个新事件");
                 frame.PendingEvents.AddRange(_newEvents);
             }
 
             // ── 阶段2：消费 PendingEvents → 激活目标 Action ──
+            Debug.Log($"[TransitionSystem] 开始处理 {frame.PendingEvents.Count} 个待处理事件");
+            
             for (int i = 0; i < frame.PendingEvents.Count; i++)
             {
                 var evt = frame.PendingEvents[i];
                 ref var targetState = ref frame.States[evt.ToActionIndex];
+                var targetAction = frame.Actions[evt.ToActionIndex];
 
-                // 只激活 Idle 状态的 Action（避免重复激活）
-                if (targetState.Phase == ActionPhase.Idle)
+                Debug.Log($"[TransitionSystem] 处理事件 {i}: {evt}, 目标节点 TypeId={targetAction.TypeId}, 当前状态={targetState.Phase}");
+
+                // Flow.Join 特殊处理：累加计数，收齐所有输入后才激活
+                if (targetAction.TypeId == "Flow.Join")
                 {
-                    targetState.Phase = ActionPhase.Running;
-                    targetState.TicksInPhase = 0;
+                    Debug.Log($"[TransitionSystem] 检测到 Flow.Join 节点 (index={evt.ToActionIndex})");
+                    
+                    // 使用 CustomInt 记录已收到的输入数量
+                    targetState.CustomInt++;
 
-                    var typeId = frame.GetTypeId(evt.ToActionIndex);
-                    Debug.Log($"[TransitionSystem] 激活: {typeId} (index={evt.ToActionIndex}) ← {evt}");
+                    // 读取需要的入边数量
+                    var inEdgeCountStr = frame.GetProperty(evt.ToActionIndex, "inEdgeCount");
+                    int requiredCount = int.TryParse(inEdgeCountStr, out var req) ? req : 1;
+
+                    Debug.Log($"[TransitionSystem] Flow.Join 当前收到输入: {targetState.CustomInt}/{requiredCount}");
+
+                    if (targetState.CustomInt >= requiredCount)
+                    {
+                        // 收齐所有输入，激活节点
+                        if (targetState.Phase == ActionPhase.Idle || targetState.Phase == ActionPhase.WaitingTrigger)
+                        {
+                            targetState.Phase = ActionPhase.Running;
+                            targetState.TicksInPhase = 0;
+                            Debug.Log($"[TransitionSystem] ✓ 激活: Flow.Join (index={evt.ToActionIndex}) ← 收齐 {targetState.CustomInt}/{requiredCount} 输入");
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"[TransitionSystem] Flow.Join (index={evt.ToActionIndex}) 已收齐输入但状态异常: {targetState.Phase}");
+                        }
+                    }
+                    else
+                    {
+                        // 还没收齐，保持 Idle 或 WaitingTrigger
+                        if (targetState.Phase == ActionPhase.Idle)
+                        {
+                            targetState.Phase = ActionPhase.WaitingTrigger;
+                        }
+                        Debug.Log($"[TransitionSystem] Flow.Join (index={evt.ToActionIndex}) 等待中: {targetState.CustomInt}/{requiredCount}");
+                    }
+                }
+                else
+                {
+                    // 普通节点：OR 语义，直接激活
+                    if (targetState.Phase == ActionPhase.Idle)
+                    {
+                        targetState.Phase = ActionPhase.Running;
+                        targetState.TicksInPhase = 0;
+
+                        var typeId = frame.GetTypeId(evt.ToActionIndex);
+                        Debug.Log($"[TransitionSystem] ✓ 激活: {typeId} (index={evt.ToActionIndex}) ← {evt}");
+                    }
                 }
             }
 

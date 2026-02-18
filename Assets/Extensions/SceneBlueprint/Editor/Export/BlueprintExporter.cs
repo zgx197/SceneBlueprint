@@ -103,6 +103,9 @@ namespace SceneBlueprint.Editor.Export
             // ── Step 2: 展平连线（合并穿过边界节点的连线）──
             var transitions = ExportEdgesFlattened(graph, boundaryNodeIds, registry, messages);
 
+            // ── Step 2.5: 计算 Flow.Join 节点的入边数 ──
+            EnrichFlowJoinWithInEdgeCount(actions, transitions.ToList(), messages);
+
             // ── Step 3: 合并场景绑定（同时将 bindingKey 统一升级为 scoped key）──
             MergeSceneBindings(
                 actions,
@@ -453,8 +456,6 @@ namespace SceneBlueprint.Editor.Export
                     bindingMap[bd.BindingKey] = bd;
             }
 
-            var actionScopeMap = BuildActionScopeMap(graph);
-
             // 更新每个 ActionEntry 中已存在的 SceneBindingEntry
             foreach (var action in actions)
             {
@@ -463,12 +464,8 @@ namespace SceneBlueprint.Editor.Export
                 foreach (var sb in action.SceneBindings)
                 {
                     string rawBindingKey = sb.BindingKey;
-                    string scopeId = actionScopeMap.TryGetValue(action.Id, out var mappedScope)
-                        ? mappedScope
-                        : BindingScopeUtility.TopLevelScopeId;
-                    string scopedBindingKey = BindingScopeUtility.BuildScopedKey(scopeId, rawBindingKey, action.Id);
+                    string scopedBindingKey = BindingScopeUtility.BuildScopedKey(action.Id, rawBindingKey);
 
-                    // 导出统一使用 scopedBindingKey（C5）
                     sb.BindingKey = scopedBindingKey;
 
                     if (bindingMap.TryGetValue(scopedBindingKey, out var data)
@@ -520,26 +517,6 @@ namespace SceneBlueprint.Editor.Export
             }
         }
 
-        private static Dictionary<string, string> BuildActionScopeMap(Graph graph)
-        {
-            var map = new Dictionary<string, string>();
-
-            foreach (var node in graph.Nodes)
-            {
-                map[node.Id] = BindingScopeUtility.TopLevelScopeId;
-            }
-
-            foreach (var sgf in graph.SubGraphFrames)
-            {
-                foreach (var nodeId in sgf.ContainedNodeIds)
-                {
-                    map[nodeId] = sgf.Id;
-                }
-            }
-
-            return map;
-        }
-
         // ══════════════════════════════════════
         //  Annotation 数据收集（后处理）
         // ══════════════════════════════════════
@@ -579,42 +556,58 @@ namespace SceneBlueprint.Editor.Export
                         continue;
                     }
 
-                    // ── AreaMarker：展开子 PointMarker ──
+                    // ── AreaMarker 处理 ──
                     if (marker is AreaMarker area)
                     {
-                        var childPoints = AnnotationExportHelper.CollectChildPointMarkers(area);
-                        if (childPoints.Count == 0)
+                        // 根据 ActionTypeId 决定处理策略
+                        if (IsAreaLevelAnnotationAction(action.TypeId))
                         {
-                            messages.Add(ValidationMessage.Warning(
-                                $"AreaMarker '{area.GetDisplayLabel()}' (ID: {area.MarkerId}) " +
-                                $"没有子 PointMarker (Action: {action.Id})"));
+                            // Spawn.Wave 等：保留 AreaMarker 整体，收集区域几何 + 自身 Annotation
+                            sb.SpatialPayloadJson = AnnotationExportHelper.BuildAreaSpatialPayload(area);
+                            sb.Annotations = AnnotationExportHelper.CollectAnnotationsFromMarker(
+                                area, action.TypeId);
                             expandedBindings.Add(sb);
+
+                            messages.Add(ValidationMessage.Info(
+                                $"AreaMarker '{area.GetDisplayLabel()}' 作为区域整体导出 " +
+                                $"(Action: {action.Id}, Annotations: {sb.Annotations.Length})"));
                         }
                         else
                         {
-                            // 为每个子 PointMarker 生成独立的 SceneBindingEntry
-                            foreach (var pm in childPoints)
+                            // Spawn.Preset 等：展开子 PointMarker
+                            var childPoints = AnnotationExportHelper.CollectChildPointMarkers(area);
+                            if (childPoints.Count == 0)
                             {
-                                var pmStableId = "marker:" + pm.MarkerId;
-                                var childSb = new SceneBindingEntry
-                                {
-                                    BindingKey = sb.BindingKey,
-                                    BindingType = "Transform",
-                                    SceneObjectId = pmStableId,
-                                    StableObjectId = pmStableId,
-                                    AdapterType = sb.AdapterType,
-                                    SpatialPayloadJson = AnnotationExportHelper.BuildPointSpatialPayload(pm),
-                                    SourceSubGraph = sb.SourceSubGraph,
-                                    SourceActionTypeId = sb.SourceActionTypeId,
-                                    Annotations = AnnotationExportHelper.CollectAnnotations(
-                                        pm, action.TypeId)
-                                };
-                                expandedBindings.Add(childSb);
+                                messages.Add(ValidationMessage.Warning(
+                                    $"AreaMarker '{area.GetDisplayLabel()}' (ID: {area.MarkerId}) " +
+                                    $"没有子 PointMarker (Action: {action.Id})"));
+                                expandedBindings.Add(sb);
                             }
+                            else
+                            {
+                                foreach (var pm in childPoints)
+                                {
+                                    var pmStableId = "marker:" + pm.MarkerId;
+                                    var childSb = new SceneBindingEntry
+                                    {
+                                        BindingKey = sb.BindingKey,
+                                        BindingType = "Transform",
+                                        SceneObjectId = pmStableId,
+                                        StableObjectId = pmStableId,
+                                        AdapterType = sb.AdapterType,
+                                        SpatialPayloadJson = AnnotationExportHelper.BuildPointSpatialPayload(pm),
+                                        SourceSubGraph = sb.SourceSubGraph,
+                                        SourceActionTypeId = sb.SourceActionTypeId,
+                                        Annotations = AnnotationExportHelper.CollectAnnotations(
+                                            pm, action.TypeId)
+                                    };
+                                    expandedBindings.Add(childSb);
+                                }
 
-                            messages.Add(ValidationMessage.Info(
-                                $"AreaMarker '{area.GetDisplayLabel()}' 展开为 {childPoints.Count} 个子点位 " +
-                                $"(Action: {action.Id})"));
+                                messages.Add(ValidationMessage.Info(
+                                    $"AreaMarker '{area.GetDisplayLabel()}' 展开为 {childPoints.Count} 个子点位 " +
+                                    $"(Action: {action.Id})"));
+                            }
                         }
                     }
                     // ── PointMarker：直接收集 Annotation ──
@@ -808,6 +801,67 @@ namespace SceneBlueprint.Editor.Export
                     var msg = $"[{rule.RuleId}] 子蓝图 '{frame.Title}' 只有 {count} 个节点，最少需要 {rule.MinNodeCount} 个";
                     if (!string.IsNullOrEmpty(rule.Description)) msg += $" — {rule.Description}";
                     messages.Add(ToMessage(rule.Severity, msg));
+                }
+            }
+        }
+
+        /// <summary>
+        /// 判断给定 ActionTypeId 是否需要将 AreaMarker 作为整体区域导出
+        /// （收集 AreaMarker 自身 Annotation），而非展开子 PointMarker。
+        /// </summary>
+        private static bool IsAreaLevelAnnotationAction(string actionTypeId)
+        {
+            return actionTypeId switch
+            {
+                "Spawn.Wave" => true,
+                _ => false
+            };
+        }
+
+        /// <summary>
+        /// 为 Flow.Join 节点计算入边数并添加到属性中。
+        /// <para>
+        /// Flow.Join 需要知道有多少条输入连线，才能判断何时所有输入都已完成。
+        /// 这个数量在导出时确定，写入 "inEdgeCount" 属性。
+        /// </para>
+        /// </summary>
+        private static void EnrichFlowJoinWithInEdgeCount(
+            List<ActionEntry> actions,
+            List<TransitionEntry> transitions,
+            List<ValidationMessage> messages)
+        {
+            // 统计每个节点的入边数
+            var inEdgeCounts = new Dictionary<string, int>();
+            foreach (var transition in transitions)
+            {
+                if (!inEdgeCounts.ContainsKey(transition.ToActionId))
+                    inEdgeCounts[transition.ToActionId] = 0;
+                inEdgeCounts[transition.ToActionId]++;
+            }
+
+            // 为 Flow.Join 节点添加 inEdgeCount 属性
+            foreach (var action in actions)
+            {
+                if (action.TypeId != "Flow.Join")
+                    continue;
+
+                int count = inEdgeCounts.TryGetValue(action.Id, out var c) ? c : 0;
+
+                // 添加 inEdgeCount 属性
+                var properties = action.Properties.ToList();
+                properties.Add(new PropertyValue
+                {
+                    Key = "inEdgeCount",
+                    ValueType = "int",
+                    Value = count.ToString()
+                });
+                action.Properties = properties.ToArray();
+
+                // 验证：至少需要 1 条入边
+                if (count == 0)
+                {
+                    messages.Add(ValidationMessage.Warning(
+                        $"Flow.Join 节点 '{action.Id}' 没有入边，将永远不会被激活"));
                 }
             }
         }
