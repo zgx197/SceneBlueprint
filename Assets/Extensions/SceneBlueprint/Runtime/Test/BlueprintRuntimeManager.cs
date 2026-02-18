@@ -112,7 +112,8 @@ namespace SceneBlueprint.Runtime.Test
                 new TransitionSystem(),
                 new FlowSystem(),
                 spawnPresetSystem,
-                spawnWaveSystem
+                spawnWaveSystem,
+                new TriggerEnterAreaSystem()
             );
 
             _statusText = "正在加载...";

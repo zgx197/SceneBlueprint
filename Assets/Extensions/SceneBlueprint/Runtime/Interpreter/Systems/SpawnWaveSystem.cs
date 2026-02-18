@@ -8,18 +8,27 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     /// <summary>
     /// 波次刷怪系统——处理 Spawn.Wave 节点的运行时执行。
     /// <para>
-    /// 持续型系统：在多个 Tick 内运行，按波次在区域内随机位置生成怪物。
-    /// 使用 ActionRuntimeState.CustomInt 存储当前波次索引（从 0 开始），
-    /// CustomFloat 存储上次刷怪的 Tick 时间戳。
+    /// 职责拆分后的设计：
+    /// - 怪物池数据来自 SceneBinding.Annotations（WaveSpawnConfig 导出）
+    /// - 波次配置来自 Properties["waves"]（Spawn.Wave 节点属性）
+    /// - 运行时按波次配置，从怪物池中按标签筛选、按权重随机抽取
+    /// </para>
+    /// <para>
+    /// 状态管理：
+    ///   CustomInt   → 当前波次索引（0-based）
+    ///   CustomFloat → 上次刷怪的 Tick 时间戳
     /// </para>
     /// <para>
     /// 每波生成流程：
     /// 1. 解析区域几何（center + size + rotation）
-    /// 2. 解析 WaveSpawnConfig（怪物池 + 波次规则）
-    /// 3. 在区域内用拒绝采样生成随机位置（满足最小间距）
-    /// 4. 通过 ISpawnHandler 回调创建怪物
-    /// 5. 递增波次索引，等待间隔后生成下一波
-    /// 6. 全部波次完成 → Completed
+    /// 2. 解析 WaveSpawnConfig 怪物池（从 Annotations）
+    /// 3. 解析波次配置列表（从 Properties["waves"]）
+    /// 4. 触发 onWaveStart 端口事件（不阻塞刷怪）
+    /// 5. 根据 monsterFilter 筛选候选怪物
+    /// 6. 按 weight 权重随机抽取 count 个怪物
+    /// 7. 在区域内用拒绝采样生成随机位置（满足 MinSpacing）
+    /// 8. 通过 ISpawnHandler 回调创建怪物
+    /// 9. 递增波次索引，全部完成 → Completed
     /// </para>
     /// </summary>
     public class SpawnWaveSystem : BlueprintSystemBase
@@ -59,70 +68,84 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             // 解析配置（仅第一个绑定）
             var binding = bindings[0];
             var areaData = ParseAreaPayload(binding.SpatialPayloadJson);
-            var waveConfig = ExtractWaveConfig(binding.Annotations);
+            var monsterPool = ExtractMonsterPool(binding.Annotations);
 
-            if (!waveConfig.HasData)
+            if (monsterPool.Length == 0)
             {
-                Debug.LogWarning($"[SpawnWaveSystem] Spawn.Wave (index={actionIndex}) 无 WaveSpawn 标注，标记 Completed");
+                Debug.LogWarning($"[SpawnWaveSystem] Spawn.Wave (index={actionIndex}) 无怪物池数据，标记 Completed");
                 state.Phase = ActionPhase.Completed;
                 return;
             }
 
-            int currentWave = state.CustomInt; // 当前波次索引（0-based）
+            // 解析波次配置
+            var waveEntries = ParseWaveEntries(frame, actionIndex);
+            if (waveEntries.Length == 0)
+            {
+                Debug.LogWarning($"[SpawnWaveSystem] Spawn.Wave (index={actionIndex}) 无波次配置，标记 Completed");
+                state.Phase = ActionPhase.Completed;
+                return;
+            }
+
+            // 解析空间设置
+            float minSpacing = ExtractMinSpacing(binding.Annotations);
+
+            int currentWave = state.CustomInt;   // 当前波次索引（0-based）
             int lastSpawnTick = (int)state.CustomFloat; // 上次刷怪 Tick
 
-            // 首波立即生成（CustomFloat == 0 表示未开始）
-            bool isFirstWave = (currentWave == 0 && state.CustomFloat == 0f);
-            bool intervalElapsed = (frame.TickCount - lastSpawnTick) >= waveConfig.WaveIntervalTicks;
-
-            if (isFirstWave || (currentWave < waveConfig.WaveCount && intervalElapsed))
+            // 全部波次已完成
+            if (currentWave >= waveEntries.Length)
             {
-                SpawnOneWave(areaData, waveConfig, currentWave, actionIndex);
-
-                currentWave++;
-                state.CustomInt = currentWave;
-                state.CustomFloat = frame.TickCount;
-
-                Debug.Log($"[SpawnWaveSystem] 波次 {currentWave}/{waveConfig.WaveCount} 生成完毕 " +
-                          $"(Tick={frame.TickCount}, Action index={actionIndex})");
-
-                // 全部波次完成
-                if (currentWave >= waveConfig.WaveCount)
-                {
-                    state.Phase = ActionPhase.Completed;
-                    Debug.Log($"[SpawnWaveSystem] ═══ 所有波次完成 (index={actionIndex}) ═══");
-                }
+                state.Phase = ActionPhase.Completed;
+                Debug.Log($"[SpawnWaveSystem] ═══ 所有波次完成 (index={actionIndex}) ═══");
+                return;
             }
-        }
 
-        /// <summary>生成一波怪物</summary>
-        private void SpawnOneWave(AreaPayload area, WaveConfig config, int waveIndex, int actionIndex)
-        {
-            // 统计本波总怪物数
-            int totalCount = 0;
-            foreach (var m in config.Monsters) totalCount += m.count;
+            var currentEntry = waveEntries[currentWave];
 
-            // 在区域内生成随机位置
-            var positions = GenerateRandomPositions(area, totalCount, config.MinSpacing);
+            // 判断是否该刷下一波
+            bool isFirstWave = (currentWave == 0 && state.CustomFloat == 0f);
+            bool intervalElapsed = (frame.TickCount - lastSpawnTick) >= currentEntry.intervalTicks;
 
-            Debug.Log($"[SpawnWaveSystem] ── 波次 {waveIndex + 1}: 生成 {totalCount} 个怪物 ──");
-
-            int posIdx = 0;
-            int globalIdx = 0;
-            foreach (var monster in config.Monsters)
+            if (isFirstWave || intervalElapsed)
             {
-                for (int i = 0; i < monster.count && posIdx < positions.Count; i++)
+                // 触发 onWaveStart 端口事件（不阻塞刷怪）
+                EmitWaveStartEvent(frame, actionIndex, currentWave);
+
+                // 筛选候选怪物
+                var candidates = FilterMonsters(monsterPool, currentEntry.monsterFilter);
+                if (candidates.Length == 0)
                 {
-                    var pos = positions[posIdx++];
+                    // 回退到全部怪物池
+                    Debug.LogWarning($"[SpawnWaveSystem] 波次 {currentWave + 1}: 筛选标签 '{currentEntry.monsterFilter}' " +
+                                     $"无匹配怪物，回退到全部怪物池");
+                    candidates = monsterPool;
+                }
+
+                // 按权重随机抽取
+                var selectedMonsters = WeightedSample(candidates, currentEntry.count);
+
+                // 在区域内生成随机位置
+                var positions = GenerateRandomPositions(areaData, currentEntry.count, minSpacing);
+
+                Debug.Log($"[SpawnWaveSystem] ── 波次 {currentWave + 1}/{waveEntries.Length}: " +
+                          $"生成 {currentEntry.count} 个怪物 (筛选={currentEntry.monsterFilter}, " +
+                          $"间隔={currentEntry.intervalTicks} Tick) ──");
+
+                // 生成怪物
+                for (int i = 0; i < selectedMonsters.Length && i < positions.Count; i++)
+                {
+                    var monster = selectedMonsters[i];
+                    var pos = positions[i];
                     var rot = new Vector3(0, Random.Range(0f, 360f), 0);
 
-                    Debug.Log($"[SpawnWaveSystem]   [{globalIdx}] 怪物={monster.monsterId}, " +
+                    Debug.Log($"[SpawnWaveSystem]   [{i}] 怪物={monster.monsterId}, " +
                               $"等级={monster.level}, 行为={monster.behavior}, " +
+                              $"标签={monster.tag}, " +
                               $"位置=({pos.x:F1}, {pos.y:F1}, {pos.z:F1})");
 
                     SpawnHandler?.OnSpawn(new SpawnData
                     {
-                        Index = globalIdx,
+                        Index = i,
                         MonsterId = monster.monsterId,
                         Level = monster.level,
                         Behavior = monster.behavior,
@@ -130,13 +153,176 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                         Position = pos,
                         EulerRotation = rot
                     });
+                }
 
-                    globalIdx++;
+                SpawnHandler?.OnSpawnBatchComplete(Mathf.Min(selectedMonsters.Length, positions.Count));
+
+                // 递增波次索引，记录当前 Tick
+                currentWave++;
+                state.CustomInt = currentWave;
+                state.CustomFloat = frame.TickCount;
+
+                Debug.Log($"[SpawnWaveSystem] 波次 {currentWave}/{waveEntries.Length} 生成完毕 " +
+                          $"(Tick={frame.TickCount}, Action index={actionIndex})");
+
+                // 全部波次完成
+                if (currentWave >= waveEntries.Length)
+                {
+                    state.Phase = ActionPhase.Completed;
+                    Debug.Log($"[SpawnWaveSystem] ═══ 所有波次完成 (index={actionIndex}) ═══");
+                }
+            }
+        }
+
+        // ── 波次配置解析 ──
+
+        /// <summary>
+        /// 从 Properties["waves"] 解析波次配置列表。
+        /// 兜底：如果没有波次配置，生成默认的单波次。
+        /// </summary>
+        private static WaveEntryRuntime[] ParseWaveEntries(BlueprintFrame frame, int actionIndex)
+        {
+            var wavesJson = frame.GetProperty(actionIndex, "waves");
+            if (string.IsNullOrEmpty(wavesJson) || wavesJson == "[]")
+            {
+                // 兜底：默认单波次，5 个怪物，立即开始，使用全部怪物池
+                Debug.Log($"[SpawnWaveSystem] 无波次配置，使用默认单波次 (count=5, filter=All)");
+                return new[]
+                {
+                    new WaveEntryRuntime { count = 5, intervalTicks = 0, monsterFilter = "All" }
+                };
+            }
+
+            try
+            {
+                // JsonUtility 需要包装器（顶层不能是数组）
+                var wrapped = $"{{\"items\":{wavesJson}}}";
+                var wrapper = JsonUtility.FromJson<WaveEntryListJson>(wrapped);
+                if (wrapper?.items == null || wrapper.items.Length == 0)
+                {
+                    return new[]
+                    {
+                        new WaveEntryRuntime { count = 5, intervalTicks = 0, monsterFilter = "All" }
+                    };
+                }
+
+                var result = new WaveEntryRuntime[wrapper.items.Length];
+                for (int i = 0; i < wrapper.items.Length; i++)
+                {
+                    var src = wrapper.items[i];
+                    result[i] = new WaveEntryRuntime
+                    {
+                        count = Mathf.Max(1, src.count),
+                        intervalTicks = Mathf.Max(0, src.intervalTicks),
+                        monsterFilter = string.IsNullOrEmpty(src.monsterFilter) ? "All" : src.monsterFilter
+                    };
+                }
+                return result;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[SpawnWaveSystem] 解析波次配置失败: {e.Message}, JSON: {wavesJson}");
+                return new[]
+                {
+                    new WaveEntryRuntime { count = 5, intervalTicks = 0, monsterFilter = "All" }
+                };
+            }
+        }
+
+        // ── 怪物筛选 ──
+
+        /// <summary>
+        /// 根据筛选标签从怪物池中获取候选怪物。
+        /// 空筛选或 "All" → 返回全部怪物池。
+        /// </summary>
+        private static MonsterInfo[] FilterMonsters(MonsterInfo[] pool, string filter)
+        {
+            if (string.IsNullOrEmpty(filter) || filter == "All")
+                return pool;
+
+            // 按标签筛选
+            var filtered = new List<MonsterInfo>();
+            for (int i = 0; i < pool.Length; i++)
+            {
+                if (pool[i].tag == filter)
+                    filtered.Add(pool[i]);
+            }
+            return filtered.Count > 0 ? filtered.ToArray() : System.Array.Empty<MonsterInfo>();
+        }
+
+        // ── 权重随机抽取 ──
+
+        /// <summary>
+        /// 按权重从候选怪物中随机抽取 count 个（有放回抽样）。
+        /// 同一个怪物可以被多次抽中，权重越高出现概率越大。
+        /// </summary>
+        private static MonsterInfo[] WeightedSample(MonsterInfo[] candidates, int count)
+        {
+            if (candidates.Length == 0) return System.Array.Empty<MonsterInfo>();
+            if (candidates.Length == 1)
+            {
+                // 只有一种怪物，直接填充
+                var single = new MonsterInfo[count];
+                for (int i = 0; i < count; i++) single[i] = candidates[0];
+                return single;
+            }
+
+            // 计算总权重
+            int totalWeight = 0;
+            for (int i = 0; i < candidates.Length; i++)
+                totalWeight += Mathf.Max(1, candidates[i].weight);
+
+            var result = new MonsterInfo[count];
+            for (int i = 0; i < count; i++)
+            {
+                int roll = Random.Range(0, totalWeight);
+                int cumulative = 0;
+                for (int j = 0; j < candidates.Length; j++)
+                {
+                    cumulative += Mathf.Max(1, candidates[j].weight);
+                    if (roll < cumulative)
+                    {
+                        result[i] = candidates[j];
+                        break;
+                    }
+                }
+            }
+            return result;
+        }
+
+        // ── onWaveStart 端口事件 ──
+
+        /// <summary>
+        /// 触发 onWaveStart 端口事件。
+        /// 不阻塞刷怪——先触发事件，再生成怪物。
+        /// 如果 onWaveStart 没有连接下游节点，不产生任何事件。
+        /// </summary>
+        private static void EmitWaveStartEvent(BlueprintFrame frame, int actionIndex, int waveIndex)
+        {
+            var transitionIndices = frame.GetOutgoingTransitionIndices(actionIndex);
+            bool emitted = false;
+            for (int t = 0; t < transitionIndices.Count; t++)
+            {
+                var transition = frame.Transitions[transitionIndices[t]];
+                if (transition.FromPortId == "onWaveStart")
+                {
+                    var toIndex = frame.GetActionIndex(transition.ToActionId);
+                    if (toIndex >= 0)
+                    {
+                        frame.PendingEvents.Add(new PortEvent(
+                            actionIndex, "onWaveStart", toIndex, transition.ToPortId));
+                        emitted = true;
+                    }
                 }
             }
 
-            SpawnHandler?.OnSpawnBatchComplete(globalIdx);
+            if (emitted)
+            {
+                Debug.Log($"[SpawnWaveSystem] 触发 onWaveStart 事件 (waveIndex={waveIndex})");
+            }
         }
+
+        // ── 区域随机位置生成 ──
 
         /// <summary>在区域内用拒绝采样生成随机位置</summary>
         private List<Vector3> GenerateRandomPositions(AreaPayload area, int count, float minSpacing)
@@ -205,22 +391,71 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             public string Shape;
         }
 
-        private struct WaveConfig
-        {
-            public bool HasData;
-            public MonsterInfo[] Monsters;
-            public int WaveCount;
-            public int WaveIntervalTicks;
-            public float MinSpacing;
-        }
-
+        /// <summary>运行时怪物信息（从 WaveSpawnConfig 导出数据解析）</summary>
         private struct MonsterInfo
         {
             public string monsterId;
             public int level;
             public string behavior;
             public float guardRadius;
+            public string tag;    // MonsterTag 枚举的字符串表示
+            public int weight;
+        }
+
+        /// <summary>运行时波次配置（从 Properties["waves"] 解析）</summary>
+        private struct WaveEntryRuntime
+        {
             public int count;
+            public int intervalTicks;
+            public string monsterFilter;
+        }
+
+        /// <summary>从 Annotations 中提取怪物池</summary>
+        private static MonsterInfo[] ExtractMonsterPool(AnnotationDataEntry[]? annotations)
+        {
+            if (annotations == null) return System.Array.Empty<MonsterInfo>();
+
+            for (int i = 0; i < annotations.Length; i++)
+            {
+                if (annotations[i].TypeId != "WaveSpawn") continue;
+
+                var props = annotations[i].Properties;
+                for (int p = 0; p < props.Length; p++)
+                {
+                    if (props[p].Key == "monsters")
+                        return ParseMonsterList(props[p].Value);
+                }
+                break;
+            }
+
+            return System.Array.Empty<MonsterInfo>();
+        }
+
+        /// <summary>从 Annotations 中提取最小间距</summary>
+        private static float ExtractMinSpacing(AnnotationDataEntry[]? annotations)
+        {
+            if (annotations == null) return 1.5f;
+
+            for (int i = 0; i < annotations.Length; i++)
+            {
+                if (annotations[i].TypeId != "WaveSpawn") continue;
+
+                var props = annotations[i].Properties;
+                for (int p = 0; p < props.Length; p++)
+                {
+                    if (props[p].Key == "minSpacing")
+                    {
+                        if (float.TryParse(props[p].Value,
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out float spacing))
+                            return spacing;
+                    }
+                }
+                break;
+            }
+
+            return 1.5f;
         }
 
         private static AreaPayload ParseAreaPayload(string? json)
@@ -244,42 +479,6 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             return data;
         }
 
-        private static WaveConfig ExtractWaveConfig(AnnotationDataEntry[]? annotations)
-        {
-            var config = new WaveConfig { WaveCount = 1, WaveIntervalTicks = 60, MinSpacing = 1.5f };
-            if (annotations == null) return config;
-
-            for (int i = 0; i < annotations.Length; i++)
-            {
-                if (annotations[i].TypeId != "WaveSpawn") continue;
-
-                config.HasData = true;
-                var props = annotations[i].Properties;
-                for (int p = 0; p < props.Length; p++)
-                {
-                    switch (props[p].Key)
-                    {
-                        case "monsters":
-                            config.Monsters = ParseMonsterList(props[p].Value);
-                            break;
-                        case "waveCount":
-                            int.TryParse(props[p].Value, out config.WaveCount);
-                            break;
-                        case "waveIntervalTicks":
-                            int.TryParse(props[p].Value, out config.WaveIntervalTicks);
-                            break;
-                        case "minSpacing":
-                            float.TryParse(props[p].Value, System.Globalization.NumberStyles.Float,
-                                System.Globalization.CultureInfo.InvariantCulture, out config.MinSpacing);
-                            break;
-                    }
-                }
-                break;
-            }
-
-            return config;
-        }
-
         private static MonsterInfo[] ParseMonsterList(string? json)
         {
             if (string.IsNullOrEmpty(json)) return System.Array.Empty<MonsterInfo>();
@@ -299,7 +498,8 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                         level = src.level,
                         behavior = src.behavior ?? "Idle",
                         guardRadius = src.guardRadius,
-                        count = Mathf.Max(1, src.count)
+                        tag = src.tag ?? "Normal",
+                        weight = Mathf.Max(1, src.weight)
                     };
                 }
                 return result;
@@ -340,7 +540,22 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             public int level = 1;
             public string behavior = "Idle";
             public float guardRadius = 5f;
-            public int count = 1;
+            public string tag = "Normal";
+            public int weight = 50;
+        }
+
+        [System.Serializable]
+        private class WaveEntryListJson
+        {
+            public WaveEntryJson[] items = System.Array.Empty<WaveEntryJson>();
+        }
+
+        [System.Serializable]
+        private class WaveEntryJson
+        {
+            public int count = 5;
+            public int intervalTicks = 0;
+            public string monsterFilter = "All";
         }
     }
 }

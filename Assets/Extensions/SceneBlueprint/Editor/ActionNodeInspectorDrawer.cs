@@ -192,6 +192,10 @@ namespace SceneBlueprint.Editor
                     changed = DrawStringField(prop, bag);
                     break;
 
+                case PropertyType.StructList:
+                    changed = DrawStructListField(prop, bag);
+                    break;
+
                 default:
                     EditorGUILayout.LabelField(prop.DisplayName, $"(不支持的类型 {prop.Type})");
                     break;
@@ -548,6 +552,185 @@ namespace SceneBlueprint.Editor
                 return true;
             }
             return false;
+        }
+
+        // ── StructList 绘制 ──
+
+        /// <summary>
+        /// 绘制结构化列表属性（StructList）。
+        /// 使用 EditorGUILayout 绘制可增删的列表，每个元素根据 StructFields 定义绘制子字段。
+        /// 数据以 JSON 字符串形式存储在 PropertyBag 中。
+        /// </summary>
+        private bool DrawStructListField(PropertyDefinition prop, PropertyBag bag)
+        {
+            if (prop.StructFields == null || prop.StructFields.Length == 0)
+            {
+                EditorGUILayout.LabelField(prop.DisplayName, "(无子字段定义)");
+                return false;
+            }
+
+            // 从 PropertyBag 读取 JSON 字符串，解析为列表
+            string json = bag.Get<string>(prop.Key) ?? "[]";
+            var items = StructListJsonHelper.Deserialize(json, prop.StructFields);
+
+            bool changed = false;
+
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField($"── {prop.DisplayName} ({items.Count} 项) ──", EditorStyles.boldLabel);
+
+            // 绘制每个列表元素
+            int removeIndex = -1;
+            int moveUpIndex = -1;
+            int moveDownIndex = -1;
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+
+                // 标题行：序号 + 操作按钮
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField($"#{i + 1}", EditorStyles.miniLabel, GUILayout.Width(24));
+                GUILayout.FlexibleSpace();
+
+                // 上移按钮
+                EditorGUI.BeginDisabledGroup(i == 0);
+                if (GUILayout.Button("▲", EditorStyles.miniButtonLeft, GUILayout.Width(24)))
+                    moveUpIndex = i;
+                EditorGUI.EndDisabledGroup();
+
+                // 下移按钮
+                EditorGUI.BeginDisabledGroup(i == items.Count - 1);
+                if (GUILayout.Button("▼", EditorStyles.miniButtonMid, GUILayout.Width(24)))
+                    moveDownIndex = i;
+                EditorGUI.EndDisabledGroup();
+
+                // 删除按钮
+                if (GUILayout.Button("✕", EditorStyles.miniButtonRight, GUILayout.Width(24)))
+                    removeIndex = i;
+
+                EditorGUILayout.EndHorizontal();
+
+                // 绘制子字段
+                var item = items[i];
+                foreach (var field in prop.StructFields)
+                {
+                    if (DrawStructItemField(field, item))
+                        changed = true;
+                }
+
+                EditorGUILayout.EndVertical();
+            }
+
+            // 添加按钮
+            if (GUILayout.Button($"+ 添加{prop.DisplayName.TrimEnd('配', '置', '列', '表')}", GUILayout.Height(22)))
+            {
+                var newItem = StructListJsonHelper.CreateDefaultItem(prop.StructFields);
+                items.Add(newItem);
+                changed = true;
+            }
+
+            // 处理排序和删除操作
+            if (removeIndex >= 0 && removeIndex < items.Count)
+            {
+                items.RemoveAt(removeIndex);
+                changed = true;
+            }
+            if (moveUpIndex > 0 && moveUpIndex < items.Count)
+            {
+                var temp = items[moveUpIndex];
+                items[moveUpIndex] = items[moveUpIndex - 1];
+                items[moveUpIndex - 1] = temp;
+                changed = true;
+            }
+            if (moveDownIndex >= 0 && moveDownIndex < items.Count - 1)
+            {
+                var temp = items[moveDownIndex];
+                items[moveDownIndex] = items[moveDownIndex + 1];
+                items[moveDownIndex + 1] = temp;
+                changed = true;
+            }
+
+            // 写回 PropertyBag
+            if (changed)
+            {
+                string newJson = StructListJsonHelper.Serialize(items, prop.StructFields);
+                bag.Set(prop.Key, newJson);
+            }
+
+            return changed;
+        }
+
+        /// <summary>绘制 StructList 中单个元素的单个子字段</summary>
+        private bool DrawStructItemField(PropertyDefinition field, Dictionary<string, object> item)
+        {
+            bool changed = false;
+
+            switch (field.Type)
+            {
+                case PropertyType.Int:
+                {
+                    int current = item.TryGetValue(field.Key, out var v) ? System.Convert.ToInt32(v) : 0;
+                    int result;
+                    if (field.Min.HasValue && field.Max.HasValue)
+                        result = EditorGUILayout.IntSlider(field.DisplayName, current,
+                            (int)field.Min.Value, (int)field.Max.Value);
+                    else
+                        result = EditorGUILayout.IntField(field.DisplayName, current);
+                    if (result != current) { item[field.Key] = result; changed = true; }
+                    break;
+                }
+                case PropertyType.Float:
+                {
+                    float current = item.TryGetValue(field.Key, out var v) ? System.Convert.ToSingle(v) : 0f;
+                    float result;
+                    if (field.Min.HasValue && field.Max.HasValue)
+                        result = EditorGUILayout.Slider(field.DisplayName, current,
+                            field.Min.Value, field.Max.Value);
+                    else
+                        result = EditorGUILayout.FloatField(field.DisplayName, current);
+                    if (!result.Equals(current)) { item[field.Key] = result; changed = true; }
+                    break;
+                }
+                case PropertyType.Bool:
+                {
+                    bool current = item.TryGetValue(field.Key, out var v) && System.Convert.ToBoolean(v);
+                    bool result = EditorGUILayout.Toggle(field.DisplayName, current);
+                    if (result != current) { item[field.Key] = result; changed = true; }
+                    break;
+                }
+                case PropertyType.String:
+                {
+                    string current = item.TryGetValue(field.Key, out var v) ? v?.ToString() ?? "" : "";
+                    string result = EditorGUILayout.TextField(field.DisplayName, current);
+                    if (result != current) { item[field.Key] = result; changed = true; }
+                    break;
+                }
+                case PropertyType.Enum:
+                {
+                    if (field.EnumOptions != null && field.EnumOptions.Length > 0)
+                    {
+                        string current = item.TryGetValue(field.Key, out var v) ? v?.ToString() ?? field.EnumOptions[0] : field.EnumOptions[0];
+                        int selectedIndex = System.Array.IndexOf(field.EnumOptions, current);
+                        if (selectedIndex < 0) selectedIndex = 0;
+                        int newIndex = EditorGUILayout.Popup(field.DisplayName, selectedIndex, field.EnumOptions);
+                        if (newIndex != selectedIndex && newIndex >= 0 && newIndex < field.EnumOptions.Length)
+                        {
+                            item[field.Key] = field.EnumOptions[newIndex];
+                            changed = true;
+                        }
+                    }
+                    break;
+                }
+                default:
+                {
+                    string current = item.TryGetValue(field.Key, out var v) ? v?.ToString() ?? "" : "";
+                    string result = EditorGUILayout.TextField(field.DisplayName, current);
+                    if (result != current) { item[field.Key] = result; changed = true; }
+                    break;
+                }
+            }
+
+            return changed;
         }
     }
 }

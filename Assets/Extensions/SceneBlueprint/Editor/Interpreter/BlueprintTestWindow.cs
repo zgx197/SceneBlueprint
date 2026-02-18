@@ -181,7 +181,8 @@ namespace SceneBlueprint.Editor.Interpreter
                 new TransitionSystem(),
                 new FlowSystem(),
                 new SpawnPresetSystem(),
-                new SpawnWaveSystem()
+                new SpawnWaveSystem(),
+                new TriggerEnterAreaSystem()
             );
 
             return runner;

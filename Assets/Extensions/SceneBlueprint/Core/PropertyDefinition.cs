@@ -48,7 +48,9 @@ namespace SceneBlueprint.Core
         /// <summary>标签 → Tag 选择器（Phase 5 实现）</summary>
         Tag,
         /// <summary>场景绑定 → 场景对象拖拽框（如刷怪区域、Boss 出场点）</summary>
-        SceneBinding
+        SceneBinding,
+        /// <summary>结构化列表 → Inspector 中显示为 ReorderableList，每个元素包含多个子字段</summary>
+        StructList
     }
 
     /// <summary>
@@ -200,5 +202,21 @@ namespace SceneBlueprint.Core
         /// </para>
         /// </summary>
         public float DirectorInfluence { get; set; }
+
+        // ─── StructList 专用字段 ───
+
+        /// <summary>
+        /// 子字段定义（仅 StructList 类型时有效）。
+        /// 描述列表中每个元素的结构——每个元素是一组 key-value 对，
+        /// 子字段的 PropertyDefinition 描述每个 key 的类型和约束。
+        /// </summary>
+        public PropertyDefinition[]? StructFields { get; set; }
+
+        /// <summary>
+        /// StructList 的摘要格式模板（仅 StructList 类型时有效）。
+        /// 用于节点内容区域的摘要显示。
+        /// 示例："波次: {count} 波" — {count} 会被替换为列表长度。
+        /// </summary>
+        public string? SummaryFormat { get; set; }
     }
 }

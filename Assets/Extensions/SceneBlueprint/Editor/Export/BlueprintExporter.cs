@@ -236,6 +236,7 @@ namespace SceneBlueprint.Editor.Export
                 PropertyType.Vector3 => "vector3",
                 PropertyType.Color => "color",
                 PropertyType.Tag => "tag",
+                PropertyType.StructList => "json",
                 _ => "string"
             };
         }
@@ -247,6 +248,7 @@ namespace SceneBlueprint.Editor.Export
                 PropertyType.Float => Convert.ToSingle(value).ToString("G", CultureInfo.InvariantCulture),
                 PropertyType.Int => Convert.ToInt32(value).ToString(CultureInfo.InvariantCulture),
                 PropertyType.Bool => Convert.ToBoolean(value) ? "true" : "false",
+                PropertyType.StructList => value.ToString() ?? "[]",
                 _ => value.ToString() ?? ""
             };
         }

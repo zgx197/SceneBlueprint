@@ -266,6 +266,15 @@ namespace SceneBlueprint.Editor
                     break;
                 }
 
+                case PropertyType.StructList:
+                {
+                    // 节点画布中只显示摘要文本，详细编辑在侧边 Inspector
+                    var value = bag.GetRaw(prop.Key);
+                    string summary = FormatStructListSummary(prop, value);
+                    ctx.Label($"{prop.DisplayName}: {summary}");
+                    break;
+                }
+
                 default:
                 {
                     ctx.Label($"{prop.DisplayName}: (不支持的类型 {prop.Type})");
@@ -290,6 +299,7 @@ namespace SceneBlueprint.Editor
                 PropertyType.AssetRef => value.ToString() ?? "(无)",
                 PropertyType.SceneBinding => FormatSceneBindingSummary(value),
                 PropertyType.Tag => value.ToString() ?? "(无)",
+                PropertyType.StructList => FormatStructListSummary(prop, value),
                 _ => value.ToString() ?? ""
             };
         }
@@ -304,6 +314,24 @@ namespace SceneBlueprint.Editor
             if (string.IsNullOrEmpty(str)) return "(无)";
             // MarkerId 通常是 GUID 格式，截取前 8 位作为摘要
             return str.Length > 8 ? $"[{str[..8]}…]" : str;
+        }
+
+        /// <summary>
+        /// 格式化 StructList 的摘要显示。
+        /// 使用 SummaryFormat 模板，{count} 替换为列表元素数量。
+        /// 如果没有 SummaryFormat，显示 "N 项"。
+        /// </summary>
+        private static string FormatStructListSummary(PropertyDefinition prop, object value)
+        {
+            var json = value?.ToString() ?? "[]";
+            int count = StructListJsonHelper.GetItemCount(json);
+
+            if (!string.IsNullOrEmpty(prop.SummaryFormat))
+            {
+                return prop.SummaryFormat!.Replace("{count}", count.ToString());
+            }
+
+            return count == 0 ? "(空)" : $"{count} 项";
         }
     }
 }

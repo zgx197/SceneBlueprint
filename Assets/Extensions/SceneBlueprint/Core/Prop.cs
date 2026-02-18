@@ -224,5 +224,34 @@ namespace SceneBlueprint.Core
                 Order = order
             };
         }
+        /// <summary>
+        /// 创建结构化列表属性。
+        /// Inspector 侧边面板中显示为 ReorderableList（可排序、可增删），
+        /// 每个元素包含多个子字段。节点画布中只显示摘要文本。
+        /// <para>
+        /// 存储格式：JSON 数组字符串，如 [{"count":5,"intervalTicks":60},...]
+        /// 导出时 ValueType = "json"，运行时直接解析 JSON。
+        /// </para>
+        /// </summary>
+        /// <param name="fields">子字段定义数组，描述每个列表元素的结构</param>
+        /// <param name="summaryFormat">摘要格式，如 "波次: {count} 波"，{count} 替换为列表长度</param>
+        public static PropertyDefinition StructList(string key, string displayName,
+            PropertyDefinition[] fields,
+            string? summaryFormat = null,
+            string? category = null, string? visibleWhen = null, int order = 0)
+        {
+            return new PropertyDefinition
+            {
+                Key = key,
+                DisplayName = displayName,
+                Type = PropertyType.StructList,
+                DefaultValue = "[]", // 默认空列表，JSON 格式
+                StructFields = fields,
+                SummaryFormat = summaryFormat,
+                Category = category,
+                VisibleWhen = visibleWhen,
+                Order = order
+            };
+        }
     }
 }

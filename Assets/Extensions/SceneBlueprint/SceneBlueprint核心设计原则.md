@@ -1,12 +1,12 @@
 # SceneBlueprint 核心设计原则
 
-> **文档版本**：v1.2  
+> **文档版本**：v1.3  
 > **创建日期**：2026-02-16  
-> **最后更新**：2026-02-17  
+> **最后更新**：2026-02-19  
 > **状态**：✅ active  
 > **重要性**：🔴 核心原则 - 所有功能设计必须遵循
 > **doc_status**: active  
-> **last_reviewed**: 2026-02-17
+> **last_reviewed**: 2026-02-19
 
 ---
 
@@ -47,6 +47,19 @@
   - [8.3 预设刷怪 vs 运行时随机刷怪——两条路径](#83-预设刷怪-vs-运行时随机刷怪两条路径)
   - [8.4 位置生成工具的策划工作流](#84-位置生成工具的策划工作流)
   - [8.5 反模式：混淆编辑时与运行时](#85-反模式混淆编辑时与运行时)
+- [九、PropertyType 扩展：StructList 结构化列表](#九propertytype-扩展structlist-结构化列表)
+  - [9.1 背景](#91-背景)
+  - [9.2 设计方案](#92-设计方案)
+  - [9.3 存储策略](#93-存储策略)
+  - [9.4 使用示例](#94-使用示例)
+  - [9.5 显示效果](#95-显示效果)
+- [十、Trigger 节点统一为条件等待节点](#十trigger-节点统一为条件等待节点)
+  - [10.1 背景](#101-背景)
+  - [10.2 设计决策](#102-设计决策)
+  - [10.3 改动对比](#103-改动对比)
+  - [10.4 典型蓝图连接](#104-典型蓝图连接)
+  - [10.5 运行时系统](#105-运行时系统)
+  - [10.6 System 执行顺序](#106-system-执行顺序)
 
 ---
 
@@ -1267,6 +1280,121 @@ Playbook.json: 包含区域参数 + 随机算法配置
 
 ---
 
+## 九、PropertyType 扩展：StructList 结构化列表
+
+### 9.1 背景
+
+`Spawn.Wave` 的波次配置需要存储结构化列表数据（每波的刷怪数量、间隔、怪物筛选等），但原有 `PropertyType` 只支持标量类型，导致只能用 `Prop.String` 存 JSON 字符串，策划无法在 Inspector 中直观编辑。
+
+### 9.2 设计方案
+
+在不修改 NodeGraph 层的前提下，在 Core 层和 Editor 层分别扩展：
+
+| 层 | 改动 | Unity 依赖 |
+|----|------|-----------|
+| Core 层 | `PropertyType` 新增 `StructList`；`PropertyDefinition` 新增 `StructFields`、`SummaryFormat` | 无 |
+| Core 层 | `Prop` 工厂新增 `Prop.StructList()` 方法 | 无 |
+| Editor 层 | `ActionNodeInspectorDrawer` 新增 `DrawStructListField()`（可排序、可增删列表） | 有 |
+| Editor 层 | `ActionContentRenderer` 新增 StructList 摘要显示 | 无 |
+| Editor 层 | `BlueprintExporter` 新增 StructList 序列化（`ValueType = "json"`） | 有 |
+| Editor 层 | `StructListJsonHelper` 新增文件，负责 JSON ↔ `List<Dictionary<string, object>>` 转换 | 无 |
+
+### 9.3 存储策略
+
+StructList 在 `PropertyBag` 中以 JSON 字符串形式存储，零侵入：
+
+```csharp
+// PropertyBag 不需要改动，StructList 以 string 存储
+string json = bag.Get<string>("waves") ?? "[]";
+bag.Set("waves", "[{\"count\":5,...}]");
+```
+
+编辑器层在绘制时负责 JSON ↔ `List<Dictionary<string, object>>` 的转换。
+
+### 9.4 使用示例
+
+```csharp
+// SpawnWaveDef 中的波次配置
+Prop.StructList("waves", "波次配置",
+    fields: new[]
+    {
+        Prop.Int("count", "刷怪数量", defaultValue: 5, min: 1, max: 50),
+        Prop.Int("intervalTicks", "间隔(Tick)", defaultValue: 60, min: 0, max: 600),
+        Prop.Enum("monsterFilter", "怪物筛选",
+            new[] { "All", "Normal", "Elite", "Boss", "Minion", "Special" },
+            defaultValue: "All"),
+    },
+    summaryFormat: "波次: {count} 波",
+    order: 1)
+```
+
+### 9.5 显示效果
+
+节点画布中只显示摘要文本（如"波次: 3 波"），详细编辑在侧边 Inspector 面板中进行，支持列表元素的添加、删除、上移、下移操作。
+
+导出格式：`ValueType = "json"`，值为 JSON 数组字符串，运行时直接解析。
+
+---
+
+## 十、Trigger 节点统一为条件等待节点
+
+### 10.1 背景
+
+原 `Trigger.EnterArea` 是"自启动事件源"——没有 `in` 端口，蓝图启动后自动监听。这与其他 ActionNode 的激活规则不一致，破坏了 `Flow.Start` 作为唯一起点的语义。
+
+### 10.2 设计决策
+
+所有 ActionNode 遵循统一的激活规则：
+
+```
+Idle → (收到 in 端口事件) → Running → (条件满足) → Completed → (触发 out 端口)
+```
+
+`Flow.Start` 是唯一的流程起点，Trigger 节点只是"条件等待节点"。
+
+### 10.3 改动对比
+
+| 项目 | 旧设计 | 新设计 |
+|------|--------|--------|
+| 端口 | 只有 `onEnter` 输出 | `in`（输入）+ `out`（输出） |
+| Duration | `Instant` | `Duration`（持续型，Running 阶段检查条件） |
+| `maxTriggerTimes` | 存在 | 移除（Trigger 就是"等待一次条件满足"） |
+| 激活方式 | 自启动 | 通过 `in` 端口被上游激活 |
+| Running 行为 | 无 | 持续检查"玩家是否进入区域" |
+
+### 10.4 典型蓝图连接
+
+```
+旧设计：
+  [Trigger.EnterArea] ──onEnter──→ [Spawn.Wave]
+  （Trigger 是独立起点，Flow.Start 的唯一性被破坏）
+
+新设计：
+  [Flow.Start] ──→ [Trigger.EnterArea] ──out──→ [Spawn.Wave] ──out──→ [Flow.End]
+  （统一流程，Flow.Start 是唯一起点）
+```
+
+### 10.5 运行时系统
+
+`TriggerEnterAreaSystem`（Order=105）处理 `Trigger.EnterArea` 节点：
+
+- 扫描所有 `TypeId == "Trigger.EnterArea"` 且 `Phase == Running` 的节点
+- 检查玩家是否在触发区域内（通过 `IPlayerPositionProvider` 接口）
+- 条件满足 → `Phase = Completed`，由 `TransitionSystem` 路由至下游
+- 未注入 `IPlayerPositionProvider` 时默认条件满足（测试模式）
+
+### 10.6 System 执行顺序
+
+| System | Order | 职责 |
+|--------|-------|------|
+| FlowSystem | 10 | 处理 Flow.Start/End/Delay/Join |
+| SpawnPresetSystem | 100 | 处理 Spawn.Preset |
+| TriggerEnterAreaSystem | 105 | 处理 Trigger.EnterArea |
+| SpawnWaveSystem | 110 | 处理 Spawn.Wave |
+| TransitionSystem | 900 | 传播完成事件，激活下游节点 |
+
+---
+
 ## 附录
 
 ### 术语表
@@ -1284,6 +1412,9 @@ Playbook.json: 包含区域参数 + 随机算法配置
 | **固化** | 将编辑器中的临时预览点转化为持久化的 PointMarker 的过程 |
 | **预设刷怪** | 策划精确摆放位置，运行时在固定坐标放置怪物（路径 A） |
 | **运行时随机刷怪** | 运行时在区域内随机生成位置，每次玩都不同（路径 B） |
+| **StructList** | 结构化列表属性类型，每个元素包含多个子字段，Inspector 中显示为可排序列表 |
+| **条件等待节点** | 有 in 端口，被激活后进入 Running，持续检查条件，满足后 Completed（如 Trigger.EnterArea） |
+| **TriggerEnterAreaSystem** | 运行时系统，处理 Trigger.EnterArea 节点的区域检测逻辑（Order=105） |
 
 ---
 
@@ -1298,6 +1429,10 @@ Playbook.json: 包含区域参数 + 随机算法配置
 | 提供“视觉投影”而非双向同步 | 在不增加复杂度的前提下提升 UX | 策划能理解蓝图的空间含义 |
 | Blueprint = 运行时规则图的编辑时描述 | 明确职责边界，避免编辑时工具与运行时逻辑混淆 | 编辑器工具产出 Marker，Blueprint 节点产出 Playbook 数据 |
 | 预设刷怪与运行时随机分离 | 两种需求本质不同，不应共用同一条路径 | 路径 A（编辑器工具 + Spawn.Preset）与路径 B（Location.RandomArea + Spawn.Execute）并存 |
+| StructList 以 JSON 字符串存储在 PropertyBag 中 | 零侵入，不需要改动 PropertyBag 和序列化器 | 编辑器层负责 JSON ↔ 列表转换，导出格式 ValueType="json" |
+| StructList 节点画布只显示摘要 | 画布空间有限，详细编辑在侧边 Inspector | 使用 SummaryFormat 模板格式化（如"波次: {count} 波"） |
+| Trigger 节点统一为条件等待节点 | 统一 ActionNode 激活语义，Flow.Start 是唯一起点 | Trigger.EnterArea 新增 in 端口，移除 maxTriggerTimes，Duration 改为 Duration |
+| 移除 Trigger.EnterArea 的 maxTriggerTimes | Trigger 就是"等待一次条件满足"，多次触发通过蓝图循环实现 | 简化节点语义和状态管理 |
 
 ---
 
@@ -1321,6 +1456,15 @@ Playbook.json: 包含区域参数 + 随机算法配置
 ---
 
 **版本历史**：
+
+- **v1.3** (2026-02-19)
+  - 新增"PropertyType 扩展：StructList 结构化列表"章节（第九章）
+  - 新增"Trigger 节点统一为条件等待节点"章节（第十章）
+  - StructList：扩展 PropertyType 支持结构化列表，Inspector 可视化编辑，导出为 JSON
+  - Trigger 统一：Trigger.EnterArea 新增 in 端口，改为条件等待节点，统一 ActionNode 激活语义
+  - 新增 TriggerEnterAreaSystem 运行时系统（Order=105）
+  - 记录 System 执行顺序表（FlowSystem:10 → 业务:100~199 → TransitionSystem:900）
+  - 删除独立设计文档 `Blueprint节点与属性系统优化设计.md`，内容合并至此
 
 - **v1.2** (2026-02-17)
   - 新增“Blueprint 定位与编辑器工具边界”章节（第八章）
