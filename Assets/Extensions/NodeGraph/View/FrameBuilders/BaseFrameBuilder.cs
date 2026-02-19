@@ -413,7 +413,8 @@ namespace NodeGraph.View
                     TotalSlots = 1,
                     Hovered = isHovered,
                     HoveredSlotIndex = isHovered ? 0 : -1,
-                    CanConnectToDragSource = canConnect
+                    CanConnectToDragSource = canConnect,
+                    Shape = GetPortShape(port)
                 });
             }
             return ports;
@@ -516,7 +517,8 @@ namespace NodeGraph.View
                     TotalSlots = GetPortSlotCount(port, viewModel),
                     Hovered = isHovered,
                     HoveredSlotIndex = isHovered ? viewModel.HoveredPortSlotIndex : -1,
-                    CanConnectToDragSource = canConnect
+                    CanConnectToDragSource = canConnect,
+                    Shape = GetPortShape(port)
                 });
             }
         }
@@ -686,6 +688,16 @@ namespace NodeGraph.View
 
             var summarySize = renderer.GetSummarySize(node, TextMeasurer);
             return summarySize.Y + 6f;
+        }
+
+        protected static PortShape GetPortShape(Port port)
+        {
+            return port.Kind switch
+            {
+                PortKind.Control => PortShape.Triangle,
+                PortKind.Event   => PortShape.Diamond,
+                _                => PortShape.Circle
+            };
         }
 
         protected static Color4 GetPortColor(Port port)

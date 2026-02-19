@@ -185,7 +185,8 @@ namespace SceneBlueprint.Editor.Interpreter
                 new SpawnPresetSystem(),
                 new SpawnWaveSystem(),
                 new TriggerEnterAreaSystem(),
-                new CameraShakeSystem()
+                new CameraShakeSystem(),
+                new ShowWarningSystem()
             );
 
             return runner;

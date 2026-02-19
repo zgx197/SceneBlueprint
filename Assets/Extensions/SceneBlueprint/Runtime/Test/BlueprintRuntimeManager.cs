@@ -103,6 +103,7 @@ namespace SceneBlueprint.Runtime.Test
             var spawnPresetSystem = new SpawnPresetSystem();
             var spawnWaveSystem = new SpawnWaveSystem();
             var cameraShakeSystem = new CameraShakeSystem();
+            var showWarningSystem = new ShowWarningSystem();
             if (_monsterSpawner != null)
             {
                 spawnPresetSystem.SpawnHandler = _monsterSpawner;
@@ -113,6 +114,9 @@ namespace SceneBlueprint.Runtime.Test
             // 摄像机由 SimplePlayerController 在运行时动态创建，无法预先拖引用
             cameraShakeSystem.ShakeHandler = FindOrCreateShakeHandler();
 
+            // 屏幕警告：挂载到自身（需要 OnGUI 绘制）
+            showWarningSystem.WarningHandler = FindOrCreateWarningHandler();
+
             _runner.RegisterSystems(
                 new TransitionSystem(),
                 new FlowSystem(),
@@ -120,7 +124,8 @@ namespace SceneBlueprint.Runtime.Test
                 spawnPresetSystem,
                 spawnWaveSystem,
                 new TriggerEnterAreaSystem(),
-                cameraShakeSystem
+                cameraShakeSystem,
+                showWarningSystem
             );
 
             _statusText = "正在加载...";
@@ -165,6 +170,21 @@ namespace SceneBlueprint.Runtime.Test
                 Debug.Log("[BlueprintRuntimeManager] 已在 Main Camera 上自动挂载 CameraShakeHandler");
             }
 
+            return handler;
+        }
+
+        /// <summary>
+        /// 动态查找或创建 ShowWarningHandler。
+        /// 挂载到 BlueprintRuntimeManager 自身（需要 MonoBehaviour 的 OnGUI 回调绘制 UI）。
+        /// </summary>
+        private IShowWarningHandler FindOrCreateWarningHandler()
+        {
+            var handler = GetComponent<ShowWarningHandler>();
+            if (handler == null)
+            {
+                handler = gameObject.AddComponent<ShowWarningHandler>();
+                Debug.Log("[BlueprintRuntimeManager] 已自动挂载 ShowWarningHandler");
+            }
             return handler;
         }
 

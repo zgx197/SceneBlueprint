@@ -172,7 +172,7 @@ namespace NodeGraph.Core
                     {
                         repNode.AddPort(new PortDefinition(
                             port.Name, PortDirection.Output, port.Kind,
-                            port.DataType, PortCapacity.Single, outputOrder++));
+                            port.DataType, PortCapacity.Multiple, outputOrder++));
                     }
                 }
             }

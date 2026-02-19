@@ -15,9 +15,10 @@ namespace SceneBlueprint.Core
     //  - Event（事件流）：异步触发，条件满足时触发
     //  - Data（数据流）：传递配置或状态，不影响执行顺序
     //  
-    //  - 输入端口通常是 Multiple（允许多个前置行动连入）
-    //  - 流程输出端口通常是 Single（只走一条路径）
-    //  - 事件输出端口是 Multiple（一个事件可以触发多个后续行动）
+    //  - 控制流输入端口：Single（执行来源必须唯一，避免竞争条件）
+    //    特例：Flow.Join 等汇合节点使用 Port.InMulti()，语义是"等待多个上游"
+    //  - 控制流输出端口：Multiple（一个完成点可以并联触发多个下游）
+    //  - 事件输出端口：Multiple（一个事件可以触发多个后续行动）
     //
     //  示例：
     //    Spawn 节点有 6 个端口：
@@ -99,13 +100,35 @@ namespace SceneBlueprint.Core
     public static class Port
     {
         /// <summary>
-        /// 创建控制流输入端口（多连接）。
-        /// <para>输入端口默认允许多个上游节点连入（Multiple），
-        /// 这样同一个行动可以被多条路径触发。</para>
+        /// 创建控制流输入端口（单连接）。
+        /// <para>输入端口只允许一个上游节点连入（Single），
+        /// 保证执行来源唯一，避免多路竞争触发。</para>
+        /// <para>若需要多上游汇合（如 Flow.Join），请使用 <see cref="InMulti"/>。</para>
         /// </summary>
         /// <param name="id">端口 ID，如 "in"</param>
         /// <param name="displayName">显示名，为空则使用 id</param>
         public static PortDefinition In(string id, string displayName = "")
+        {
+            return new PortDefinition
+            {
+                Id = id,
+                DisplayName = displayName,
+                Kind = PortKind.Control,
+                Direction = PortDirection.Input,
+                Capacity = PortCapacity.Single
+            };
+        }
+
+        /// <summary>
+        /// 创建控制流输入端口（多连接，仅供汇合类节点使用）。
+        /// <para>
+        /// 普通节点应使用 <see cref="In"/>（Single）。
+        /// 仅当节点的语义是"等待多个上游汇合"时（如 Flow.Join），才使用此方法。
+        /// </para>
+        /// </summary>
+        /// <param name="id">端口 ID，如 "in"</param>
+        /// <param name="displayName">显示名，为空则使用 id</param>
+        public static PortDefinition InMulti(string id, string displayName = "")
         {
             return new PortDefinition
             {
@@ -118,9 +141,9 @@ namespace SceneBlueprint.Core
         }
 
         /// <summary>
-        /// 创建控制流输出端口（单连接）。
-        /// <para>标准流程输出端口只允许连一条线，表示唯一的后续路径。
-        /// 如果需要多条路径（如 Branch 的 true/false），应创建多个 Out 端口。</para>
+        /// 创建控制流输出端口（多连接）。
+        /// <para>输出端口允许连接多条线，同一输出可并联触发多个下游节点。
+        /// 若需要多路分支（如 Branch 的 true/false），创建多个 Out 端口即可。</para>
         /// </summary>
         /// <param name="id">端口 ID，如 "out"</param>
         /// <param name="displayName">显示名，为空则使用 id</param>
@@ -132,7 +155,7 @@ namespace SceneBlueprint.Core
                 DisplayName = displayName,
                 Kind = PortKind.Control,
                 Direction = PortDirection.Output,
-                Capacity = PortCapacity.Single
+                Capacity = PortCapacity.Multiple
             };
         }
 

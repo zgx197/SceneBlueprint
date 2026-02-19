@@ -25,15 +25,7 @@ namespace SceneBlueprint.Actions.Flow
             Duration = ActionDuration.Instant,
             Ports = new[]
             {
-                // Control 输出端口（Multiple），可以同时触发多个后续节点
-                new PortDefinition
-                {
-                    Id = "out",
-                    DisplayName = "输出",
-                    Kind = NodeGraph.Core.PortKind.Control,
-                    Direction = NodeGraph.Core.PortDirection.Output,
-                    Capacity = NodeGraph.Core.PortCapacity.Multiple
-                }
+                Port.Out("out", "输出")
             },
             Properties = System.Array.Empty<PropertyDefinition>() // 无属性
         };

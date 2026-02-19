@@ -421,7 +421,7 @@ namespace NodeGraph.Unity
         /// </summary>
         private void DrawPort(PortFrame port, NodeVisualTheme t)
         {
-            var pos = port.Position; // 画布坐标
+            var pos = port.Position;
             var oldColor = Handles.color;
 
             bool isMultipleInput = port.Direction == PortDirection.Input
@@ -429,72 +429,38 @@ namespace NodeGraph.Unity
 
             if (isMultipleInput)
             {
-                // ── Input+Multiple 端口：堆叠圆圈 + "+" 空位 ──
+                // ── Multiple Input 端口：堆叠槽位（每个槽位按 Shape 绘制）──
                 int connectedCount = port.ConnectedEdgeCount;
                 int totalSlots = port.TotalSlots;
-                float circleSpacing = t.PortSpacing;
-                float totalHeight = (totalSlots - 1) * circleSpacing;
+                float totalHeight = (totalSlots - 1) * t.PortSpacing;
                 float startY = pos.Y - totalHeight * 0.5f;
 
                 for (int i = 0; i < totalSlots; i++)
                 {
-                    float cy = startY + i * circleSpacing;
-                    var wCenter = C2W(pos.X, cy);
+                    float cy = startY + i * t.PortSpacing;
+                    var wSlot = C2W(pos.X, cy);
 
-                    // 悬停高亮（仅对当前槽位）
                     if (port.Hovered && port.HoveredSlotIndex == i)
-                        DrawPortHoverGlow(wCenter, t, port.Color);
+                        DrawPortHoverGlow(wSlot, t, port.Color);
 
-                    if (i < connectedCount)
-                    {
-                        Handles.color = t.PortOuterRingColor.ToUnity();
-                        Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius + t.PortOuterRingWidth));
-                        Handles.color = port.Color.ToUnity();
-                        Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius));
-                    }
-                    else if (i == totalSlots - 1)
-                    {
-                        DrawPlusSlot(wCenter, t, port.Color);
-                    }
-                    else
-                    {
-                        Handles.color = t.PortOuterRingColor.ToUnity();
-                        Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius + t.PortOuterRingWidth));
-                        Handles.color = port.Color.ToUnity();
-                        Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius));
-                        Handles.color = t.NodeBodyColor.ToUnity();
-                        Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius - t.PortHollowWidth));
-                    }
+                    bool isPlus = (i == totalSlots - 1);
+                    bool slotConnected = !isPlus && i < connectedCount;
+                    DrawPortShape(port.Shape, port.Direction, wSlot, t, port.Color, slotConnected);
+                    if (isPlus) DrawPlusOverlay(wSlot, t, port.Color);
                 }
             }
             else
             {
-                // ── 普通端口：单圆圈 ──
+                // ── 普通端口：单个形状 ──
                 var wCenter = C2W(pos);
 
-                // 兼容性高亮（拖线时）
                 if (port.CanConnectToDragSource)
                     DrawPortCompatibleGlow(wCenter, t);
 
-                // 悬停高亮
                 if (port.Hovered)
                     DrawPortHoverGlow(wCenter, t, port.Color);
 
-                Handles.color = t.PortOuterRingColor.ToUnity();
-                Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius + t.PortOuterRingWidth));
-
-                if (port.Connected)
-                {
-                    Handles.color = port.Color.ToUnity();
-                    Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius));
-                }
-                else
-                {
-                    Handles.color = port.Color.ToUnity();
-                    Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius));
-                    Handles.color = t.NodeBodyColor.ToUnity();
-                    Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius - t.PortHollowWidth));
-                }
+                DrawPortShape(port.Shape, port.Direction, wCenter, t, port.Color, port.Connected);
             }
 
             Handles.color = oldColor;
@@ -600,32 +566,140 @@ namespace NodeGraph.Unity
         }
 
         /// <summary>
-        /// 绘制 "+" 号空位（窗口坐标）。
-        /// wCenter 已通过 C2W 转换为窗口坐标，半径/线宽通过 S() 缩放。
+        /// 在端口形状上叠加绘制 "+" 号（用于 Multiple Input 端口的空槽位）。
+        /// 调用前应已通过 DrawPortShape 绘制底部形状。
         /// </summary>
-        private void DrawPlusSlot(Vector3 wCenter, NodeVisualTheme t, Color4 portColor)
+        private void DrawPlusOverlay(Vector3 wCenter, NodeVisualTheme t, Color4 portColor)
         {
-            // 空心圆（与未连接端口相同样式，半径已缩放）
-            Handles.color = t.PortOuterRingColor.ToUnity();
-            Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius + t.PortOuterRingWidth));
-            Handles.color = portColor.ToUnity();
-            Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius));
-            Handles.color = t.NodeBodyColor.ToUnity();
-            Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius - t.PortHollowWidth));
-
-            // 圆圈内部绘制 "+" 号（所有尺寸缩放到窗口像素）
             float halfLen = S(t.PortRadius * 0.45f);
             float thickness = Mathf.Max(1f, 2.5f * _zoom);
             Handles.color = portColor.ToUnity();
-            // 横线
             Handles.DrawAAPolyLine(thickness,
                 new Vector3(wCenter.x - halfLen, wCenter.y, 0),
                 new Vector3(wCenter.x + halfLen, wCenter.y, 0));
-            // 竖线
             Handles.DrawAAPolyLine(thickness,
                 new Vector3(wCenter.x, wCenter.y - halfLen, 0),
                 new Vector3(wCenter.x, wCenter.y + halfLen, 0));
         }
+
+        /// <summary>按 PortShape 分派绘制端口形状（圆 / 三角 / 菱形）</summary>
+        private void DrawPortShape(PortShape shape, PortDirection direction, Vector3 wCenter,
+            NodeVisualTheme t, Color4 portColor, bool connected)
+        {
+            switch (shape)
+            {
+                case PortShape.Triangle:
+                    DrawTrianglePort(direction, wCenter, t, portColor, connected);
+                    break;
+                case PortShape.Diamond:
+                    DrawDiamondPort(wCenter, t, portColor, connected);
+                    break;
+                default:
+                    DrawCirclePort(wCenter, t, portColor, connected);
+                    break;
+            }
+        }
+
+        /// <summary>绘制圆形端口（Data 端口）</summary>
+        private void DrawCirclePort(Vector3 wCenter, NodeVisualTheme t, Color4 portColor, bool connected)
+        {
+            Handles.color = t.PortOuterRingColor.ToUnity();
+            Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius + t.PortOuterRingWidth));
+            Handles.color = portColor.ToUnity();
+            Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius));
+            if (!connected)
+            {
+                Handles.color = t.NodeBodyColor.ToUnity();
+                Handles.DrawSolidDisc(wCenter, Vector3.forward, S(t.PortRadius - t.PortHollowWidth));
+            }
+        }
+
+        /// <summary>
+        /// 绘制三角形端口（Control 端口）。以 wCenter 为几何中心，尖端朝向连线方向。
+        /// 输入端（左侧）：尖端朝左 ◁；输出端（右侧）：尖端朝右 ▷
+        /// </summary>
+        private void DrawTrianglePort(PortDirection direction, Vector3 wCenter,
+            NodeVisualTheme t, Color4 portColor, bool connected)
+        {
+            float R = S(t.PortRadius);
+            float halfR = R * 0.5f;
+
+            Vector3 tip, cornerA, cornerB;
+            if (direction == PortDirection.Input)
+            {
+                tip     = new Vector3(wCenter.x - R,      wCenter.y,     0);
+                cornerA = new Vector3(wCenter.x + halfR,  wCenter.y - R, 0);
+                cornerB = new Vector3(wCenter.x + halfR,  wCenter.y + R, 0);
+            }
+            else
+            {
+                tip     = new Vector3(wCenter.x + R,      wCenter.y,     0);
+                cornerA = new Vector3(wCenter.x - halfR,  wCenter.y - R, 0);
+                cornerB = new Vector3(wCenter.x - halfR,  wCenter.y + R, 0);
+            }
+
+            float outerScale = 1f + t.PortOuterRingWidth / t.PortRadius;
+            Handles.color = t.PortOuterRingColor.ToUnity();
+            Handles.DrawAAConvexPolygon(
+                ScaleFrom(wCenter, tip,     outerScale),
+                ScaleFrom(wCenter, cornerA, outerScale),
+                ScaleFrom(wCenter, cornerB, outerScale));
+
+            Handles.color = portColor.ToUnity();
+            Handles.DrawAAConvexPolygon(tip, cornerA, cornerB);
+
+            if (!connected)
+            {
+                float hollowScale = (t.PortRadius - t.PortHollowWidth) / t.PortRadius;
+                if (hollowScale > 0f)
+                {
+                    Handles.color = t.NodeBodyColor.ToUnity();
+                    Handles.DrawAAConvexPolygon(
+                        ScaleFrom(wCenter, tip,     hollowScale),
+                        ScaleFrom(wCenter, cornerA, hollowScale),
+                        ScaleFrom(wCenter, cornerB, hollowScale));
+                }
+            }
+        }
+
+        /// <summary>绘制菱形端口（Event 端口）。以 wCenter 为几何中心。</summary>
+        private void DrawDiamondPort(Vector3 wCenter, NodeVisualTheme t, Color4 portColor, bool connected)
+        {
+            float R = S(t.PortRadius);
+            var top    = new Vector3(wCenter.x,      wCenter.y - R, 0);
+            var right  = new Vector3(wCenter.x + R,  wCenter.y,     0);
+            var bottom = new Vector3(wCenter.x,      wCenter.y + R, 0);
+            var left   = new Vector3(wCenter.x - R,  wCenter.y,     0);
+
+            float outerScale = 1f + t.PortOuterRingWidth / t.PortRadius;
+            Handles.color = t.PortOuterRingColor.ToUnity();
+            Handles.DrawAAConvexPolygon(
+                ScaleFrom(wCenter, top,    outerScale),
+                ScaleFrom(wCenter, right,  outerScale),
+                ScaleFrom(wCenter, bottom, outerScale),
+                ScaleFrom(wCenter, left,   outerScale));
+
+            Handles.color = portColor.ToUnity();
+            Handles.DrawAAConvexPolygon(top, right, bottom, left);
+
+            if (!connected)
+            {
+                float hollowScale = (t.PortRadius - t.PortHollowWidth) / t.PortRadius;
+                if (hollowScale > 0f)
+                {
+                    Handles.color = t.NodeBodyColor.ToUnity();
+                    Handles.DrawAAConvexPolygon(
+                        ScaleFrom(wCenter, top,    hollowScale),
+                        ScaleFrom(wCenter, right,  hollowScale),
+                        ScaleFrom(wCenter, bottom, hollowScale),
+                        ScaleFrom(wCenter, left,   hollowScale));
+                }
+            }
+        }
+
+        /// <summary>从 center 出发对 point 做缩放（用于生成外圈/内圈顶点）</summary>
+        private static Vector3 ScaleFrom(Vector3 center, Vector3 point, float scale)
+            => center + (point - center) * scale;
 
         /// <summary>
         /// 节点内容绘制（Zero-Matrix）。

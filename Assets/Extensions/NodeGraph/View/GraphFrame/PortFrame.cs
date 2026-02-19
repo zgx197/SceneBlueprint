@@ -4,6 +4,20 @@ using NodeGraph.Math;
 
 namespace NodeGraph.View
 {
+    /// <summary>
+    /// 端口渲染形状——决定端口图标的几何外形，与 PortKind 对应。
+    /// <para>Control → Triangle；Event → Diamond；Data → Circle</para>
+    /// </summary>
+    public enum PortShape
+    {
+        /// <summary>圆形——Data 端口</summary>
+        Circle,
+        /// <summary>三角形——Control 端口（尖端朝向连线方向）</summary>
+        Triangle,
+        /// <summary>菱形——Event 端口</summary>
+        Diamond
+    }
+
     /// <summary>单个端口的渲染描述</summary>
     public class PortFrame
     {
@@ -48,5 +62,8 @@ namespace NodeGraph.View
 
         /// <summary>是否可与当前拖拽的端口连接（拖线时高亮提示）</summary>
         public bool CanConnectToDragSource { get; set; }
+
+        /// <summary>端口渲染形状——由 PortKind 决定，由 FrameBuilder 填充</summary>
+        public PortShape Shape { get; set; } = PortShape.Circle;
     }
 }

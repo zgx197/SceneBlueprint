@@ -178,7 +178,7 @@ namespace NodeGraph.Commands
                         portGroups[groupKey] = repPortName;
                         info.PortDefinitions.Add(new PortDefinition(
                             repPortName, PortDirection.Output, sp.Kind,
-                            sp.DataType, PortCapacity.Single, outputOrder++));
+                            sp.DataType, PortCapacity.Multiple, outputOrder++));
                         info.RepPortDirections[repPortName] = PortDirection.Output;
                     }
                     // 所有同类型的内部端口都映射到同一个边界端口
@@ -213,7 +213,7 @@ namespace NodeGraph.Commands
             if (!hasOutput)
             {
                 info.PortDefinitions.Add(new PortDefinition(
-                    "完成", PortDirection.Output, PortKind.Control, "exec", PortCapacity.Single,
+                    "完成", PortDirection.Output, PortKind.Control, "exec", PortCapacity.Multiple,
                     info.PortDefinitions.Count));
             }
 
