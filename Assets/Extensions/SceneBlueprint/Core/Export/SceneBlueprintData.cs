@@ -19,7 +19,29 @@ namespace SceneBlueprint.Core.Export
         // ── 核心数据 ──
         public ActionEntry[] Actions = Array.Empty<ActionEntry>();
         public TransitionEntry[] Transitions = Array.Empty<TransitionEntry>();
-        public VariableEntry[] BlackboardInit = Array.Empty<VariableEntry>();
+        public VariableDeclaration[] Variables = Array.Empty<VariableDeclaration>();
+        public DataConnectionEntry[] DataConnections = Array.Empty<DataConnectionEntry>();
+    }
+
+    /// <summary>
+    /// 数据连接条目——对应图中的一条 Data 边。
+    /// <para>
+    /// 与 <see cref="TransitionEntry"/>（控制流边）分离存储，语义互不干扰：
+    /// - TransitionEntry：触发下游节点执行
+    /// - DataConnectionEntry：向下游节点的 DataIn 端口提供值
+    /// </para>
+    /// </summary>
+    [Serializable]
+    public class DataConnectionEntry
+    {
+        /// <summary>生产者节点 ID</summary>
+        public string FromActionId = "";
+        /// <summary>生产者 DataOut 端口 ID</summary>
+        public string FromPortId = "";
+        /// <summary>消费者节点 ID</summary>
+        public string ToActionId = "";
+        /// <summary>消费者 DataIn 端口 ID</summary>
+        public string ToPortId = "";
     }
 
     /// <summary>行动条目（对应图中的一个节点）</summary>
@@ -116,12 +138,21 @@ namespace SceneBlueprint.Core.Export
         public PropertyValue[] Properties = Array.Empty<PropertyValue>();
     }
 
-    /// <summary>变量条目（黑板初始值，Phase 2+ 预留）</summary>
+    /// <summary>
+    /// 变量声明——蓝图级别的 Blackboard 变量定义。
+    /// <para>
+    /// Index: 运行时唯一整型索引，用于 O(1) 访问（替代字符串 Key）。
+    /// Type: "Int" | "Float" | "Bool" | "String"。
+    /// Scope: "Local"（蓝图实例级）| "Global"（游戏会话级）。
+    /// </para>
+    /// </summary>
     [Serializable]
-    public class VariableEntry
+    public class VariableDeclaration
     {
-        public string Key = "";
-        public string ValueType = "";
+        public int    Index        = -1;
+        public string Name         = "";
+        public string Type         = "Int";
+        public string Scope        = "Local";
         public string InitialValue = "";
     }
 }

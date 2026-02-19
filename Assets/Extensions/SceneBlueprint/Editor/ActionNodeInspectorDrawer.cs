@@ -1,10 +1,13 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 using UnityEditor;
 using NodeGraph.Core;
 using NodeGraph.Unity;
 using SceneBlueprint.Core;
+using SceneBlueprint.Core.Export;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers;
 using SceneBlueprint.Runtime.Markers;
@@ -25,6 +28,9 @@ namespace SceneBlueprint.Editor
         private Graph? _currentGraph;
         private IActionRegistry? _actionRegistry;
         private BindingContext? _bindingContext;
+        private VariableDeclaration[] _variables = System.Array.Empty<VariableDeclaration>();
+        private string[] _variableDisplayNames = new[] { "(未选择)" };
+        private int[] _variableIndices = new[] { -1 };
 
         /// <summary>属性修改回调（nodeId, nodeData）</summary>
         public System.Action<string, ActionNodeData>? OnPropertyChanged;
@@ -40,6 +46,31 @@ namespace SceneBlueprint.Editor
             _bindingContext = context;
         }
 
+        /// <summary>设置 Blackboard 变量声明列表（由编辑器窗口在资产变更时更新）</summary>
+        public void SetVariableDeclarations(VariableDeclaration[]? variables)
+        {
+            _variables = variables ?? System.Array.Empty<VariableDeclaration>();
+            // 构建缓存：下拉选项文本 + 对应 index 值
+            if (_variables.Length == 0)
+            {
+                _variableDisplayNames = new[] { "(无变量，请先在变量面板添加)" };
+                _variableIndices = new[] { -1 };
+            }
+            else
+            {
+                _variableDisplayNames = new string[_variables.Length + 1];
+                _variableIndices      = new int[_variables.Length + 1];
+                _variableDisplayNames[0] = "(未选择)";
+                _variableIndices[0]      = -1;
+                for (int i = 0; i < _variables.Length; i++)
+                {
+                    var v = _variables[i];
+                    _variableDisplayNames[i + 1] = $"[{v.Index}] {v.Name}  ({v.Type}, {v.Scope})";
+                    _variableIndices[i + 1]      = v.Index;
+                }
+            }
+        }
+
         /// <summary>设置当前 Graph 引用（用于子蓝图 Inspector 和关卡总览）</summary>
         public void SetGraph(Graph? graph)
         {
@@ -51,6 +82,119 @@ namespace SceneBlueprint.Editor
             // Action 节点 或 子蓝图代表节点 都可以 Inspect
             return node.UserData is ActionNodeData
                 || node.TypeId == SubGraphConstants.BoundaryNodeTypeId;
+        }
+
+        // ─────────────────────────────────────
+        //  DataIn 端口连接来源显示
+        // ─────────────────────────────────────
+
+        /// <summary>
+        /// 展示当前节点所有 DataIn 端口的连接状态。
+        /// 已连线时显示 "来自 [source]"；未连线时不占任何空间。
+        /// </summary>
+        private void DrawDataInConnections(Node node, ActionDefinition def)
+        {
+            if (_currentGraph == null) return;
+
+            bool hasAny = false;
+            foreach (var portDef in def.Ports)
+            {
+                if (portDef.Kind != PortKind.Data || portDef.Direction != PortDirection.Input)
+                    continue;
+
+                string portDisplayName = string.IsNullOrEmpty(portDef.DisplayName) ? portDef.Id : portDef.DisplayName;
+                string? sourceLabel = GetDataInSourceLabel(node, (SceneBlueprint.Core.PortDefinition)portDef);
+
+                if (!hasAny)
+                {
+                    EditorGUILayout.Space(2);
+                    hasAny = true;
+                }
+
+                if (sourceLabel != null)
+                {
+                    // 已连线：显示来源信息（蓝绿色）
+                    var oldColor = GUI.color;
+                    GUI.color = new Color(0.4f, 0.85f, 1f, 1f);
+                    EditorGUILayout.LabelField(portDisplayName, $"← {sourceLabel}");
+                    GUI.color = oldColor;
+                }
+                else
+                {
+                    // 未连线：显示提示（灰色）
+                    var oldColor = GUI.color;
+                    GUI.color = new Color(0.6f, 0.6f, 0.6f, 1f);
+                    EditorGUILayout.LabelField(portDisplayName, "(未连线)");
+                    GUI.color = oldColor;
+                }
+            }
+
+            if (hasAny)
+                EditorGUILayout.Space(4);
+        }
+
+        /// <summary>
+        /// 返回 DataIn 端口的连接来源标签，格式为「源端口显示名 · 源节点类型名」。
+        /// 该 DataIn 端口未连线时返回 null。
+        /// </summary>
+        private string? GetDataInSourceLabel(Node node, SceneBlueprint.Core.PortDefinition portDef)
+        {
+            if (_currentGraph == null) return null;
+
+            // 找到对应的 Node.Port（通过显示名和方向匹配）
+            string portDisplayName = string.IsNullOrEmpty(portDef.DisplayName) ? portDef.Id : portDef.DisplayName;
+            NodeGraph.Core.Port? nodePort = null;
+            foreach (var p in node.Ports)
+            {
+                if (p.Direction == PortDirection.Input && p.Kind == PortKind.Data && p.Name == portDisplayName)
+                {
+                    nodePort = p;
+                    break;
+                }
+            }
+            if (nodePort == null) return null;
+
+            // 查找连入该端口的边
+            NodeGraph.Core.Edge? inEdge = null;
+            foreach (var edge in _currentGraph.Edges)
+            {
+                if (edge.TargetPortId == nodePort.Id)
+                {
+                    inEdge = edge;
+                    break;
+                }
+            }
+            if (inEdge == null) return null;
+
+            // 找到源端口和源节点
+            var sourcePort = _currentGraph.FindPort(inEdge.SourcePortId);
+            if (sourcePort == null) return null;
+            var sourceNode = _currentGraph.FindNode(sourcePort.NodeId);
+            if (sourceNode == null) return null;
+
+            // 读取源节点类型显示名
+            string sourceNodeDisplayName = sourceNode.TypeId;
+            string sourcePortDisplayName = sourcePort.Name;
+
+            if (sourceNode.UserData is ActionNodeData sourceData
+                && _actionRegistry != null
+                && _actionRegistry.TryGet(sourceData.ActionTypeId, out var sourceDef))
+            {
+                sourceNodeDisplayName = sourceDef.DisplayName;
+
+                // 在源 ActionDef.Ports 中反查语义 ID 对应的显示名
+                foreach (var sp in sourceDef.Ports)
+                {
+                    string spDisplayName = string.IsNullOrEmpty(sp.DisplayName) ? sp.Id : sp.DisplayName;
+                    if (spDisplayName == sourcePort.Name && sp.Direction == PortDirection.Output && sp.Kind == PortKind.Data)
+                    {
+                        sourcePortDisplayName = sp.DisplayName ?? sp.Id;
+                        break;
+                    }
+                }
+            }
+
+            return $"{sourcePortDisplayName} · {sourceNodeDisplayName}";
         }
 
         public string GetTitle(Node node)
@@ -98,6 +242,9 @@ namespace SceneBlueprint.Editor
             if (!string.IsNullOrEmpty(def.Category))
                 EditorGUILayout.LabelField("分类", def.Category);
             EditorGUILayout.Space(4);
+
+            // ── DataIn 端口连接信息（如果存在 DataIn 端口）──
+            DrawDataInConnections(node, def);
 
             // ── 普通属性 ──
             bool hasSceneBindings = false;
@@ -196,6 +343,10 @@ namespace SceneBlueprint.Editor
                     changed = DrawStructListField(prop, bag);
                     break;
 
+                case PropertyType.VariableSelector:
+                    changed = DrawVariableSelectorField(prop, bag);
+                    break;
+
                 default:
                     EditorGUILayout.LabelField(prop.DisplayName, $"(不支持的类型 {prop.Type})");
                     break;
@@ -241,6 +392,32 @@ namespace SceneBlueprint.Editor
             return false;
         }
 
+        private bool DrawVariableSelectorField(PropertyDefinition prop, PropertyBag bag)
+        {
+            int currentIndex = bag.Get<int>(prop.Key);
+
+            // 在 _variableIndices 数组中找到当前值对应的下拉位置
+            int popupPos = 0;
+            for (int i = 0; i < _variableIndices.Length; i++)
+            {
+                if (_variableIndices[i] == currentIndex)
+                {
+                    popupPos = i;
+                    break;
+                }
+            }
+
+            int newPopupPos = EditorGUILayout.Popup(prop.DisplayName, popupPos, _variableDisplayNames);
+
+            if (newPopupPos != popupPos)
+            {
+                int newIndex = _variableIndices[newPopupPos];
+                bag.Set(prop.Key, newIndex);
+                return true;
+            }
+            return false;
+        }
+
         private bool DrawBoolField(PropertyDefinition prop, PropertyBag bag)
         {
             bool current = bag.Get<bool>(prop.Key);
@@ -256,12 +433,80 @@ namespace SceneBlueprint.Editor
 
         private bool DrawStringField(PropertyDefinition prop, PropertyBag bag)
         {
+            // 若设置了 TypeSourceKey，根据关联变量的类型动态切换控件
+            if (!string.IsNullOrEmpty(prop.TypeSourceKey))
+                return DrawTypedStringField(prop, bag);
+
             string current = bag.Get<string>(prop.Key) ?? "";
             string result = EditorGUILayout.TextField(prop.DisplayName, current);
 
             if (result != current)
             {
                 bag.Set(prop.Key, result);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 根据 TypeSourceKey 指向的 VariableSelector 属性所选变量的类型，
+        /// 动态切换本字段的 UI 控件（IntField / FloatField / Toggle / TextField）。
+        /// 值始终以字符串形式存入 PropertyBag。
+        /// </summary>
+        private bool DrawTypedStringField(PropertyDefinition prop, PropertyBag bag)
+        {
+            // 查找关联变量的类型字符串
+            string varType = "String";
+            int varIndex = bag.Get<int>(prop.TypeSourceKey!);
+            if (varIndex >= 0 && _variables != null)
+            {
+                foreach (var v in _variables)
+                {
+                    if (v.Index == varIndex)
+                    {
+                        varType = v.Type ?? "String";
+                        break;
+                    }
+                }
+            }
+
+            string current = bag.Get<string>(prop.Key) ?? "";
+            string newValue;
+
+            switch (varType)
+            {
+                case "Int":
+                {
+                    int parsed = int.TryParse(current, out var n) ? n : 0;
+                    int edited = EditorGUILayout.IntField(prop.DisplayName, parsed);
+                    newValue = edited.ToString();
+                    break;
+                }
+                case "Float":
+                {
+                    float parsed = float.TryParse(current,
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out var f) ? f : 0f;
+                    float edited = EditorGUILayout.FloatField(prop.DisplayName, parsed);
+                    newValue = edited.ToString(CultureInfo.InvariantCulture);
+                    break;
+                }
+                case "Bool":
+                {
+                    bool parsed = current.Equals("true", StringComparison.OrdinalIgnoreCase)
+                                  || current == "1";
+                    bool edited = EditorGUILayout.Toggle(prop.DisplayName, parsed);
+                    newValue = edited ? "true" : "false";
+                    break;
+                }
+                default:
+                    newValue = EditorGUILayout.TextField(prop.DisplayName, current);
+                    break;
+            }
+
+            if (newValue != current)
+            {
+                bag.Set(prop.Key, newValue);
                 return true;
             }
             return false;

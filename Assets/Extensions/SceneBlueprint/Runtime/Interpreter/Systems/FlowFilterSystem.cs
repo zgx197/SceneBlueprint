@@ -1,6 +1,5 @@
 #nullable enable
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
@@ -9,10 +8,10 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     /// 条件过滤系统——处理 Flow.Filter 节点。
     /// <para>
     /// 运行时逻辑：
-    /// 1. 从 Blackboard 的 _activatedBy.{myId} 获取来源节点 ID（自动推断）
-    /// 2. 拼接 Blackboard key = "{sourceId}.{key}" 读取变量值
-    /// 3. 与目标值做比较（支持数字和字符串）
-    /// 4. 条件满足 → 手动发射 pass 端口事件；不满足 → 发射 reject 端口事件
+    /// 1. 读取 compareValue DataIn 端口的值（由生产者节点在触发 onWaveStart 等事件前写入）
+    /// 2. 与属性 constValue 做比较（op：==、!=、&gt;、&lt;、&gt;=、&lt;=）
+    /// 3. 条件满足 → 发射 pass 端口事件；不满足 → 发射 reject 端口事件
+    /// 4. compareValue 无连线 → 无条件发射 pass（视为"过滤已关闭"）
     /// 5. 进入 Listening 状态等待下一次事件（支持多次重入）
     /// 6. TransitionPropagated=true 防止 TransitionSystem 对本次完成重复传播出边
     /// </para>
@@ -43,50 +42,28 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         private static void ProcessFilter(BlueprintFrame frame, int actionIndex, ref ActionRuntimeState state)
         {
-            var myActionId = frame.Actions[actionIndex].Id;
+            var op         = frame.GetProperty(actionIndex, "op");
+            var constValue = frame.GetProperty(actionIndex, "constValue");
 
-            // 读取属性
-            var key = frame.GetProperty(actionIndex, "key");
-            var op = frame.GetProperty(actionIndex, "op");
-            var targetValue = frame.GetProperty(actionIndex, "value");
+            // 读取 compareValue DataIn 端口的值
+            string? compareValue = frame.GetDataPortValue(actionIndex, "compareValue");
 
-            if (string.IsNullOrEmpty(key))
+            if (compareValue == null)
             {
-                Debug.LogWarning($"[FlowFilterSystem] Flow.Filter (index={actionIndex}) key 为空，走 reject");
-                EmitPortEvents(frame, actionIndex, "reject");
-                // 进入 Listening 等待下一次事件，TransitionPropagated 防止出边重复传播
+                // DataIn 端口无连线：无条件 pass（过滤功能关闭）
+                Debug.LogWarning($"[FlowFilterSystem] Flow.Filter (index={actionIndex}) compareValue 端口无连线，无条件 pass");
+                EmitPortEvents(frame, actionIndex, "pass");
                 state.Phase = ActionPhase.Listening;
                 state.TransitionPropagated = true;
                 return;
             }
 
-            // 自动推断来源节点 ID
-            var sourceId = frame.Blackboard.Get<string>($"_activatedBy.{myActionId}");
-            string bbKey;
-            if (!string.IsNullOrEmpty(sourceId))
-            {
-                bbKey = $"{sourceId}.{key}";
-            }
-            else
-            {
-                // 回退：直接用 key 作为 Blackboard key（允许手动写完整 key）
-                bbKey = key;
-                Debug.LogWarning($"[FlowFilterSystem] Flow.Filter (index={actionIndex}) 无法推断来源节点，" +
-                                 $"直接使用 key=\"{key}\" 查找 Blackboard");
-            }
-
-            // 从 Blackboard 读取值
-            object? bbValue = null;
-            frame.Blackboard.TryGet<object>(bbKey, out bbValue);
-
-            // 执行条件比较
-            bool conditionMet = EvaluateCondition(bbValue, op, targetValue);
-
+            bool conditionMet = EvaluateCondition(compareValue, op, constValue);
             string portId = conditionMet ? "pass" : "reject";
-            Debug.Log($"[FlowFilterSystem] Flow.Filter (index={actionIndex}): " +
-                      $"Blackboard[\"{bbKey}\"]={bbValue ?? "null"} {op} \"{targetValue}\" → {conditionMet} → {portId}");
 
-            // 手动发射对应端口的出边事件
+            Debug.Log($"[FlowFilterSystem] Flow.Filter (index={actionIndex}): " +
+                      $"compareValue={compareValue} {op} constValue={constValue} → {conditionMet} → {portId}");
+
             EmitPortEvents(frame, actionIndex, portId);
 
             // 进入 Listening 状态等待下一次事件（支持多次重入）

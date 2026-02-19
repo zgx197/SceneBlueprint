@@ -104,9 +104,13 @@ namespace SceneBlueprint.Core
             };
         }
 
-        /// <summary>创建字符串属性。Inspector 中显示为 TextField。</summary>
+        /// <summary>创建字符串属性。Inspector 中显示为 TextField。
+        /// <para>若指定 <paramref name="typeSourceKey"/>，Inspector 会根据该属性指向的变量类型动态切换控件
+        /// （Int→IntField, Float→FloatField, Bool→Toggle, String→TextField）。值始终以字符串形式存储。</para>
+        /// </summary>
         public static PropertyDefinition String(string key, string displayName,
-            string defaultValue = "", string? category = null, string? visibleWhen = null, int order = 0)
+            string defaultValue = "", string? category = null, string? visibleWhen = null, int order = 0,
+            string? typeSourceKey = null)
         {
             return new PropertyDefinition
             {
@@ -116,7 +120,8 @@ namespace SceneBlueprint.Core
                 DefaultValue = defaultValue,
                 Category = category,
                 VisibleWhen = visibleWhen,
-                Order = order
+                Order = order,
+                TypeSourceKey = typeSourceKey
             };
         }
 
@@ -224,6 +229,27 @@ namespace SceneBlueprint.Core
                 Order = order
             };
         }
+        /// <summary>
+        /// 创建 Blackboard 变量选择器属性。
+        /// Inspector 中渲染为下拉菜单，选项来自当前蓝图的变量声明列表。
+        /// 存储值为变量的整数 Index（-1 = 未选择）。
+        /// </summary>
+        public static PropertyDefinition VariableSelector(string key, string displayName,
+            int defaultValue = -1,
+            string? category = null, string? visibleWhen = null, int order = 0)
+        {
+            return new PropertyDefinition
+            {
+                Key = key,
+                DisplayName = displayName,
+                Type = PropertyType.VariableSelector,
+                DefaultValue = defaultValue,
+                Category = category,
+                VisibleWhen = visibleWhen,
+                Order = order
+            };
+        }
+
         /// <summary>
         /// 创建结构化列表属性。
         /// Inspector 侧边面板中显示为 ReorderableList（可排序、可增删），

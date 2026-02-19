@@ -83,7 +83,10 @@ namespace SceneBlueprint.Editor
             // 正确传递端口的 Kind 和 DataType
             // SceneBlueprint.Core.PortDefinition.Kind 和 NodeGraph.Core.PortKind 使用相同的枚举值
             var kind = sbPort.Kind;
-            var dataType = string.IsNullOrEmpty(sbPort.DataType) ? "exec" : sbPort.DataType;
+            // Data 端口空 DataType = DataTypes.Any，保持空串；Control/Event 端口用 "exec" 占位
+            var dataType = (kind == PortKind.Data)
+                ? sbPort.DataType
+                : (string.IsNullOrEmpty(sbPort.DataType) ? "exec" : sbPort.DataType);
 
             return new NGPortDef(
                 name: string.IsNullOrEmpty(sbPort.DisplayName) ? sbPort.Id : sbPort.DisplayName,

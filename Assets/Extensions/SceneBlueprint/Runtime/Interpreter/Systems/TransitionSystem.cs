@@ -141,7 +141,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                         // 记录激活来源（供 Flow.Filter 等节点自动推断数据来源）
                         var sourceActionId = frame.Actions[evt.FromActionIndex].Id;
                         var targetActionId = frame.Actions[evt.ToActionIndex].Id;
-                        frame.Blackboard.Set($"_activatedBy.{targetActionId}", sourceActionId);
+                        frame.Blackboard.SetInternal($"_activatedBy.{targetActionId}", sourceActionId);
 
                         var typeId = frame.GetTypeId(evt.ToActionIndex);
                         Debug.Log($"[TransitionSystem] ✓ 激活: {typeId} (index={evt.ToActionIndex}) ← {evt}");
@@ -155,7 +155,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                         // 更新激活来源（新的事件可能来自不同的上游节点）
                         var sourceActionId = frame.Actions[evt.FromActionIndex].Id;
                         var targetActionId = frame.Actions[evt.ToActionIndex].Id;
-                        frame.Blackboard.Set($"_activatedBy.{targetActionId}", sourceActionId);
+                        frame.Blackboard.SetInternal($"_activatedBy.{targetActionId}", sourceActionId);
 
                         var typeId = frame.GetTypeId(evt.ToActionIndex);
                         Debug.Log($"[TransitionSystem] ✓ 重入激活: {typeId} (index={evt.ToActionIndex}) Listening → Running ← {evt}");

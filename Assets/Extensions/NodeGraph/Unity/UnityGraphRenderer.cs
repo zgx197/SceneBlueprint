@@ -385,6 +385,34 @@ namespace NodeGraph.Unity
                 bounds.Width - t.TitlePaddingLeft * 2f,
                 t.TitleBarHeight), titlePrefix + node.TitleText, _titleStyle);
 
+            // 5b. 描述条（位于标题栏下方，端口区域上方）
+            if (!string.IsNullOrEmpty(node.Description))
+            {
+                float descTop = bounds.Y + t.TitleBarHeight;
+                float descH = t.DescriptionBarHeight;
+
+                // 细分隔线
+                DrawLine(
+                    new Vec2(bounds.X + t.ContentPadding, descTop),
+                    new Vec2(bounds.Right - t.ContentPadding, descTop),
+                    t.TitleSeparatorColor, 0.5f);
+
+                // 描述文字
+                if (_summaryStyle != null)
+                {
+                    _summaryStyle.fontSize = ScaledFontSize(t.DescriptionFontSize);
+                    _summaryStyle.normal.textColor = t.DescriptionTextColor.ToUnity();
+                    _summaryStyle.wordWrap = false;
+                    _summaryStyle.alignment = TextAnchor.MiddleCenter;
+                    GUI.Label(C2WRect(
+                        bounds.X + t.TitlePaddingLeft,
+                        descTop,
+                        bounds.Width - t.TitlePaddingLeft * 2f,
+                        descH), node.Description, _summaryStyle);
+                    _summaryStyle.alignment = TextAnchor.UpperLeft;
+                }
+            }
+
             // 6. 节点外边框（矢量圆角边框）
             DrawRoundedBorder(bounds, t.NodeBorderColor, t.NodeBorderWidth, cornerPx);
 

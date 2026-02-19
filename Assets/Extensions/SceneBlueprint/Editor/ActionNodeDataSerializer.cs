@@ -16,11 +16,18 @@ namespace SceneBlueprint.Editor
         {
             if (data is ActionNodeData actionData)
             {
-                // 格式: { "typeId": "xxx", "properties": { ... } }
+                // 格式: { "typeId": "xxx", "description": "...", "properties": { ... } }
                 var sb = new System.Text.StringBuilder();
                 sb.Append("{\"typeId\":\"");
                 sb.Append(EscapeJson(actionData.ActionTypeId));
-                sb.Append("\",\"properties\":");
+                sb.Append("\"");
+                if (!string.IsNullOrEmpty(actionData.Description))
+                {
+                    sb.Append(",\"description\":\"");
+                    sb.Append(EscapeJson(actionData.Description));
+                    sb.Append("\"");
+                }
+                sb.Append(",\"properties\":");
                 sb.Append(PropertyBagSerializer.ToJson(actionData.Properties));
                 sb.Append("}");
                 return sb.ToString();
@@ -78,10 +85,11 @@ namespace SceneBlueprint.Editor
                     return null;
 
                 var data = new ActionNodeData(actionTypeId);
+                string? description = ExtractStringField(json, "description");
+                if (!string.IsNullOrEmpty(description))
+                    data.Description = description;
                 if (propertiesJson != null)
-                {
                     data.Properties = PropertyBagSerializer.FromJson(propertiesJson);
-                }
                 return data;
             }
             catch

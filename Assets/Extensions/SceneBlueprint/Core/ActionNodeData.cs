@@ -30,8 +30,13 @@ namespace SceneBlueprint.Core
     /// </list>
     /// </para>
     /// </summary>
-    public class ActionNodeData : INodeData
+    public class ActionNodeData : INodeData, IDescribableNode
     {
+        /// <summary>
+        /// 节点描述/备注文字（策划填写，显示在节点标题下方）。
+        /// </summary>
+        public string Description { get; set; } = string.Empty;
+
         /// <summary>
         /// 指向 ActionDefinition.TypeId，表示这个节点是什么类型的行动。
         /// <para>如 "Combat.Spawn" 表示这是一个刷怪节点。</para>

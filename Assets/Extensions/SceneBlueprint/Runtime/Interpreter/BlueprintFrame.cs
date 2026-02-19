@@ -68,6 +68,15 @@ namespace SceneBlueprint.Runtime.Interpreter
         /// <summary>Flow.Start 节点的 ActionIndex（-1 表示不存在）</summary>
         public int StartActionIndex { get; internal set; } = -1;
 
+        /// <summary>蓝图声明的所有变量（由 BlueprintLoader 初始化）</summary>
+        public VariableDeclaration[] Variables { get; internal set; } = Array.Empty<VariableDeclaration>();
+
+        /// <summary>
+        /// 数据连接反向索引：(toActionIndex, toPortId) → (fromActionIndex, fromPortId)。
+        /// 消费者 System 调用 <see cref="GetDataPortValue"/> 时用于定位生产者。
+        /// </summary>
+        public Dictionary<(int, string), (int, string)> DataInConnections { get; internal set; } = new();
+
         // ══════════════════════════════════════════
         //  动态数据（每帧由 System 读写）
         // ══════════════════════════════════════════
@@ -87,6 +96,13 @@ namespace SceneBlueprint.Runtime.Interpreter
         /// </summary>
         public List<PortEvent> PendingEvents { get; } = new();
 
+        /// <summary>
+        /// 数据端口运行时值：actionIndex → (portId → stringValue)。
+        /// 生产者 System 通过 <see cref="SetDataPortValue"/> 写入；
+        /// 消费者 System 通过 <see cref="GetDataPortValue"/> 读取。
+        /// </summary>
+        public Dictionary<int, Dictionary<string, string>> DataPortValues { get; } = new();
+
         /// <summary>当前已执行的 Tick 数</summary>
         public int TickCount { get; internal set; }
 
@@ -96,6 +112,28 @@ namespace SceneBlueprint.Runtime.Interpreter
         // ══════════════════════════════════════════
         //  查询辅助方法
         // ══════════════════════════════════════════
+
+        /// <summary>按名称查找变量声明（线性搜索，变量数量少可接受）</summary>
+        public VariableDeclaration? FindVariable(string name)
+        {
+            for (int i = 0; i < Variables.Length; i++)
+            {
+                if (Variables[i].Name == name)
+                    return Variables[i];
+            }
+            return null;
+        }
+
+        /// <summary>按声明 Index 查找变量声明</summary>
+        public VariableDeclaration? FindVariable(int index)
+        {
+            for (int i = 0; i < Variables.Length; i++)
+            {
+                if (Variables[i].Index == index)
+                    return Variables[i];
+            }
+            return null;
+        }
 
         /// <summary>根据 ActionId 获取 ActionIndex（-1 表示未找到）</summary>
         public int GetActionIndex(string actionId)
@@ -155,6 +193,39 @@ namespace SceneBlueprint.Runtime.Interpreter
 
         /// <summary>清空事件队列（每轮 Tick 由 Runner 在消费完毕后调用）</summary>
         public void ClearEvents() => PendingEvents.Clear();
+
+        // ── 数据端口操作 ──
+
+        /// <summary>
+        /// 写数据端口值（由生产者 System 在产出数据时调用，如 SpawnWaveSystem 每波开始时）。
+        /// </summary>
+        public void SetDataPortValue(int actionIndex, string portId, string value)
+        {
+            if (!DataPortValues.TryGetValue(actionIndex, out var portMap))
+            {
+                portMap = new Dictionary<string, string>();
+                DataPortValues[actionIndex] = portMap;
+            }
+            portMap[portId] = value;
+        }
+
+        /// <summary>
+        /// 读取消费者节点某个 DataIn 端口的值。
+        /// 通过 <see cref="DataInConnections"/> 反向定位生产者，再读取其 DataPortValues。
+        /// 返回 <c>null</c> 表示该端口无数据连线（消费者应自行决定 fallback 行为）。
+        /// </summary>
+        public string? GetDataPortValue(int toActionIndex, string toPortId)
+        {
+            if (!DataInConnections.TryGetValue((toActionIndex, toPortId), out var from))
+                return null;
+
+            var (fromActionIndex, fromPortId) = from;
+            if (DataPortValues.TryGetValue(fromActionIndex, out var portMap) &&
+                portMap.TryGetValue(fromPortId, out var value))
+                return value;
+
+            return null;
+        }
 
         private static readonly List<int> _emptyList = new();
     }

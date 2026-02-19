@@ -76,7 +76,8 @@ namespace SceneBlueprint.Editor.Export
             List<SceneBindingData>? sceneBindings,
             string? blueprintId = null,
             string? blueprintName = null,
-            ExportOptions? options = null)
+            ExportOptions? options = null,
+            VariableDeclaration[]? variables = null)
         {
             var messages = new List<ValidationMessage>();
             var exportOptions = options ?? new ExportOptions();
@@ -121,6 +122,8 @@ namespace SceneBlueprint.Editor.Export
             Validate(graph, registry, actions, boundaryNodeIds, messages);
 
             // ── Step 5: 组装 ──
+            var allVariables = MergeVariables(variables, graph, registry);
+            var dataConnections = ExportDataConnections(graph, boundaryNodeIds, registry);
             var data = new SceneBlueprintData
             {
                 BlueprintId = blueprintId ?? graph.Id,
@@ -128,7 +131,9 @@ namespace SceneBlueprint.Editor.Export
                 Version = 2,
                 ExportTime = DateTime.UtcNow.ToString("o"),
                 Actions = actions.ToArray(),
-                Transitions = transitions.ToArray()
+                Transitions = transitions.ToArray(),
+                Variables = allVariables,
+                DataConnections = dataConnections
             };
 
             return new ExportResult(data, messages);
@@ -237,8 +242,50 @@ namespace SceneBlueprint.Editor.Export
                 PropertyType.Color => "color",
                 PropertyType.Tag => "tag",
                 PropertyType.StructList => "json",
+                PropertyType.VariableSelector => "int",
                 _ => "string"
             };
+        }
+
+        /// <summary>
+        /// 合并用户声明变量与图中节点的 OutputVariables。
+        /// 节点产出变量使用 DJB2 合成 Index（10000–19999），与用户声明变量（0–9999）不冲突。
+        /// </summary>
+        private static VariableDeclaration[] MergeVariables(
+            VariableDeclaration[]? userVars, Graph graph, ActionRegistry registry)
+        {
+            var result = new List<VariableDeclaration>(userVars ?? Array.Empty<VariableDeclaration>());
+            var seen = new HashSet<string>(result.Select(v => v.Name));
+
+            foreach (var node in graph.Nodes)
+            {
+                if (node.UserData is not ActionNodeData data) continue;
+                if (!registry.TryGet(data.ActionTypeId, out var def)) continue;
+
+                foreach (var outVar in def.OutputVariables)
+                {
+                    if (seen.Contains(outVar.Name)) continue;
+                    seen.Add(outVar.Name);
+                    result.Add(new VariableDeclaration
+                    {
+                        Index        = NodeOutputVarIndex(outVar.Name),
+                        Name         = outVar.Name,
+                        Type         = outVar.Type,
+                        Scope        = outVar.Scope,
+                        InitialValue = ""
+                    });
+                }
+            }
+
+            return result.ToArray();
+        }
+
+        /// <summary>DJB2 hash of name → 10000–19999（与编辑器端计算逻辑一致）。</summary>
+        private static int NodeOutputVarIndex(string name)
+        {
+            uint h = 5381;
+            foreach (char c in name) h = ((h << 5) + h) + c;
+            return 10000 + (int)(h % 10000);
         }
 
         private static string SerializePropertyValue(PropertyType type, object value)
@@ -249,6 +296,7 @@ namespace SceneBlueprint.Editor.Export
                 PropertyType.Int => Convert.ToInt32(value).ToString(CultureInfo.InvariantCulture),
                 PropertyType.Bool => Convert.ToBoolean(value) ? "true" : "false",
                 PropertyType.StructList => value.ToString() ?? "[]",
+                PropertyType.VariableSelector => Convert.ToInt32(value).ToString(CultureInfo.InvariantCulture),
                 _ => value.ToString() ?? ""
             };
         }
@@ -270,10 +318,11 @@ namespace SceneBlueprint.Editor.Export
         {
             if (boundaryNodeIds.Count == 0)
             {
-                // 无子蓝图，直接导出所有连线
+                // 无子蓝图，直接导出所有控制流连线（跳过 Data 边）
                 var simple = new List<TransitionEntry>();
                 foreach (var edge in graph.Edges)
                 {
+                    if (IsDataEdge(edge, graph)) continue;
                     var entry = ExportEdgeDirect(edge, graph, registry, messages);
                     if (entry != null) simple.Add(entry);
                 }
@@ -315,11 +364,12 @@ namespace SceneBlueprint.Editor.Export
                 }
             }
 
-            // 2. 遍历所有连线，分类处理
+            // 2. 遍历所有连线，分类处理（跳过 Data 边）
             var transitions = new List<TransitionEntry>();
 
             foreach (var edge in graph.Edges)
             {
+                if (IsDataEdge(edge, graph)) continue;
                 var sp = graph.FindPort(edge.SourcePortId);
                 var tp = graph.FindPort(edge.TargetPortId);
                 if (sp == null || tp == null)
@@ -384,6 +434,42 @@ namespace SceneBlueprint.Editor.Export
             }
 
             return transitions.ToArray();
+        }
+
+        /// <summary>导出图中所有 Data 边为 DataConnectionEntry。展平处理和控制流边类似，但不需要 Condition。</summary>
+        private static DataConnectionEntry[] ExportDataConnections(
+            Graph graph, HashSet<string> boundaryNodeIds, ActionRegistry registry)
+        {
+            var result = new List<DataConnectionEntry>();
+
+            foreach (var edge in graph.Edges)
+            {
+                if (!IsDataEdge(edge, graph)) continue;
+
+                var sp = graph.FindPort(edge.SourcePortId);
+                var tp = graph.FindPort(edge.TargetPortId);
+                if (sp == null || tp == null) continue;
+
+                // 跳过涉及边界节点的 Data 边（展平阐题不属于本期范围）
+                if (boundaryNodeIds.Contains(sp.NodeId) || boundaryNodeIds.Contains(tp.NodeId)) continue;
+
+                result.Add(new DataConnectionEntry
+                {
+                    FromActionId = sp.NodeId,
+                    FromPortId   = ResolvePortSemanticId(graph, sp, registry),
+                    ToActionId   = tp.NodeId,
+                    ToPortId     = ResolvePortSemanticId(graph, tp, registry),
+                });
+            }
+
+            return result.ToArray();
+        }
+
+        /// <summary>判断一条边是否为 Data 边（依据源端口的 PortKind）。</summary>
+        private static bool IsDataEdge(Edge edge, Graph graph)
+        {
+            var sp = graph.FindPort(edge.SourcePortId);
+            return sp?.Kind == PortKind.Data;
         }
 
         private static TransitionEntry? ExportEdgeDirect(

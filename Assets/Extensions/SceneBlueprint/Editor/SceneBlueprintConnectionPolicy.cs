@@ -57,14 +57,20 @@ namespace SceneBlueprint.Editor
         /// </summary>
         private SceneBlueprint.Core.PortDefinition ConvertToPortDefinition(NodeGraph.Core.Port port)
         {
+            // Data 端口的 "exec" 是历史遗留 bug（旧版适配器误填），视为 Any（""）
+            string dataType = (port.Kind == NodeGraph.Core.PortKind.Data
+                && port.DataType == NodeGraph.Core.TypeCompatibilityRegistry.ExecType)
+                ? ""
+                : port.DataType;
+
             return new SceneBlueprint.Core.PortDefinition
             {
                 Id = port.Name,
-                DisplayName = port.Name,  // NodeGraph.Core.Port 使用 Name 属性
+                DisplayName = port.Name,
                 Kind = port.Kind,
                 Direction = port.Direction,
                 Capacity = port.Capacity,
-                DataType = port.DataType
+                DataType = dataType
             };
         }
 

@@ -152,5 +152,49 @@ namespace SceneBlueprint.Core
         /// <para>默认为 Instant（瞬时完成）。</para>
         /// </summary>
         public ActionDuration Duration { get; set; } = ActionDuration.Instant;
+
+        // ─── 输出变量声明 ───
+
+        /// <summary>
+        /// 节点运行时会写入黑板的变量声明。
+        /// <para>
+        /// 编辑器会扫描图中所有节点的 OutputVariables，将其作为只读条目
+        /// 注入变量下拉列表，使下游节点（如 Flow.Filter）可以直接选择。
+        /// 运行时代码通过字符串键写入黑板，声明仅用于编辑器感知。
+        /// </para>
+        /// </summary>
+        public OutputVariableDefinition[] OutputVariables { get; set; } = System.Array.Empty<OutputVariableDefinition>();
+    }
+
+    /// <summary>
+    /// 节点输出变量声明——描述节点会向黑板写入的变量。
+    /// 使用 <see cref="OutputVar"/> 工厂创建。
+    /// </summary>
+    public class OutputVariableDefinition
+    {
+        /// <summary>黑板 key（运行时写入时使用的字符串键，如 "waveIndex"）</summary>
+        public string Name { get; set; } = "";
+        /// <summary>显示名称（中文，如 "当前波次"）</summary>
+        public string DisplayName { get; set; } = "";
+        /// <summary>值类型（"Int" / "Float" / "Bool" / "String"）</summary>
+        public string Type { get; set; } = "String";
+        /// <summary>作用域（"Local" / "Global"）</summary>
+        public string Scope { get; set; } = "Global";
+    }
+
+    /// <summary>OutputVariableDefinition 工厂——简化声明语法。</summary>
+    public static class OutputVar
+    {
+        public static OutputVariableDefinition Int(string name, string displayName, string scope = "Global")
+            => new OutputVariableDefinition { Name = name, DisplayName = displayName, Type = "Int", Scope = scope };
+
+        public static OutputVariableDefinition Float(string name, string displayName, string scope = "Global")
+            => new OutputVariableDefinition { Name = name, DisplayName = displayName, Type = "Float", Scope = scope };
+
+        public static OutputVariableDefinition Bool(string name, string displayName, string scope = "Global")
+            => new OutputVariableDefinition { Name = name, DisplayName = displayName, Type = "Bool", Scope = scope };
+
+        public static OutputVariableDefinition String(string name, string displayName, string scope = "Global")
+            => new OutputVariableDefinition { Name = name, DisplayName = displayName, Type = "String", Scope = scope };
     }
 }

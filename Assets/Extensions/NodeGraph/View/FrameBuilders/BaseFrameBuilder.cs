@@ -62,6 +62,16 @@ namespace NodeGraph.View
         //  IGraphFrameBuilder 实现
         // ══════════════════════════════════════
 
+        /// <summary>
+        /// 返回节点描述条的额外高度（当 UserData 实现 IDescribableNode 且 Description 非空时）。
+        /// </summary>
+        protected static float GetDescriptionBarHeight(Node node, NodeVisualTheme theme)
+        {
+            if (node.UserData is IDescribableNode d && !string.IsNullOrEmpty(d.Description))
+                return theme.DescriptionBarHeight;
+            return 0f;
+        }
+
         public virtual Vec2 ComputeNodeSize(Node node, GraphViewModel viewModel)
         {
             int frameId = viewModel.FrameId;
@@ -97,6 +107,8 @@ namespace NodeGraph.View
                 }
             }
 
+            float descH = GetDescriptionBarHeight(node, t);
+
             Vec2 size;
             if (IsHorizontalLayout)
             {
@@ -105,20 +117,19 @@ namespace NodeGraph.View
                 int maxSlots = System.Math.Max(inputSlots, outputSlots);
                 float portAreaHeight = maxSlots > 0 ? maxSlots * t.PortSpacing : 0f;
                 float contentHeight = GetContentHeight(node, viewModel);
-                float nodeHeight = t.TitleBarHeight + portAreaHeight + contentHeight + 8f;
-                nodeHeight = MathF.Max(nodeHeight, t.TitleBarHeight + 20f);
+                float nodeHeight = t.TitleBarHeight + descH + portAreaHeight + contentHeight + 8f;
+                nodeHeight = MathF.Max(nodeHeight, t.TitleBarHeight + descH + 20f);
                 size = new Vec2(nodeWidth, nodeHeight);
             }
             else
             {
-                // 垂直布局：端口在上下，宽度由端口数决定
                 int maxSlots = System.Math.Max(inputSlots, outputSlots);
                 float portAreaWidth = maxSlots > 0 ? maxSlots * t.PortSpacing : 0f;
                 float nodeWidth = MathF.Max(t.NodeMinWidth, MathF.Max(titleWidth, portAreaWidth + 16f));
                 float portsHeight = maxInputWidth + maxOutputWidth + t.PortRadius * 2f + 24f;
                 float contentHeight = GetContentHeight(node, viewModel);
-                float nodeHeight = t.TitleBarHeight + portsHeight + contentHeight + 8f;
-                nodeHeight = MathF.Max(nodeHeight, t.TitleBarHeight + 20f);
+                float nodeHeight = t.TitleBarHeight + descH + portsHeight + contentHeight + 8f;
+                nodeHeight = MathF.Max(nodeHeight, t.TitleBarHeight + descH + 20f);
                 size = new Vec2(nodeWidth, nodeHeight);
             }
 
@@ -146,7 +157,8 @@ namespace NodeGraph.View
 
             if (IsHorizontalLayout)
             {
-                float y = bounds.Y + theme.TitleBarHeight + theme.PortSpacing * slotOffset;
+                float descH = GetDescriptionBarHeight(node, theme);
+                float y = bounds.Y + theme.TitleBarHeight + descH + theme.PortSpacing * slotOffset;
                 return port.Direction == PortDirection.Input
                     ? new Vec2(bounds.X + theme.PortInset, y)
                     : new Vec2(bounds.Right - theme.PortInset, y);
@@ -196,7 +208,8 @@ namespace NodeGraph.View
 
             if (IsHorizontalLayout)
             {
-                float y = bounds.Y + theme.TitleBarHeight
+                float descH = GetDescriptionBarHeight(targetNode, theme);
+                float y = bounds.Y + theme.TitleBarHeight + descH
                     + theme.PortSpacing * (slotOffsetBefore + edgeIndex + 0.5f);
                 return new Vec2(bounds.X + theme.PortInset, y);
             }
@@ -459,7 +472,8 @@ namespace NodeGraph.View
                     TitleText = displayName,
                     Selected = selected,
                     IsPrimary = isPrimary,
-                    DisplayMode = node.DisplayMode
+                    DisplayMode = node.DisplayMode,
+                    Description = node.UserData is IDescribableNode dn ? dn.Description : null
                 };
 
                 // 标记折叠状态的 Rep 节点（用于渲染展开按钮）
@@ -539,7 +553,8 @@ namespace NodeGraph.View
             int maxSlots = System.Math.Max(inputSlots, outputSlots);
 
             float portAreaSize = maxSlots > 0 ? maxSlots * theme.PortSpacing : 0f;
-            float contentTop = bounds.Y + theme.TitleBarHeight + portAreaSize + 2f;
+            float descH = GetDescriptionBarHeight(node, theme);
+            float contentTop = bounds.Y + theme.TitleBarHeight + descH + portAreaSize + 2f;
             var contentRect = new Rect2(
                 bounds.X + theme.ContentPadding,
                 contentTop,
@@ -639,7 +654,7 @@ namespace NodeGraph.View
                 else
                 {
                     color = GetPortColor(sourcePort);
-                    width = theme.EdgeWidth;
+                    width = sourcePort.Kind == PortKind.Data ? theme.DataEdgeWidth : theme.EdgeWidth;
                 }
 
                 var edgeFrame = new EdgeFrame

@@ -1,5 +1,6 @@
 #nullable enable
 using UnityEngine;
+using SceneBlueprint.Core.Export;
 
 namespace SceneBlueprint.Runtime
 {
@@ -38,6 +39,12 @@ namespace SceneBlueprint.Runtime
         [Tooltip("序列化的图数据（JSON 格式，由编辑器自动管理）")]
         [HideInInspector]
         public string GraphJson = "";
+
+        // ── Blackboard 变量声明 ──
+
+        [Tooltip("Blackboard 变量声明列表（由编辑器变量面板管理）")]
+        [HideInInspector]
+        public VariableDeclaration[] Variables = System.Array.Empty<VariableDeclaration>();
 
         /// <summary>图数据是否为空</summary>
         public bool IsEmpty => string.IsNullOrEmpty(GraphJson);

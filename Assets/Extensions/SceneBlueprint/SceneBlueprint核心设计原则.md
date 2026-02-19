@@ -10,6 +10,19 @@
 
 ---
 
+> ⚠️ **节点变更说明（2026-02-19）**：本文档部分示例引用了以下**已删除节点**，阅读时请忽略这些引用：
+> - `Location.RandomArea` / `Location.RandomInArea` — 已删除，场景随机位置路径不再支持
+> - `Monster.Pool` — 已删除，怪物配置移至场景层（`WaveSpawnConfig` 标注组件）
+> - `Spawn.Execute` — 已删除，被 `Spawn.Preset` + `Spawn.Wave` 覆盖
+> - `Behavior.Assign` — 已删除，行为配置移至 `SpawnAnnotation`
+> - `Condition.AllDead` — 已删除
+>
+> **当前有效的刷怪路径**：
+> - 路径 A（预设刷怪）：编辑器固化 PointMarker → `Spawn.Preset` 绑定这些 PointMarker
+> - 路径 B（波次刷怪）：`Spawn.Wave` 绑定 AreaMarker，波次逻辑配置在节点 `waves` 属性中
+
+---
+
 ## 目录
 
 - [一、设计理念](#一设计理念)

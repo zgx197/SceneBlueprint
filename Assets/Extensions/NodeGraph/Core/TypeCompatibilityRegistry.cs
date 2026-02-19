@@ -48,8 +48,10 @@ namespace NodeGraph.Core
             // exec 只能连 exec
             if (sourceType == ExecType || targetType == ExecType) return false;
 
-            // any 与任何非 exec 类型兼容
-            if (sourceType == AnyType || targetType == AnyType) return true;
+            // any（或空串）与任何非 exec 类型兼容
+            bool sourceAny = sourceType == AnyType || sourceType == "";
+            bool targetAny = targetType == AnyType || targetType == "";
+            if (sourceAny || targetAny) return true;
 
             // 检查已注册的隐式转换
             if (_conversions.TryGetValue(sourceType, out var set) && set.Contains(targetType))

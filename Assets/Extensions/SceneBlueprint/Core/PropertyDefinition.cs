@@ -50,7 +50,9 @@ namespace SceneBlueprint.Core
         /// <summary>场景绑定 → 场景对象拖拽框（如刷怪区域、Boss 出场点）</summary>
         SceneBinding,
         /// <summary>结构化列表 → Inspector 中显示为 ReorderableList，每个元素包含多个子字段</summary>
-        StructList
+        StructList,
+        /// <summary>Blackboard 变量选择器 → Popup 下拉，选项来自当前蓝图的变量声明列表</summary>
+        VariableSelector
     }
 
     /// <summary>
@@ -218,5 +220,18 @@ namespace SceneBlueprint.Core
         /// 示例："波次: {count} 波" — {count} 会被替换为列表长度。
         /// </summary>
         public string? SummaryFormat { get; set; }
+
+        // ─── 动态类型字段 ───
+
+        /// <summary>
+        /// 类型来源属性键（仅 String 类型且需要随变量类型动态切换控件时设置）。
+        /// <para>
+        /// 指向同节点内一个 <see cref="PropertyType.VariableSelector"/> 属性的 Key。
+        /// Inspector 会读取该属性当前选中的变量类型，并将本字段渲染为对应控件：
+        /// Int → IntField, Float → FloatField, Bool → Toggle, String/其他 → TextField。
+        /// 值始终以字符串形式存储，控件切换只影响 UI。
+        /// </para>
+        /// </summary>
+        public string? TypeSourceKey { get; set; }
     }
 }

@@ -108,11 +108,9 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
             if (isFirstWave || intervalElapsed)
             {
-                // 写入 Blackboard 数据（供下游 Flow.Filter 读取）
-                var actionId = frame.Actions[actionIndex].Id;
-                frame.Blackboard.Set($"{actionId}.waveIndex", currentWave);
-                frame.Blackboard.Set($"{actionId}.waveCount", waveEntries.Length);
-                frame.Blackboard.Set($"{actionId}.monsterFilter", currentEntry.monsterFilter);
+                // 写入数据端口值（供连接了 DataIn 的下游节点读取）
+                frame.SetDataPortValue(actionIndex, "waveIndex",  currentWave.ToString());
+                frame.SetDataPortValue(actionIndex, "totalWaves", waveEntries.Length.ToString());
 
                 // 触发 onWaveStart 端口事件（不阻塞刷怪）
                 EmitWaveStartEvent(frame, actionIndex, currentWave);

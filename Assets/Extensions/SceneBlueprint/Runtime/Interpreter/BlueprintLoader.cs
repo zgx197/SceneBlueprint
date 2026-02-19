@@ -165,18 +165,31 @@ namespace SceneBlueprint.Runtime.Interpreter
 
             // ── 5. 初始化 Blackboard ──
             var bb = new Blackboard();
-            if (data.BlackboardInit != null)
+            var variables = data.Variables ?? Array.Empty<VariableDeclaration>();
+            foreach (var decl in variables)
             {
-                foreach (var entry in data.BlackboardInit)
-                {
-                    if (!string.IsNullOrEmpty(entry.Key))
-                    {
-                        bb.Set(entry.Key, ParseVariableValue(entry.ValueType, entry.InitialValue));
-                    }
-                }
+                if (decl.Index < 0) continue;
+                var parsed = ParseVariableValue(decl.Type, decl.InitialValue);
+                if (decl.Scope == "Global")
+                    GlobalBlackboard.SetIfAbsent(decl.Index, parsed);
+                else
+                    bb.Set(decl.Index, parsed);
             }
             frame.Blackboard = bb;
-            Debug.Log($"[BlueprintLoader.BuildFrame] Blackboard 初始化完成");
+            frame.Variables  = variables;
+            Debug.Log($"[BlueprintLoader.BuildFrame] Blackboard 初始化完成，Local={bb.DeclaredCount} Global={GlobalBlackboard.DeclaredCount}");
+
+            // ── 6. 构建 DataInConnections 反向索引 ──
+            var dataInIndex = new Dictionary<(int, string), (int, string)>();
+            var dataConns = data.DataConnections ?? Array.Empty<DataConnectionEntry>();
+            foreach (var dc in dataConns)
+            {
+                if (!idToIndex.TryGetValue(dc.FromActionId, out int fromIdx)) continue;
+                if (!idToIndex.TryGetValue(dc.ToActionId,   out int toIdx))   continue;
+                dataInIndex[(toIdx, dc.ToPortId)] = (fromIdx, dc.FromPortId);
+            }
+            frame.DataInConnections = dataInIndex;
+            Debug.Log($"[BlueprintLoader.BuildFrame] DataInConnections 索引构建完成，共 {dataInIndex.Count} 条数据连接");
 
             Debug.Log($"[BlueprintLoader.BuildFrame] ✓ Frame 构建完成，最终 ActionCount={frame.ActionCount}");
 

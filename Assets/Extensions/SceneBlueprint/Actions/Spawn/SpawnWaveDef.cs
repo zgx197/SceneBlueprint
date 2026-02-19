@@ -40,8 +40,10 @@ namespace SceneBlueprint.Actions.Spawn
             Ports = new[]
             {
                 Port.In("in", "输入"),
-                Port.Out("out", "全部完成"),       // 所有波次完成后触发
-                Port.Out("onWaveStart", "每波开始"), // 每波开始时触发，不阻塞刷怪
+                Port.Out("out", "全部完成"),           // 所有波次完成后触发
+                Port.Out("onWaveStart", "每波开始"),   // 每波开始时触发，不阻塞刷怪
+                Port.DataOut("waveIndex",  "当前波次", DataTypes.Int),  // 数据端口：0-based 波次索引
+                Port.DataOut("totalWaves", "总波次数", DataTypes.Int),  // 数据端口：配置的波次总数
             },
             Properties = new[]
             {
@@ -65,6 +67,10 @@ namespace SceneBlueprint.Actions.Spawn
             {
                 new MarkerRequirement("spawnArea", MarkerTypeIds.Area,
                     required: true, displayName: "刷怪区域"),
+            },
+            OutputVariables = new[]
+            {
+                OutputVar.Int("waveIndex", "当前波次"),
             }
         };
     }

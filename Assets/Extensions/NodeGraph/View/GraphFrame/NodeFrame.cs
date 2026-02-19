@@ -43,5 +43,8 @@ namespace NodeGraph.View
 
         /// <summary>所属子图框 ID（仅当 IsCollapsedSubGraph 为 true 时有效）</summary>
         public string? SubGraphFrameId { get; set; }
+
+        /// <summary>节点描述文字（来自 IDescribableNode.Description，空时不渲染描述条）</summary>
+        public string? Description { get; set; }
     }
 }

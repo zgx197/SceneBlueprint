@@ -5,14 +5,13 @@ using SceneBlueprint.Core;
 namespace SceneBlueprint.Actions.Flow
 {
     /// <summary>
-    /// 条件过滤节点——从 Blackboard 读取上游数据，做条件判断，决定走 pass 或 reject 端口。
+    /// 条件过滤节点——通过数据端口接收上游值，与常量比较，决定走 pass 或 reject 端口。
     /// <para>
-    /// 典型用法：接在事件端口（如 Spawn.Wave 的 onWaveStart）后面，
-    /// 根据上游写入 Blackboard 的变量值过滤事件。
-    /// </para>
-    /// <para>
-    /// 来源节点自动推断：运行时从 TransitionSystem 写入的 _activatedBy.{myId} 获取
-    /// 上游节点 ID，拼接 Blackboard key = "{sourceId}.{key}" 读取数据。
+    /// 典型用法：
+    /// 1. 将 Spawn.Wave.当前波次 DataOut → compareValue DataIn（数据连线）
+    /// 2. 将 Spawn.Wave.每波开始 Flow Out → in Flow In（控制流连线）
+    /// 3. 设置 op = ">="，constValue = "3"
+    /// 结果：第 3 波以后满足条件，走 pass；否则走 reject。
     /// </para>
     /// <para>
     /// 复杂条件通过蓝图拓扑组合：
@@ -21,9 +20,9 @@ namespace SceneBlueprint.Actions.Flow
     /// - NOT = 使用 reject 端口
     /// </para>
     /// <para>节点拓扑：
-    ///              ┌─ pass →   [条件满足时的下游]
-    /// [上游] ─in→ [Filter]
-    ///              └─ reject → [条件不满足时的下游（可选）]
+    ///                                     ┌─ pass →   [条件满足时的下游]
+    /// [上游] ─in→ [Filter] ←compareValue─
+    ///                                     └─ reject → [条件不满足时的下游（可选）]
     /// </para>
     /// </summary>
     [ActionType("Flow.Filter")]
@@ -34,24 +33,25 @@ namespace SceneBlueprint.Actions.Flow
             TypeId = "Flow.Filter",
             DisplayName = "条件过滤",
             Category = "Flow",
-            Description = "根据 Blackboard 变量值过滤事件，条件满足走 pass，否则走 reject",
+            Description = "通过数据端口接收上游值，与常量比较，条件满足走 pass，否则走 reject",
             ThemeColor = new Color4(0.9f, 0.7f, 0.2f), // 黄色——决策类节点
             Duration = ActionDuration.Instant, // 瞬时型——立即判断并路由
 
             Ports = new[]
             {
                 Port.In("in", "输入"),
-                Port.Out("pass", "满足"),    // 条件满足时触发
-                Port.Out("reject", "不满足"), // 条件不满足时触发（可选）
+                Port.DataIn("compareValue", "比较值", DataTypes.Any), // 接收上游数据端口的值
+                Port.Out("pass",   "满足"),    // 条件满足时触发
+                Port.Out("reject", "不满足"),  // 条件不满足时触发（可选）
             },
 
             Properties = new[]
             {
-                Prop.String("key", "变量名", defaultValue: "", order: 0),
                 Prop.Enum("op", "操作符",
                     new[] { "==", "!=", ">", "<", ">=", "<=" },
-                    defaultValue: "==", order: 1),
-                Prop.String("value", "目标值", defaultValue: "", order: 2),
+                    defaultValue: "==", order: 0),
+                Prop.String("constValue", "常量（无连线时 pass）",
+                    defaultValue: "0", order: 1),
             },
 
             SceneRequirements = System.Array.Empty<MarkerRequirement>()

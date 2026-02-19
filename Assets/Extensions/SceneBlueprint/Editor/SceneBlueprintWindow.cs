@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -10,6 +10,7 @@ using NodeGraph.View;
 using NodeGraph.Unity;
 using NodeGraph.Serialization;
 using SceneBlueprint.Core;
+using SceneBlueprint.Core.Export;
 using SceneBlueprint.Editor.Export;
 using GraphPort = NodeGraph.Core.Port;
 using GraphPortDefinition = NodeGraph.Core.PortDefinition;
@@ -65,28 +66,13 @@ namespace SceneBlueprint.Editor
         private const float DefaultWorkbenchWidth = 300f;
         private const float SplitterWidth = 4f;
         private const float MinCanvasWidth = 260f;
-        private const int MaxIssueRenderCount = 300;
         private const string WorkbenchVisiblePrefsKey = "SceneBlueprint.Workbench.Visible";
         private const string WorkbenchWidthPrefsKey = "SceneBlueprint.Workbench.Width";
-        private const string WorkbenchTabPrefsKey = "SceneBlueprint.Workbench.Tab";
-        private const string WorkbenchIssueSeverityFilterPrefsKey = "SceneBlueprint.Workbench.Issue.SeverityFilter";
-        private const string WorkbenchIssueKindFilterPrefsKey = "SceneBlueprint.Workbench.Issue.KindFilter";
-        private const string WorkbenchIssueGroupExpandedPrefsPrefix = "SceneBlueprint.Workbench.Issue.GroupExpanded.";
         private float _inspectorWidth = DefaultInspectorWidth;
         private float _workbenchWidth = DefaultWorkbenchWidth;
         private bool _isDraggingSplitter;
         private bool _isDraggingWorkbenchSplitter;
         private bool _showWorkbench = true;
-        private Vector2 _guideScroll;
-        private Vector2 _issueScroll;
-        private WorkbenchTab _workbenchTab = WorkbenchTab.Guide;
-        private IssueSeverityFilter _issueSeverityFilter = IssueSeverityFilter.All;
-        private IssueKindFilter _issueKindFilter = IssueKindFilter.All;
-        private readonly List<WorkbenchIssue> _workbenchIssues = new List<WorkbenchIssue>();
-        private readonly Dictionary<IssueSourceGroup, bool> _issueGroupExpandedState =
-            new Dictionary<IssueSourceGroup, bool>();
-        private bool _workbenchIssuesDirty = true;
-        private bool _hasWorkbenchIssueScan;
         private bool _useEditorToolSelectionInput = true;
         private Core.ActionRegistry? _actionRegistryCache;
         private IEditorSpatialModeDescriptor? _spatialModeDescriptor;
@@ -95,6 +81,7 @@ namespace SceneBlueprint.Editor
         private readonly HashSet<string> _dirtyPreviewNodeIds = new HashSet<string>();
         private bool _previewDirtyAll;
         private bool _previewFlushScheduled;
+        private Vector2 _blackboardScrollPos;
         private readonly Dictionary<string, HashSet<string>> _previewMarkerToNodeIds =
             new Dictionary<string, HashSet<string>>();
         private readonly Dictionary<string, string> _previewNodeToMarkerId =
@@ -104,61 +91,6 @@ namespace SceneBlueprint.Editor
             new Dictionary<string, int>();
         private int _previewObservedSubGraphFrameCount = -1;
 
-        private enum WorkbenchTab
-        {
-            Guide,
-            Issues
-        }
-
-        private enum WorkbenchIssueKind
-        {
-            MissingBinding,
-            MissingRequiredProperty,
-            BrokenReference,
-            Other
-        }
-
-        private enum WorkbenchIssueSeverity
-        {
-            Info,
-            Warning,
-            Error
-        }
-
-        private enum IssueSeverityFilter
-        {
-            All,
-            Error,
-            Warning,
-            Info
-        }
-
-        private enum IssueKindFilter
-        {
-            All,
-            MissingBinding,
-            MissingRequiredProperty,
-            BrokenReference,
-            Other
-        }
-
-        private enum IssueSourceGroup
-        {
-            MarkerValidator,
-            Exporter,
-            Rule,
-            Other
-        }
-
-        private sealed class WorkbenchIssue
-        {
-            public WorkbenchIssueKind Kind;
-            public WorkbenchIssueSeverity Severity;
-            public string Message = "";
-            public string Source = "";
-            public string? NodeId;
-            public string? MarkerId;
-        }
 
         [MenuItem("SceneBlueprint/蓝图编辑器 &B")]
         public static void Open()
@@ -175,13 +107,9 @@ namespace SceneBlueprint.Editor
 
             _showWorkbench = EditorPrefs.GetBool(WorkbenchVisiblePrefsKey, true);
             _workbenchWidth = EditorPrefs.GetFloat(WorkbenchWidthPrefsKey, DefaultWorkbenchWidth);
-            _workbenchTab = ReadEnumPref(WorkbenchTabPrefsKey, WorkbenchTab.Guide);
-            _issueSeverityFilter = ReadEnumPref(WorkbenchIssueSeverityFilterPrefsKey, IssueSeverityFilter.All);
-            _issueKindFilter = ReadEnumPref(WorkbenchIssueKindFilterPrefsKey, IssueKindFilter.All);
             _useEditorToolSelectionInput = MarkerSelectionInputRoutingSettings.LoadUseEditorTool();
             _toolContext.Attach(_useEditorToolSelectionInput);
             GizmoRenderPipeline.SetInteractionMode(GizmoRenderPipeline.MarkerInteractionMode.Edit);
-            _workbenchIssuesDirty = true;
 
             EditorApplication.hierarchyChanged -= OnEditorHierarchyChanged;
             EditorApplication.hierarchyChanged += OnEditorHierarchyChanged;
@@ -210,9 +138,6 @@ namespace SceneBlueprint.Editor
         {
             EditorPrefs.SetBool(WorkbenchVisiblePrefsKey, _showWorkbench);
             EditorPrefs.SetFloat(WorkbenchWidthPrefsKey, _workbenchWidth);
-            EditorPrefs.SetInt(WorkbenchTabPrefsKey, (int)_workbenchTab);
-            EditorPrefs.SetInt(WorkbenchIssueSeverityFilterPrefsKey, (int)_issueSeverityFilter);
-            EditorPrefs.SetInt(WorkbenchIssueKindFilterPrefsKey, (int)_issueKindFilter);
             MarkerSelectionInputRoutingSettings.SaveUseEditorTool(_useEditorToolSelectionInput);
 
             EditorApplication.hierarchyChanged -= OnEditorHierarchyChanged;
@@ -282,7 +207,6 @@ namespace SceneBlueprint.Editor
 
                 InitializeWithGraph(graph);
                 RestoreBindingsFromScene();
-                MarkWorkbenchDataDirty();
 
                 SBLog.Info(SBLogTags.Blueprint,
                     $"Domain Reload 后恢复蓝图成功（节点: {graph.Nodes.Count}, 连线: {graph.Edges.Count}）");
@@ -371,6 +295,7 @@ namespace SceneBlueprint.Editor
                 _bindingContext = new BindingContext();
             _inspectorDrawer.SetBindingContext(_bindingContext);
             _inspectorDrawer.SetGraph(_viewModel.Graph);
+            _inspectorDrawer.SetVariableDeclarations(_currentAsset?.Variables);
             RebuildPreviewMarkerNodeIndex();
 
             // 8. 启用 Scene View 标记工具（P3：由 ToolContext 托管生命周期）
@@ -863,7 +788,6 @@ namespace SceneBlueprint.Editor
 
         private void OnUndoRedoPerformed()
         {
-            MarkWorkbenchDataDirty();
             MarkPreviewDirtyAll("UndoRedo");
         }
 
@@ -1113,7 +1037,6 @@ namespace SceneBlueprint.Editor
 
                 // 仅在可能修改图数据的输入后标记为脏，避免纯导航/缩放导致关系与问题缓存失效
                 if (evt.type == EventType.KeyDown || evt.type == EventType.MouseUp)
-                    MarkWorkbenchDataDirty();
 
                 // 键盘删除路径：按“即将删除的节点”精确标记预览脏数据。
                 if (deletingNodeIds != null && deletingNodeIds.Count > 0)
@@ -1130,11 +1053,11 @@ namespace SceneBlueprint.Editor
             }
 
             // ── Inspector 面板 ──
+            _inspectorDrawer?.SetVariableDeclarations(BuildCombinedVariables());
             if (_inspectorPanel.Draw(inspectorRect, _viewModel))
             {
                 // 属性被修改，刷新画布摘要显示
                 _viewModel.RequestRepaint();
-                MarkWorkbenchDataDirty();
             }
 
             DetectPreviewGraphShapeChange();
@@ -1251,14 +1174,14 @@ namespace SceneBlueprint.Editor
 
             GUILayout.Space(6);
 
-            bool showWorkbench = GUILayout.Toggle(
+            bool wantVariables = GUILayout.Toggle(
                 _showWorkbench,
-                new GUIContent("工作台", "显示 C6 工作台（向导 / 问题中心 / 关系面板）"),
+                new GUIContent("变量", "显示/隐藏 Blackboard 变量面板"),
                 EditorStyles.toolbarButton,
-                GUILayout.Width(52));
-            if (showWorkbench != _showWorkbench)
+                GUILayout.Width(40));
+            if (wantVariables != _showWorkbench)
             {
-                _showWorkbench = showWorkbench;
+                _showWorkbench = wantVariables;
                 EditorPrefs.SetBool(WorkbenchVisiblePrefsKey, _showWorkbench);
                 Repaint();
             }
@@ -1298,13 +1221,6 @@ namespace SceneBlueprint.Editor
 
                 GUILayout.Label(statusText, EditorStyles.miniLabel);
 
-                if (_showWorkbench)
-                {
-                    int issueErrors = _workbenchIssues.Count(i => i.Severity == WorkbenchIssueSeverity.Error);
-                    int issueWarnings = _workbenchIssues.Count(i => i.Severity == WorkbenchIssueSeverity.Warning);
-                    string pending = _workbenchIssuesDirty ? "*" : "";
-                    GUILayout.Label($"问题: {issueErrors}E/{issueWarnings}W{pending}", EditorStyles.miniLabel);
-                }
             }
 
             GUILayout.Space(6);
@@ -1326,457 +1242,253 @@ namespace SceneBlueprint.Editor
             GUILayout.EndHorizontal();
         }
 
-        // ── C6 工作台面板 ──
+        // ── 工作台面板（Blackboard 变量）──
 
         private void DrawWorkbenchPanel(Rect panelRect)
         {
-            if (_viewModel == null)
-                return;
-
             GUILayout.BeginArea(panelRect);
             {
                 EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandHeight(true));
                 {
-                    DrawWorkbenchTabs();
-
-                    switch (_workbenchTab)
-                    {
-                        case WorkbenchTab.Guide:
-                            DrawWorkbenchGuide();
-                            break;
-                        case WorkbenchTab.Issues:
-                            DrawWorkbenchIssues();
-                            break;
-                    }
+                    DrawBlackboardPanel();
                 }
                 EditorGUILayout.EndVertical();
             }
             GUILayout.EndArea();
         }
 
-        private void DrawWorkbenchTabs()
-        {
-            WorkbenchTab prevTab = _workbenchTab;
-
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-            {
-                if (GUILayout.Toggle(_workbenchTab == WorkbenchTab.Guide, "向导", EditorStyles.toolbarButton))
-                    _workbenchTab = WorkbenchTab.Guide;
-
-                if (GUILayout.Toggle(_workbenchTab == WorkbenchTab.Issues, "问题中心", EditorStyles.toolbarButton))
-                    _workbenchTab = WorkbenchTab.Issues;
-
-                GUILayout.FlexibleSpace();
-
-                if (GUILayout.Button("刷新", EditorStyles.toolbarButton, GUILayout.Width(40)))
-                {
-                    RefreshWorkbenchIssues(includeExportValidation: false);
-                }
-            }
-            EditorGUILayout.EndHorizontal();
-
-            if (prevTab != _workbenchTab)
-            {
-                EditorPrefs.SetInt(WorkbenchTabPrefsKey, (int)_workbenchTab);
-            }
-        }
-
         private void OnEditorHierarchyChanged()
         {
-            MarkWorkbenchIssuesDirty();
             MarkPreviewDirtyForHierarchyChange();
         }
 
         private void OnEditorProjectChanged()
         {
             _actionRegistryCache = null;
-            MarkWorkbenchDataDirty();
         }
 
-        private void DrawWorkbenchGuide()
+
+        // ── Blackboard 变量面板 ──
+
+        private static readonly string[] _varTypeOptions  = { "Int", "Float", "Bool", "String" };
+        private static readonly string[] _varScopeOptions = { "Local", "Global" };
+
+        private void DrawBlackboardPanel()
         {
-            if (_viewModel == null) return;
-
-            bool hasNodes = _viewModel.Graph.Nodes.Count > 0;
-            bool hasSavedAsset = _currentAsset != null;
-            bool hasSyncedScene = HasSyncedSceneBindings();
-            int blockingIssues = _workbenchIssues.Count(i => i.Severity == WorkbenchIssueSeverity.Error);
-
-            EditorGUILayout.HelpBox("按以下步骤可在单窗口完成“新建玩法 → 导出”闭环。", MessageType.Info);
-
-            _guideScroll = EditorGUILayout.BeginScrollView(_guideScroll);
+            if (_currentAsset == null)
             {
-                DrawGuideStep(
-                    1,
-                    "创建玩法骨架",
-                    hasNodes,
-                    hasNodes ? "图中已有节点，可继续配置。" : "建议先新建图并保留默认 Start/End。",
-                    NewGraph,
-                    hasNodes ? "重建" : "开始");
+                EditorGUILayout.HelpBox("请先保存蓝图资产（BlueprintAsset）以使用变量面板。", MessageType.Info);
+                return;
+            }
 
-                DrawGuideStep(
-                    2,
-                    "保存蓝图资产",
-                    hasSavedAsset,
-                    hasSavedAsset ? "已保存到 BlueprintAsset。" : "未保存时无法同步到场景。",
-                    SaveBlueprint,
-                    "保存");
+            var vars = _currentAsset.Variables ?? new VariableDeclaration[0];
 
-                DrawGuideStep(
-                    3,
-                    "同步到场景",
-                    hasSyncedScene,
-                    hasSyncedScene ? "场景绑定存储已关联当前蓝图。" : "将作用域绑定写入场景绑定存储。",
-                    SyncToScene,
-                    "同步");
-
-                DrawGuideStep(
-                    4,
-                    "运行问题检查",
-                    _hasWorkbenchIssueScan,
-                    blockingIssues > 0
-                        ? $"当前有 {blockingIssues} 个阻塞问题。"
-                        : "当前无阻塞错误，可继续导出。",
-                    () =>
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            {
+                EditorGUILayout.LabelField($"变量声明 ({vars.Length})", EditorStyles.boldLabel);
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("+ 添加", EditorStyles.toolbarButton, GUILayout.Width(52)))
+                {
+                    Undo.RecordObject(_currentAsset, "Add Blackboard Variable");
+                    var list = new List<VariableDeclaration>(vars);
+                    int nextIndex = list.Count > 0 ? list.Max(v => v.Index) + 1 : 0;
+                    list.Add(new VariableDeclaration
                     {
-                        RefreshWorkbenchIssues(includeExportValidation: true);
-                        _workbenchTab = WorkbenchTab.Issues;
-                    },
-                    "检查");
+                        Index        = nextIndex,
+                        Name         = $"var_{nextIndex}",
+                        Type         = "Int",
+                        Scope        = "Local",
+                        InitialValue = "0"
+                    });
+                    _currentAsset.Variables = list.ToArray();
+                    EditorUtility.SetDirty(_currentAsset);
+                }
+            }
+            EditorGUILayout.EndHorizontal();
 
-                DrawGuideStep(
-                    5,
-                    "导出运行时 JSON",
-                    hasSavedAsset && hasSyncedScene && blockingIssues == 0,
-                    "导出前建议先清空问题中心中的 Error。",
-                    ExportBlueprint,
-                    "导出");
+            _blackboardScrollPos = EditorGUILayout.BeginScrollView(_blackboardScrollPos);
+            {
+                if (vars.Length == 0)
+                {
+                    EditorGUILayout.HelpBox("暂无变量。点击\"添加\"声明第一个变量。", MessageType.None);
+                }
+                else
+                {
+                    int toRemove = -1;
+                    for (int i = 0; i < vars.Length; i++)
+                    {
+                        if (DrawVariableEntry(vars[i]))
+                            toRemove = i;
+                    }
+                    if (toRemove >= 0)
+                    {
+                        Undo.RecordObject(_currentAsset, "Remove Blackboard Variable");
+                        var list = new List<VariableDeclaration>(_currentAsset.Variables);
+                        list.RemoveAt(toRemove);
+                        _currentAsset.Variables = list.ToArray();
+                        EditorUtility.SetDirty(_currentAsset);
+                        GUIUtility.ExitGUI();
+                    }
+                }
+
+                // ── 节点产出变量（只读）──
+                var nodeOutVars = CollectNodeOutputVariables();
+                if (nodeOutVars.Count > 0)
+                {
+                    EditorGUILayout.Space(4);
+                    EditorGUILayout.LabelField("节点产出变量（只读）", EditorStyles.miniLabel);
+                    foreach (var nov in nodeOutVars)
+                        DrawReadonlyVariableEntry(nov);
+                }
             }
             EditorGUILayout.EndScrollView();
         }
 
-        private void DrawGuideStep(
-            int index,
-            string title,
-            bool done,
-            string detail,
-            System.Action action,
-            string actionLabel)
+        private bool DrawVariableEntry(VariableDeclaration decl)
         {
+            bool removed = false;
+
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            {
+                // ── 第一行: [Index] + 名称 + [×] ──
+                EditorGUILayout.BeginHorizontal();
+                {
+                    GUI.color = new Color(0.7f, 0.9f, 1f);
+                    GUILayout.Label($"[{decl.Index}]", EditorStyles.miniLabel, GUILayout.Width(24));
+                    GUI.color = Color.white;
+
+                    EditorGUILayout.LabelField("名称", GUILayout.Width(28));
+                    string newName = EditorGUILayout.TextField(decl.Name, GUILayout.MinWidth(60));
+                    if (newName != decl.Name)
+                    {
+                        Undo.RecordObject(_currentAsset!, "Rename Blackboard Variable");
+                        decl.Name = newName;
+                        EditorUtility.SetDirty(_currentAsset!);
+                    }
+
+                    GUI.color = new Color(1f, 0.6f, 0.6f);
+                    if (GUILayout.Button("×", EditorStyles.miniButton, GUILayout.Width(20)))
+                        removed = true;
+                    GUI.color = Color.white;
+                }
+                EditorGUILayout.EndHorizontal();
+
+                // ── 第二行: 类型 + 作用域 + 初始值 ──
+                EditorGUILayout.BeginHorizontal();
+                {
+                    EditorGUILayout.LabelField("类型", GUILayout.Width(28));
+                    int typeIdx = System.Array.IndexOf(_varTypeOptions, decl.Type);
+                    int newTypeIdx = EditorGUILayout.Popup(
+                        typeIdx < 0 ? 0 : typeIdx,
+                        _varTypeOptions,
+                        GUILayout.Width(60));
+                    if (_varTypeOptions[newTypeIdx] != decl.Type)
+                    {
+                        Undo.RecordObject(_currentAsset!, "Edit Variable Type");
+                        decl.Type = _varTypeOptions[newTypeIdx];
+                        EditorUtility.SetDirty(_currentAsset!);
+                    }
+
+                    EditorGUILayout.LabelField("作用域", GUILayout.Width(36));
+                    int scopeIdx = decl.Scope == "Global" ? 1 : 0;
+                    int newScopeIdx = EditorGUILayout.Popup(scopeIdx, _varScopeOptions, GUILayout.Width(54));
+                    if (newScopeIdx != scopeIdx)
+                    {
+                        Undo.RecordObject(_currentAsset!, "Edit Variable Scope");
+                        decl.Scope = _varScopeOptions[newScopeIdx];
+                        EditorUtility.SetDirty(_currentAsset!);
+                    }
+
+                    EditorGUILayout.LabelField("初始值", GUILayout.Width(36));
+                    string newInit = EditorGUILayout.TextField(decl.InitialValue, GUILayout.MinWidth(40));
+                    if (newInit != decl.InitialValue)
+                    {
+                        Undo.RecordObject(_currentAsset!, "Edit Variable InitialValue");
+                        decl.InitialValue = newInit;
+                        EditorUtility.SetDirty(_currentAsset!);
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+            EditorGUILayout.EndVertical();
+
+            return removed;
+        }
+
+        /// <summary>合并用户声明变量 + 节点产出变量，作为下拉列表的数据源。</summary>
+        private VariableDeclaration[] BuildCombinedVariables()
+        {
+            var userVars = _currentAsset?.Variables ?? System.Array.Empty<VariableDeclaration>();
+            var nodeVars = CollectNodeOutputVariables();
+            if (nodeVars.Count == 0) return userVars;
+            var combined = new List<VariableDeclaration>(userVars);
+            combined.AddRange(nodeVars);
+            return combined.ToArray();
+        }
+
+        /// <summary>
+        /// 扫描图中所有节点的 OutputVariables，按名称去重，分配稳定的合成 Index。
+        /// 合成 Index 范围：10000–19999（避免与用户声明的 0–9999 冲突）。
+        /// </summary>
+        private List<VariableDeclaration> CollectNodeOutputVariables()
+        {
+            var result = new List<VariableDeclaration>();
+            if (_viewModel == null) return result;
+
+            var registry = GetActionRegistry();
+            var seen = new System.Collections.Generic.HashSet<string>();
+
+            foreach (var node in _viewModel.Graph.Nodes)
+            {
+                if (node.UserData is not Core.ActionNodeData data) continue;
+                if (!registry.TryGet(data.ActionTypeId, out var def)) continue;
+
+                foreach (var outVar in def.OutputVariables)
+                {
+                    if (seen.Contains(outVar.Name)) continue;
+                    seen.Add(outVar.Name);
+                    result.Add(new VariableDeclaration
+                    {
+                        Index        = NodeOutputVarIndex(outVar.Name),
+                        Name         = outVar.Name,
+                        Type         = outVar.Type,
+                        Scope        = outVar.Scope,
+                        InitialValue = ""
+                    });
+                }
+            }
+            return result;
+        }
+
+        /// <summary>DJB2 hash of name → 10000–19999（稳定、无 Unity 依赖）。</summary>
+        private static int NodeOutputVarIndex(string name)
+        {
+            uint h = 5381;
+            foreach (char c in name) h = ((h << 5) + h) + c;
+            return 10000 + (int)(h % 10000);
+        }
+
+        /// <summary>以灰色只读样式绘制一条节点产出变量条目。</summary>
+        private static void DrawReadonlyVariableEntry(VariableDeclaration decl)
+        {
+            var prevColor = GUI.color;
+            GUI.color = new Color(0.7f, 0.7f, 0.7f);
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             {
                 EditorGUILayout.BeginHorizontal();
                 {
-                    string status = done ? "[x]" : "[ ]";
-                    EditorGUILayout.LabelField($"{status} Step {index}: {title}", EditorStyles.boldLabel);
+                    GUI.color = new Color(0.6f, 0.8f, 1f);
+                    GUILayout.Label($"[{decl.Index}]", EditorStyles.miniLabel, GUILayout.Width(44));
+                    GUI.color = new Color(0.85f, 0.85f, 0.85f);
+                    GUILayout.Label(decl.Name, EditorStyles.miniLabel);
                     GUILayout.FlexibleSpace();
-                    if (GUILayout.Button(actionLabel, GUILayout.Width(52)))
-                        action();
+                    GUI.color = new Color(0.7f, 0.9f, 0.7f);
+                    GUILayout.Label($"{decl.Type}  {decl.Scope}", EditorStyles.miniLabel);
                 }
                 EditorGUILayout.EndHorizontal();
-                EditorGUILayout.LabelField(detail, EditorStyles.wordWrappedMiniLabel);
             }
             EditorGUILayout.EndVertical();
-        }
-
-        private void DrawWorkbenchIssues()
-        {
-            int missingBinding = _workbenchIssues.Count(i => i.Kind == WorkbenchIssueKind.MissingBinding);
-            int missingRequired = _workbenchIssues.Count(i => i.Kind == WorkbenchIssueKind.MissingRequiredProperty);
-            int brokenReference = _workbenchIssues.Count(i => i.Kind == WorkbenchIssueKind.BrokenReference);
-
-            EditorGUILayout.HelpBox(
-                $"缺失绑定: {missingBinding}   必填缺失: {missingRequired}   引用失效: {brokenReference}",
-                MessageType.None);
-
-            if (_workbenchIssuesDirty)
-            {
-                EditorGUILayout.HelpBox(
-                    "问题数据已变更。为避免切页卡顿，默认不自动重算，请点击“刷新问题”或“深度校验”。",
-                    MessageType.Info);
-            }
-
-            EditorGUILayout.BeginHorizontal();
-            {
-                if (GUILayout.Button("刷新问题", GUILayout.Width(72)))
-                    RefreshWorkbenchIssues(includeExportValidation: false);
-
-                if (GUILayout.Button("深度校验", GUILayout.Width(72)))
-                    RefreshWorkbenchIssues(includeExportValidation: true);
-
-                GUILayout.FlexibleSpace();
-            }
-            EditorGUILayout.EndHorizontal();
-
-            IssueSeverityFilter prevSeverityFilter = _issueSeverityFilter;
-            IssueKindFilter prevKindFilter = _issueKindFilter;
-
-            EditorGUILayout.BeginHorizontal();
-            {
-                _issueSeverityFilter = (IssueSeverityFilter)EditorGUILayout.EnumPopup(
-                    "级别",
-                    _issueSeverityFilter,
-                    GUILayout.Width(150));
-
-                _issueKindFilter = (IssueKindFilter)EditorGUILayout.EnumPopup(
-                    "类型",
-                    _issueKindFilter,
-                    GUILayout.Width(220));
-
-                GUILayout.FlexibleSpace();
-
-                if (GUILayout.Button("清空筛选", GUILayout.Width(64)))
-                {
-                    _issueSeverityFilter = IssueSeverityFilter.All;
-                    _issueKindFilter = IssueKindFilter.All;
-                    EditorPrefs.SetInt(WorkbenchIssueSeverityFilterPrefsKey, (int)_issueSeverityFilter);
-                    EditorPrefs.SetInt(WorkbenchIssueKindFilterPrefsKey, (int)_issueKindFilter);
-                }
-            }
-            EditorGUILayout.EndHorizontal();
-
-            if (prevSeverityFilter != _issueSeverityFilter)
-                EditorPrefs.SetInt(WorkbenchIssueSeverityFilterPrefsKey, (int)_issueSeverityFilter);
-            if (prevKindFilter != _issueKindFilter)
-                EditorPrefs.SetInt(WorkbenchIssueKindFilterPrefsKey, (int)_issueKindFilter);
-
-            var filteredIssues = _workbenchIssues.Where(PassIssueFilters).ToList();
-            var renderedIssues = filteredIssues.Count > MaxIssueRenderCount
-                ? filteredIssues.Take(MaxIssueRenderCount).ToList()
-                : filteredIssues;
-            EditorGUILayout.LabelField(
-                $"显示 {filteredIssues.Count}/{_workbenchIssues.Count} 条",
-                EditorStyles.miniLabel);
-
-            if (filteredIssues.Count > renderedIssues.Count)
-            {
-                EditorGUILayout.HelpBox(
-                    $"问题较多，仅渲染前 {renderedIssues.Count} 条以提升性能。请使用筛选缩小范围。",
-                    MessageType.Info);
-            }
-
-            EditorGUILayout.BeginHorizontal();
-            {
-                if (GUILayout.Button("仅错误", GUILayout.Width(56)))
-                {
-                    _issueSeverityFilter = IssueSeverityFilter.Error;
-                    EditorPrefs.SetInt(WorkbenchIssueSeverityFilterPrefsKey, (int)_issueSeverityFilter);
-                }
-
-                if (GUILayout.Button("定位首个阻塞", GUILayout.Width(88)))
-                {
-                    FocusFirstBlockingIssue(filteredIssues);
-                }
-
-                if (GUILayout.Button("复制摘要", GUILayout.Width(64)))
-                {
-                    EditorGUIUtility.systemCopyBuffer = BuildIssueSummary(filteredIssues);
-                }
-
-                if (GUILayout.Button("展开全部", GUILayout.Width(64)))
-                {
-                    SetAllIssueGroupExpanded(true);
-                }
-
-                if (GUILayout.Button("折叠全部", GUILayout.Width(64)))
-                {
-                    SetAllIssueGroupExpanded(false);
-                }
-
-                GUILayout.FlexibleSpace();
-            }
-            EditorGUILayout.EndHorizontal();
-
-            var groupedIssues = renderedIssues
-                .GroupBy(i => GetIssueSourceGroup(i.Source))
-                .OrderBy(g => GetIssueSourceOrder(g.Key))
-                .ToList();
-
-            _issueScroll = EditorGUILayout.BeginScrollView(_issueScroll);
-            {
-                if (filteredIssues.Count == 0)
-                {
-                    EditorGUILayout.HelpBox("暂无问题。", MessageType.Info);
-                }
-                else
-                {
-                    foreach (var group in groupedIssues)
-                    {
-                        var issuesInGroup = group.ToList();
-                        var nodeIds = issuesInGroup
-                            .Select(i => i.NodeId)
-                            .Where(id => !string.IsNullOrEmpty(id))
-                            .Select(id => id!)
-                            .Distinct()
-                            .ToList();
-                        var markerIds = issuesInGroup
-                            .Select(i => i.MarkerId)
-                            .Where(id => !string.IsNullOrEmpty(id))
-                            .Select(id => id!)
-                            .Distinct()
-                            .ToList();
-                        int errorCount = issuesInGroup.Count(i => i.Severity == WorkbenchIssueSeverity.Error);
-                        int warningCount = issuesInGroup.Count(i => i.Severity == WorkbenchIssueSeverity.Warning);
-                        bool expanded = GetIssueGroupExpanded(group.Key);
-
-                        EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
-                        {
-                            expanded = EditorGUILayout.Foldout(
-                                expanded,
-                                $"来源组：{GetIssueSourceGroupLabel(group.Key)} ({issuesInGroup.Count})  E:{errorCount} W:{warningCount}",
-                                true);
-                            SetIssueGroupExpanded(group.Key, expanded);
-
-                            GUILayout.FlexibleSpace();
-
-                            if (nodeIds.Count > 0
-                                && GUILayout.Button($"批量定位节点 ({nodeIds.Count})", GUILayout.Width(120)))
-                            {
-                                NavigateToNodesBatch(nodeIds);
-                            }
-
-                            if (markerIds.Count > 0
-                                && GUILayout.Button($"批量定位标记 ({markerIds.Count})", GUILayout.Width(120)))
-                            {
-                                FocusMarkersBatch(markerIds);
-                            }
-                        }
-                        EditorGUILayout.EndHorizontal();
-
-                        if (!expanded)
-                            continue;
-
-                        foreach (var issue in issuesInGroup)
-                        {
-                            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-                            {
-                                EditorGUILayout.BeginHorizontal();
-                                {
-                                    string severity = issue.Severity switch
-                                    {
-                                        WorkbenchIssueSeverity.Error => "Error",
-                                        WorkbenchIssueSeverity.Warning => "Warn",
-                                        _ => "Info"
-                                    };
-                                    EditorGUILayout.LabelField(
-                                        $"[{severity}] {GetIssueKindLabel(issue.Kind)}",
-                                        EditorStyles.boldLabel);
-                                    GUILayout.FlexibleSpace();
-
-                                    if (!string.IsNullOrEmpty(issue.NodeId)
-                                        && GUILayout.Button("定位节点", GUILayout.Width(60)))
-                                    {
-                                        NavigateToNode(issue.NodeId!);
-                                    }
-
-                                    if (!string.IsNullOrEmpty(issue.MarkerId)
-                                        && GUILayout.Button("定位标记", GUILayout.Width(60)))
-                                    {
-                                        FocusMarker(issue.MarkerId!);
-                                    }
-                                }
-                                EditorGUILayout.EndHorizontal();
-
-                                EditorGUILayout.LabelField(issue.Message, EditorStyles.wordWrappedLabel);
-                                EditorGUILayout.LabelField($"来源: {issue.Source}", EditorStyles.miniLabel);
-                            }
-                            EditorGUILayout.EndVertical();
-                        }
-                    }
-                }
-            }
-            EditorGUILayout.EndScrollView();
-        }
-
-        private void RefreshWorkbenchIssues(bool includeExportValidation = false)
-        {
-            if (_viewModel == null)
-                return;
-
-            var nextIssues = new List<WorkbenchIssue>();
-            var dedupe = new HashSet<string>();
-            var registry = GetActionRegistry();
-
-            var markerReport = MarkerBindingValidator.Validate(_viewModel.Graph, registry);
-            foreach (var entry in markerReport.Entries)
-            {
-                var severity = entry.Level switch
-                {
-                    ValidationEntry.Severity.Error => WorkbenchIssueSeverity.Error,
-                    ValidationEntry.Severity.Warning => WorkbenchIssueSeverity.Warning,
-                    _ => WorkbenchIssueSeverity.Info
-                };
-
-                AddWorkbenchIssue(
-                    nextIssues,
-                    dedupe,
-                    ClassifyIssue(entry.Message),
-                    severity,
-                    entry.Message,
-                    "MarkerValidator",
-                    entry.NodeId,
-                    entry.MarkerId);
-            }
-
-            AppendRequiredPropertyIssues(nextIssues, dedupe);
-
-            if (includeExportValidation)
-            {
-                var exportOptions = new BlueprintExporter.ExportOptions
-                {
-                    AdapterType = GetCurrentAdapterType()
-                };
-
-                var exportResult = BlueprintExporter.Export(
-                    _viewModel.Graph,
-                    registry,
-                    CollectSceneBindingsForExport(),
-                    blueprintId: _currentAsset?.BlueprintId,
-                    blueprintName: _currentAsset?.BlueprintName,
-                    options: exportOptions);
-
-                foreach (var msg in exportResult.Messages)
-                {
-                    if (msg.Level == ValidationLevel.Info)
-                        continue;
-
-                    var severity = msg.Level switch
-                    {
-                        ValidationLevel.Error => WorkbenchIssueSeverity.Error,
-                        ValidationLevel.Warning => WorkbenchIssueSeverity.Warning,
-                        _ => WorkbenchIssueSeverity.Info
-                    };
-
-                    AddWorkbenchIssue(
-                        nextIssues,
-                        dedupe,
-                        ClassifyIssue(msg.Message),
-                        severity,
-                        msg.Message,
-                        "BlueprintExporter",
-                        TryExtractNodeIdFromMessage(msg.Message),
-                        null);
-                }
-            }
-
-            _workbenchIssues.Clear();
-            _workbenchIssues.AddRange(nextIssues
-                .OrderByDescending(i => i.Severity)
-                .ThenBy(i => i.Kind)
-                .ThenBy(i => i.Source));
-            _workbenchIssuesDirty = false;
-            _hasWorkbenchIssueScan = true;
-        }
-
-        private void MarkWorkbenchIssuesDirty()
-        {
-            _workbenchIssuesDirty = true;
-            _hasWorkbenchIssueScan = false;
-        }
-
-        private void MarkWorkbenchDataDirty()
-        {
-            MarkWorkbenchIssuesDirty();
+            GUI.color = prevColor;
         }
 
         private Core.ActionRegistry GetActionRegistry()
@@ -1785,362 +1497,6 @@ namespace SceneBlueprint.Editor
             return _actionRegistryCache;
         }
 
-        private void AppendRequiredPropertyIssues(List<WorkbenchIssue> issues, HashSet<string> dedupe)
-        {
-            if (_viewModel == null)
-                return;
-
-            var rules = ValidationRuleRegistry.GetEnabled()
-                .Where(r => r.Type == ValidationType.PropertyRequired)
-                .ToList();
-
-            if (rules.Count == 0)
-                return;
-
-            foreach (var node in _viewModel.Graph.Nodes)
-            {
-                if (node.UserData is not Core.ActionNodeData actionData)
-                    continue;
-
-                foreach (var rule in rules)
-                {
-                    if (!string.Equals(rule.TargetActionTypeId, actionData.ActionTypeId, System.StringComparison.Ordinal))
-                        continue;
-
-                    string key = rule.TargetPropertyKey;
-                    if (string.IsNullOrEmpty(key))
-                        continue;
-
-                    object? raw = actionData.Properties.GetRaw(key);
-                    bool missing = raw == null
-                        || (raw is string s && string.IsNullOrWhiteSpace(s));
-
-                    if (!missing)
-                        continue;
-
-                    string message =
-                        $"节点 '{node.Id}' (TypeId: {actionData.ActionTypeId}) 缺少必填属性: {key}";
-                    AddWorkbenchIssue(
-                        issues,
-                        dedupe,
-                        WorkbenchIssueKind.MissingRequiredProperty,
-                        rule.Severity == Core.ValidationSeverity.Error
-                            ? WorkbenchIssueSeverity.Error
-                            : WorkbenchIssueSeverity.Warning,
-                        message,
-                        "ValidationRule",
-                        node.Id,
-                        null);
-                }
-            }
-        }
-
-        private static void AddWorkbenchIssue(
-            List<WorkbenchIssue> issues,
-            HashSet<string> dedupe,
-            WorkbenchIssueKind kind,
-            WorkbenchIssueSeverity severity,
-            string message,
-            string source,
-            string? nodeId,
-            string? markerId)
-        {
-            string key = $"{kind}|{severity}|{source}|{nodeId}|{markerId}|{message}";
-            if (dedupe.Contains(key))
-                return;
-
-            dedupe.Add(key);
-            issues.Add(new WorkbenchIssue
-            {
-                Kind = kind,
-                Severity = severity,
-                Message = message,
-                Source = source,
-                NodeId = nodeId,
-                MarkerId = markerId
-            });
-        }
-
-        private static string? TryExtractNodeIdFromMessage(string message)
-        {
-            if (string.IsNullOrEmpty(message))
-                return null;
-
-            const string token = "节点 '";
-            int idx = message.IndexOf(token, System.StringComparison.Ordinal);
-            if (idx < 0)
-                return null;
-
-            int start = idx + token.Length;
-            int end = message.IndexOf('\'', start);
-            if (end <= start)
-                return null;
-
-            return message.Substring(start, end - start);
-        }
-
-        private static WorkbenchIssueKind ClassifyIssue(string message)
-        {
-            if (string.IsNullOrEmpty(message))
-                return WorkbenchIssueKind.Other;
-
-            if (message.IndexOf("缺少必需绑定", System.StringComparison.Ordinal) >= 0
-                || message.IndexOf("未配置场景对象", System.StringComparison.Ordinal) >= 0)
-            {
-                return WorkbenchIssueKind.MissingBinding;
-            }
-
-            if (message.IndexOf("缺少必填属性", System.StringComparison.Ordinal) >= 0
-                || message.IndexOf("不能为空", System.StringComparison.Ordinal) >= 0
-                || message.IndexOf("PropertyRequired", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return WorkbenchIssueKind.MissingRequiredProperty;
-            }
-
-            if (message.IndexOf("不存在", System.StringComparison.Ordinal) >= 0
-                || message.IndexOf("未找到", System.StringComparison.Ordinal) >= 0
-                || message.IndexOf("失效", System.StringComparison.Ordinal) >= 0)
-            {
-                return WorkbenchIssueKind.BrokenReference;
-            }
-
-            return WorkbenchIssueKind.Other;
-        }
-
-        private static string GetIssueKindLabel(WorkbenchIssueKind kind)
-        {
-            return kind switch
-            {
-                WorkbenchIssueKind.MissingBinding => "缺失绑定",
-                WorkbenchIssueKind.MissingRequiredProperty => "缺失必填属性",
-                WorkbenchIssueKind.BrokenReference => "引用失效",
-                _ => "其他"
-            };
-        }
-
-        private bool PassIssueFilters(WorkbenchIssue issue)
-        {
-            if (_issueSeverityFilter != IssueSeverityFilter.All)
-            {
-                if (_issueSeverityFilter == IssueSeverityFilter.Error
-                    && issue.Severity != WorkbenchIssueSeverity.Error)
-                    return false;
-                if (_issueSeverityFilter == IssueSeverityFilter.Warning
-                    && issue.Severity != WorkbenchIssueSeverity.Warning)
-                    return false;
-                if (_issueSeverityFilter == IssueSeverityFilter.Info
-                    && issue.Severity != WorkbenchIssueSeverity.Info)
-                    return false;
-            }
-
-            if (_issueKindFilter != IssueKindFilter.All)
-            {
-                if (_issueKindFilter == IssueKindFilter.MissingBinding
-                    && issue.Kind != WorkbenchIssueKind.MissingBinding)
-                    return false;
-                if (_issueKindFilter == IssueKindFilter.MissingRequiredProperty
-                    && issue.Kind != WorkbenchIssueKind.MissingRequiredProperty)
-                    return false;
-                if (_issueKindFilter == IssueKindFilter.BrokenReference
-                    && issue.Kind != WorkbenchIssueKind.BrokenReference)
-                    return false;
-                if (_issueKindFilter == IssueKindFilter.Other
-                    && issue.Kind != WorkbenchIssueKind.Other)
-                    return false;
-            }
-
-            return true;
-        }
-
-        private static IssueSourceGroup GetIssueSourceGroup(string source)
-        {
-            if (string.Equals(source, "MarkerValidator", System.StringComparison.Ordinal))
-                return IssueSourceGroup.MarkerValidator;
-
-            if (string.Equals(source, "BlueprintExporter", System.StringComparison.Ordinal))
-                return IssueSourceGroup.Exporter;
-
-            if (string.Equals(source, "ValidationRule", System.StringComparison.Ordinal))
-            {
-                return IssueSourceGroup.Rule;
-            }
-
-            return IssueSourceGroup.Other;
-        }
-
-        private static int GetIssueSourceOrder(IssueSourceGroup group)
-        {
-            return group switch
-            {
-                IssueSourceGroup.MarkerValidator => 0,
-                IssueSourceGroup.Exporter => 1,
-                IssueSourceGroup.Rule => 2,
-                _ => 3
-            };
-        }
-
-        private static string GetIssueSourceGroupLabel(IssueSourceGroup group)
-        {
-            return group switch
-            {
-                IssueSourceGroup.MarkerValidator => "MarkerValidator",
-                IssueSourceGroup.Exporter => "Exporter",
-                IssueSourceGroup.Rule => "Rule",
-                _ => "Other"
-            };
-        }
-
-        private bool GetIssueGroupExpanded(IssueSourceGroup group)
-        {
-            if (_issueGroupExpandedState.TryGetValue(group, out bool expanded))
-                return expanded;
-
-            string prefKey = BuildIssueGroupExpandedPrefKey(group);
-            expanded = EditorPrefs.GetBool(prefKey, true);
-            _issueGroupExpandedState[group] = expanded;
-            return expanded;
-        }
-
-        private void SetIssueGroupExpanded(IssueSourceGroup group, bool expanded)
-        {
-            _issueGroupExpandedState[group] = expanded;
-            EditorPrefs.SetBool(BuildIssueGroupExpandedPrefKey(group), expanded);
-        }
-
-        private void SetAllIssueGroupExpanded(bool expanded)
-        {
-            foreach (IssueSourceGroup group in System.Enum.GetValues(typeof(IssueSourceGroup)))
-            {
-                SetIssueGroupExpanded(group, expanded);
-            }
-        }
-
-        private static string BuildIssueGroupExpandedPrefKey(IssueSourceGroup group)
-        {
-            return WorkbenchIssueGroupExpandedPrefsPrefix + group;
-        }
-
-        private static TEnum ReadEnumPref<TEnum>(string key, TEnum fallback) where TEnum : struct
-        {
-            if (!typeof(TEnum).IsEnum)
-                return fallback;
-
-            int raw = EditorPrefs.GetInt(key, System.Convert.ToInt32(fallback));
-            if (!System.Enum.IsDefined(typeof(TEnum), raw))
-                return fallback;
-
-            return (TEnum)System.Enum.ToObject(typeof(TEnum), raw);
-        }
-
-        /// <summary>
-        /// 设置标记选中输入路由。
-        /// true  = ToolContext 托管（P3）。
-        /// false = 回退到 GizmoRenderPipeline(duringSceneGui) 兼容链路（P0）。
-        /// </summary>
-        private void SetSelectionInputRouting(bool useEditorTool, bool persist = true)
-        {
-            _useEditorToolSelectionInput = useEditorTool;
-
-            if (persist)
-                MarkerSelectionInputRoutingSettings.SaveUseEditorTool(useEditorTool);
-
-            _toolContext.SetSelectionInputRouting(useEditorTool);
-        }
-
-        private void FocusFirstBlockingIssue(IReadOnlyList<WorkbenchIssue> issues)
-        {
-            var firstError = issues.FirstOrDefault(i => i.Severity == WorkbenchIssueSeverity.Error);
-            if (firstError == null)
-                return;
-
-            if (!string.IsNullOrEmpty(firstError.NodeId))
-            {
-                NavigateToNode(firstError.NodeId);
-                return;
-            }
-
-            if (!string.IsNullOrEmpty(firstError.MarkerId))
-                FocusMarker(firstError.MarkerId);
-        }
-
-        private string BuildIssueSummary(IReadOnlyList<WorkbenchIssue> issues)
-        {
-            if (issues.Count == 0)
-                return "问题中心：暂无问题";
-
-            int errors = issues.Count(i => i.Severity == WorkbenchIssueSeverity.Error);
-            int warnings = issues.Count(i => i.Severity == WorkbenchIssueSeverity.Warning);
-            int infos = issues.Count(i => i.Severity == WorkbenchIssueSeverity.Info);
-
-            string groupSummary = string.Join("  ", issues
-                .GroupBy(i => GetIssueSourceGroup(i.Source))
-                .OrderBy(g => GetIssueSourceOrder(g.Key))
-                .Select(g => $"{GetIssueSourceGroupLabel(g.Key)}:{g.Count()}"));
-
-            return $"问题中心共 {issues.Count} 条（E:{errors} W:{warnings} I:{infos}）  {groupSummary}";
-        }
-
-        private void NavigateToNodesBatch(IReadOnlyList<string> nodeIds)
-        {
-            if (_viewModel == null || nodeIds.Count == 0)
-                return;
-
-            var validNodeIds = nodeIds
-                .Where(id => !string.IsNullOrEmpty(id) && _viewModel.Graph.FindNode(id) != null)
-                .Distinct()
-                .ToList();
-            if (validNodeIds.Count == 0)
-                return;
-
-            _viewModel.Selection.SelectMultiple(validNodeIds);
-            _viewModel.FocusNodes(validNodeIds);
-            _viewModel.RequestRepaint();
-            Repaint();
-        }
-
-        private static void FocusMarkersBatch(IReadOnlyList<string> markerIds)
-        {
-            if (markerIds.Count == 0)
-                return;
-
-            var markerObjects = markerIds
-                .Where(id => !string.IsNullOrEmpty(id))
-                .Select(SceneMarkerSelectionBridge.FindMarkerInScene)
-                .Where(m => m != null)
-                .Select(m => m!.gameObject)
-                .Distinct()
-                .Cast<Object>()
-                .ToArray();
-            if (markerObjects.Length == 0)
-                return;
-
-            Selection.objects = markerObjects;
-            SceneView.lastActiveSceneView?.FrameSelected();
-        }
-
-        private void NavigateToNode(string nodeId)
-        {
-            if (_viewModel == null || string.IsNullOrEmpty(nodeId))
-                return;
-
-            _viewModel.Selection.Select(nodeId);
-            _viewModel.FocusNodes(new[] { nodeId });
-            _viewModel.RequestRepaint();
-            Repaint();
-        }
-
-        private static void FocusMarker(string markerId)
-        {
-            if (string.IsNullOrEmpty(markerId))
-                return;
-
-            var marker = SceneMarkerSelectionBridge.FindMarkerInScene(markerId);
-            if (marker == null)
-                return;
-
-            Selection.activeObject = marker.gameObject;
-            SceneView.lastActiveSceneView?.FrameSelected();
-        }
 
         private bool HasSyncedSceneBindings()
         {
@@ -2166,7 +1522,6 @@ namespace SceneBlueprint.Editor
                 _bindingContext?.Clear();
                 InitializeIfNeeded();
                 AddDefaultNodes();
-                MarkWorkbenchDataDirty();
                 Repaint();
             }
         }
@@ -2271,7 +1626,6 @@ namespace SceneBlueprint.Editor
                 InitializeWithGraph(graph);
                 RestoreBindingsFromScene();
                 CenterView();
-                MarkWorkbenchDataDirty();
                 Repaint();
 
                 SBLog.Info(SBLogTags.Blueprint, $"已加载: {AssetDatabase.GetAssetPath(asset)}" +
@@ -2307,7 +1661,6 @@ namespace SceneBlueprint.Editor
                 InitializeWithGraph(graph);
                 RestoreBindingsFromScene();
                 CenterView();
-                MarkWorkbenchDataDirty();
                 Repaint();
 
                 SBLog.Info(SBLogTags.Blueprint, $"已加载: {AssetDatabase.GetAssetPath(asset)}" +
@@ -2387,7 +1740,8 @@ namespace SceneBlueprint.Editor
             var result = BlueprintExporter.Export(
                 _viewModel.Graph, registry, sceneBindings,
                 blueprintId: bpId, blueprintName: bpName,
-                options: exportOptions);
+                options: exportOptions,
+                variables: _currentAsset?.Variables);
 
             // 输出验证消息
             foreach (var msg in result.Messages)
@@ -2490,7 +1844,6 @@ namespace SceneBlueprint.Editor
             _viewModel.Commands.Execute(
                 new CreateSubGraphCommand(emptySource, title, canvasCenter, boundaryPorts));
 
-            MarkWorkbenchDataDirty();
             _viewModel.RequestRepaint();
             Repaint();
 
@@ -2553,7 +1906,6 @@ namespace SceneBlueprint.Editor
                 SBLog.Info(SBLogTags.Binding, $"已从场景恢复 {restored} 个绑定");
             }
 
-            MarkWorkbenchIssuesDirty();
         }
 
         private void CollapseAllSubGraphs(bool collapse)
@@ -2663,7 +2015,6 @@ namespace SceneBlueprint.Editor
                 $"子蓝图分组: {bindingGroups.Count}, " +
                 $"绑定: {boundBindings}/{totalBindings}");
 
-            MarkWorkbenchIssuesDirty();
         }
 
         /// <summary>从场景绑定存储或 BindingContext 收集绑定数据供导出使用</summary>

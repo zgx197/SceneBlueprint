@@ -48,6 +48,15 @@ namespace NodeGraph.View
         /// <summary>标题栏高度</summary>
         public float TitleBarHeight { get; set; } = 26f;
 
+        /// <summary>描述条高度（节点设置了 Description 时，标题栏下方额外的区域）</summary>
+        public float DescriptionBarHeight { get; set; } = 17f;
+
+        /// <summary>描述文字字体大小</summary>
+        public float DescriptionFontSize { get; set; } = 10f;
+
+        /// <summary>描述文字颜色（偏灰，视觉权重低于标题）</summary>
+        public Color4 DescriptionTextColor { get; set; } = new Color4(0.62f, 0.62f, 0.62f, 1f);
+
         /// <summary>标题字体大小</summary>
         public float TitleFontSize { get; set; } = 13f;
 
@@ -94,8 +103,11 @@ namespace NodeGraph.View
 
         // ── 连线 ──
 
-        /// <summary>连线宽度</summary>
+        /// <summary>连线宽度（控制流 / 事件流）</summary>
         public float EdgeWidth { get; set; } = 2.5f;
+
+        /// <summary>数据边宽度（比控制流边细，视觉上区分"数据"与"执行"）</summary>
+        public float DataEdgeWidth { get; set; } = 1.5f;
 
         /// <summary>选中连线宽度</summary>
         public float EdgeSelectedWidth { get; set; } = 4f;

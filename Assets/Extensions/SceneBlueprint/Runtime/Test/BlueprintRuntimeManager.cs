@@ -120,6 +120,8 @@ namespace SceneBlueprint.Runtime.Test
             _runner.RegisterSystems(
                 new TransitionSystem(),
                 new FlowSystem(),
+                new BlackboardSetSystem(),
+                new BlackboardGetSystem(),
                 new FlowFilterSystem(),
                 spawnPresetSystem,
                 spawnWaveSystem,
