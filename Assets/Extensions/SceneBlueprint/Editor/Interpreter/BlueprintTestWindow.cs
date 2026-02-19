@@ -159,6 +159,7 @@ namespace SceneBlueprint.Editor.Interpreter
             ActionPhase.WaitingTrigger => new Color(1f, 0.8f, 0.2f),
             ActionPhase.Running => new Color(0.3f, 0.8f, 1f),
             ActionPhase.Completed => new Color(0.3f, 0.9f, 0.3f),
+            ActionPhase.Listening => new Color(0.6f, 0.5f, 1f), // 紫色——监听等待中
             ActionPhase.Failed => new Color(1f, 0.3f, 0.3f),
             _ => Color.white
         };
@@ -180,9 +181,11 @@ namespace SceneBlueprint.Editor.Interpreter
             runner.RegisterSystems(
                 new TransitionSystem(),
                 new FlowSystem(),
+                new FlowFilterSystem(),
                 new SpawnPresetSystem(),
                 new SpawnWaveSystem(),
-                new TriggerEnterAreaSystem()
+                new TriggerEnterAreaSystem(),
+                new CameraShakeSystem()
             );
 
             return runner;
@@ -274,8 +277,10 @@ namespace SceneBlueprint.Editor.Interpreter
             int count = 0;
             for (int i = 0; i < _runner.Frame.States.Length; i++)
             {
-                if (_runner.Frame.States[i].Phase == ActionPhase.Running ||
-                    _runner.Frame.States[i].Phase == ActionPhase.WaitingTrigger)
+                var phase = _runner.Frame.States[i].Phase;
+                if (phase == ActionPhase.Running ||
+                    phase == ActionPhase.WaitingTrigger ||
+                    phase == ActionPhase.Listening)
                     count++;
             }
             return count;

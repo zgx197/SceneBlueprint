@@ -51,6 +51,7 @@ namespace SceneBlueprint.Editor.Markers
             if (_createInputDrivenByTool == drivenByTool)
                 return;
 
+            UnityEngine.Debug.Log($"[SceneViewMarkerTool] SetCreateInputDrivenByTool: {_createInputDrivenByTool} → {drivenByTool}, enabled={_enabled}");
             _createInputDrivenByTool = drivenByTool;
 
             if (!_enabled)
@@ -78,13 +79,22 @@ namespace SceneBlueprint.Editor.Markers
         {
             _registry = registry ?? throw new System.ArgumentNullException(nameof(registry));
             _spatialMode = spatialMode ?? throw new System.ArgumentNullException(nameof(spatialMode));
-            if (_enabled) return;
+            if (_enabled)
+            {
+                UnityEngine.Debug.Log($"[SceneViewMarkerTool] Enable 跳过（已启用）, drivenByTool={_createInputDrivenByTool}");
+                return;
+            }
             _enabled = true;
 
             if (!_createInputDrivenByTool)
             {
                 SceneView.duringSceneGui -= OnSceneGUI;
                 SceneView.duringSceneGui += OnSceneGUI;
+                UnityEngine.Debug.Log("[SceneViewMarkerTool] Enable → 注册 duringSceneGui 回调");
+            }
+            else
+            {
+                UnityEngine.Debug.Log("[SceneViewMarkerTool] Enable → drivenByTool=true，不注册 duringSceneGui");
             }
         }
 
@@ -99,6 +109,7 @@ namespace SceneBlueprint.Editor.Markers
             _registry = null;
             _spatialMode = null;
             SceneView.duringSceneGui -= OnSceneGUI;
+            UnityEngine.Debug.Log("[SceneViewMarkerTool] Disable → 已禁用并移除回调");
         }
 
         /// <summary>

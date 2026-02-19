@@ -36,17 +36,17 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             // ── 阶段1：扫描 Completed Action → 生成 PortEvent ──
             _newEvents.Clear();
 
-            // CustomInt == 1 表示该 Completed Action 已经传播过出边，不再重复处理
+            // TransitionPropagated 标记该 Completed Action 已经传播过出边，不再重复处理
             for (int i = 0; i < frame.States.Length; i++)
             {
                 if (frame.States[i].Phase != ActionPhase.Completed)
                     continue;
 
-                if (frame.States[i].CustomInt == 1)
+                if (frame.States[i].TransitionPropagated)
                     continue; // 已传播过，跳过
 
                 // 标记为已传播
-                frame.States[i].CustomInt = 1;
+                frame.States[i].TransitionPropagated = true;
 
                 // 获取该 Action 的所有出边 Transition
                 var transitionIndices = frame.GetOutgoingTransitionIndices(i);
@@ -78,7 +78,8 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             }
 
             // ── 阶段2：消费 PendingEvents → 激活目标 Action ──
-            Debug.Log($"[TransitionSystem] 开始处理 {frame.PendingEvents.Count} 个待处理事件");
+            if (frame.PendingEvents.Count > 0)
+                Debug.Log($"[TransitionSystem] 开始处理 {frame.PendingEvents.Count} 个待处理事件");
             
             for (int i = 0; i < frame.PendingEvents.Count; i++)
             {
@@ -109,6 +110,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                         {
                             targetState.Phase = ActionPhase.Running;
                             targetState.TicksInPhase = 0;
+                            targetState.IsFirstEntry = true;
                             Debug.Log($"[TransitionSystem] ✓ 激活: Flow.Join (index={evt.ToActionIndex}) ← 收齐 {targetState.CustomInt}/{requiredCount} 输入");
                         }
                         else
@@ -128,14 +130,35 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 }
                 else
                 {
-                    // 普通节点：OR 语义，直接激活
+                    // 普通节点激活逻辑
                     if (targetState.Phase == ActionPhase.Idle)
                     {
+                        // 首次激活：Idle → Running
                         targetState.Phase = ActionPhase.Running;
                         targetState.TicksInPhase = 0;
+                        targetState.IsFirstEntry = true;
+
+                        // 记录激活来源（供 Flow.Filter 等节点自动推断数据来源）
+                        var sourceActionId = frame.Actions[evt.FromActionIndex].Id;
+                        var targetActionId = frame.Actions[evt.ToActionIndex].Id;
+                        frame.Blackboard.Set($"_activatedBy.{targetActionId}", sourceActionId);
 
                         var typeId = frame.GetTypeId(evt.ToActionIndex);
                         Debug.Log($"[TransitionSystem] ✓ 激活: {typeId} (index={evt.ToActionIndex}) ← {evt}");
+                    }
+                    else if (targetState.Phase == ActionPhase.Listening)
+                    {
+                        // 重入激活：Listening → Running（软重置）
+                        // 保留 CustomInt/CustomFloat，重置执行计时和传播标记
+                        targetState.SoftReset();
+
+                        // 更新激活来源（新的事件可能来自不同的上游节点）
+                        var sourceActionId = frame.Actions[evt.FromActionIndex].Id;
+                        var targetActionId = frame.Actions[evt.ToActionIndex].Id;
+                        frame.Blackboard.Set($"_activatedBy.{targetActionId}", sourceActionId);
+
+                        var typeId = frame.GetTypeId(evt.ToActionIndex);
+                        Debug.Log($"[TransitionSystem] ✓ 重入激活: {typeId} (index={evt.ToActionIndex}) Listening → Running ← {evt}");
                     }
                 }
             }

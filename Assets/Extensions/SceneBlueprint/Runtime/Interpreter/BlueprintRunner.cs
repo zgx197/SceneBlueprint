@@ -202,6 +202,19 @@ namespace SceneBlueprint.Runtime.Interpreter
                 Frame.IsCompleted = true;
                 Log?.Invoke($"[BlueprintRunner] 蓝图执行完毕 (Tick={Frame.TickCount})");
             }
+
+            // 蓝图结束时，将所有 Listening 节点统一清理为 Completed
+            // 语义：蓝图结束 → 所有监听器下线，不会再有新事件到达
+            if (Frame.IsCompleted)
+            {
+                for (int i = 0; i < Frame.States.Length; i++)
+                {
+                    if (Frame.States[i].Phase == ActionPhase.Listening)
+                    {
+                        Frame.States[i].Phase = ActionPhase.Completed;
+                    }
+                }
+            }
         }
 
         /// <summary>

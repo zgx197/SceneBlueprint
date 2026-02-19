@@ -102,18 +102,25 @@ namespace SceneBlueprint.Runtime.Test
 
             var spawnPresetSystem = new SpawnPresetSystem();
             var spawnWaveSystem = new SpawnWaveSystem();
+            var cameraShakeSystem = new CameraShakeSystem();
             if (_monsterSpawner != null)
             {
                 spawnPresetSystem.SpawnHandler = _monsterSpawner;
                 spawnWaveSystem.SpawnHandler = _monsterSpawner;
             }
 
+            // 摄像机震动：动态查找或创建 Handler
+            // 摄像机由 SimplePlayerController 在运行时动态创建，无法预先拖引用
+            cameraShakeSystem.ShakeHandler = FindOrCreateShakeHandler();
+
             _runner.RegisterSystems(
                 new TransitionSystem(),
                 new FlowSystem(),
+                new FlowFilterSystem(),
                 spawnPresetSystem,
                 spawnWaveSystem,
-                new TriggerEnterAreaSystem()
+                new TriggerEnterAreaSystem(),
+                cameraShakeSystem
             );
 
             _statusText = "正在加载...";
@@ -132,6 +139,33 @@ namespace SceneBlueprint.Runtime.Test
             _running = false;
             _loaded = false;
             LoadBlueprint();
+        }
+
+        // ── Handler 动态查找 ──
+
+        /// <summary>
+        /// 动态查找或创建 CameraShakeHandler。
+        /// 摄像机由 SimplePlayerController 在 Awake 中动态创建，
+        /// 此时（LoadBlueprint 在 Start 中调用）摄像机已存在。
+        /// 如果 Camera.main 上没有 Handler 组件，自动挂载一个。
+        /// </summary>
+        private ICameraShakeHandler? FindOrCreateShakeHandler()
+        {
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                Debug.LogWarning("[BlueprintRuntimeManager] 未找到 Main Camera，摄像机震动将仅输出日志");
+                return null;
+            }
+
+            var handler = cam.GetComponent<CameraShakeHandler>();
+            if (handler == null)
+            {
+                handler = cam.gameObject.AddComponent<CameraShakeHandler>();
+                Debug.Log("[BlueprintRuntimeManager] 已在 Main Camera 上自动挂载 CameraShakeHandler");
+            }
+
+            return handler;
         }
 
         // ── 简易运行时 UI ──

@@ -131,13 +131,15 @@ namespace SceneBlueprint.Runtime.Interpreter
         public List<int> GetOutgoingTransitionIndices(int actionIndex)
             => OutgoingTransitions.TryGetValue(actionIndex, out var list) ? list : _emptyList;
 
-        /// <summary>检查是否有任何 Action 处于 Running 或 WaitingTrigger 状态</summary>
+        /// <summary>检查是否有任何 Action 处于活跃状态（Running、WaitingTrigger 或 Listening）</summary>
         public bool HasActiveActions()
         {
             for (int i = 0; i < States.Length; i++)
             {
-                if (States[i].Phase == ActionPhase.Running ||
-                    States[i].Phase == ActionPhase.WaitingTrigger)
+                var phase = States[i].Phase;
+                if (phase == ActionPhase.Running ||
+                    phase == ActionPhase.WaitingTrigger ||
+                    phase == ActionPhase.Listening)
                     return true;
             }
             return false;

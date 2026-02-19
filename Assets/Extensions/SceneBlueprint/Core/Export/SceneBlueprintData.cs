@@ -61,6 +61,13 @@ namespace SceneBlueprint.Core.Export
     {
         public string Type = "Immediate";
         public string Expression = "";
+
+        /// <summary>
+        /// 子条件（用于 AllOf/AnyOf 组合条件，Phase 2+ 预留）。
+        /// 标记 NonSerialized 避免 Unity JsonUtility 递归展开导致深度溢出警告。
+        /// 需要时通过自定义解析器处理。
+        /// </summary>
+        [NonSerialized]
         public ConditionData[] Children = Array.Empty<ConditionData>();
     }
 

@@ -81,8 +81,10 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                     continue;
 
                 // 首次进入：从属性读取延迟 Tick 数
-                if (state.TicksInPhase == 0)
+                if (state.IsFirstEntry)
                 {
+                    state.IsFirstEntry = false;
+
                     var delayStr = frame.GetProperty(idx, "delay");
                     if (float.TryParse(delayStr, out var delaySec))
                     {
