@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Runtime.Interpreter
 {
@@ -132,7 +133,7 @@ namespace SceneBlueprint.Runtime.Interpreter
         /// <summary>
         /// 从已解析的数据对象加载（跳过 JSON 解析步骤，用于测试）。
         /// </summary>
-        public void Load(Core.Export.SceneBlueprintData data)
+        public void Load(SceneBlueprintData data)
         {
             Frame = BlueprintLoader.BuildFrame(data);
             if (Frame == null)

@@ -85,10 +85,7 @@ namespace NodeGraph.Core
                 return ConnectionResult.KindMismatch;
 
             // 3. DataType 兼容
-            // Data 端口的 "exec" 是历史遗留 bug（旧版适配器误填），连接时视为 Any（""）
-            string outDT = (outPort.Kind == PortKind.Data && outPort.DataType == TypeCompatibilityRegistry.ExecType) ? "" : outPort.DataType;
-            string inDT  = (inPort.Kind  == PortKind.Data && inPort.DataType  == TypeCompatibilityRegistry.ExecType) ? "" : inPort.DataType;
-            if (!graph.Settings.TypeCompatibility.IsCompatible(outDT, inDT))
+            if (!graph.Settings.TypeCompatibility.IsCompatible(outPort.DataType, inPort.DataType))
                 return ConnectionResult.DataTypeMismatch;
 
             // 4. 重复连接

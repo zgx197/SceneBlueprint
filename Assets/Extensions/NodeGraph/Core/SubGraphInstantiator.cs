@@ -80,7 +80,8 @@ namespace NodeGraph.Core
                     var newPort = new Port(
                         newPortId, newNodeId, srcPort.Name,
                         srcPort.Direction, srcPort.Kind,
-                        srcPort.DataType, srcPort.Capacity, srcPort.SortOrder);
+                        srcPort.DataType, srcPort.Capacity, srcPort.SortOrder,
+                        semanticId: srcPort.SemanticId);
                     // 通过内部 API 添加端口
                     newNode.AddPortDirect(newPort);
                 }

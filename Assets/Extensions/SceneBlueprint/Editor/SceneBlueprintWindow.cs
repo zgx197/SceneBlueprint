@@ -10,7 +10,7 @@ using NodeGraph.View;
 using NodeGraph.Unity;
 using NodeGraph.Serialization;
 using SceneBlueprint.Core;
-using SceneBlueprint.Core.Export;
+using SceneBlueprint.Contract;
 using SceneBlueprint.Editor.Export;
 using GraphPort = NodeGraph.Core.Port;
 using GraphPortDefinition = NodeGraph.Core.PortDefinition;
@@ -201,7 +201,8 @@ namespace SceneBlueprint.Editor
         {
             try
             {
-                var serializer = CreateGraphSerializer();
+                var typeProvider = CreateTypeProvider();
+                var serializer = CreateGraphSerializer(typeProvider);
                 var graph = serializer.Deserialize(_graphJsonBeforeReload);
                 _graphJsonBeforeReload = "";
 
@@ -318,9 +319,21 @@ namespace SceneBlueprint.Editor
                 MarkPreviewDirtyAll("InitializeWithGraph");
         }
 
-        private JsonGraphSerializer CreateGraphSerializer()
+        private JsonGraphSerializer CreateGraphSerializer(INodeTypeProvider? typeProvider = null)
         {
-            return new JsonGraphSerializer(new ActionNodeDataSerializer());
+            return new JsonGraphSerializer(new ActionNodeDataSerializer(), typeProvider);
+        }
+
+        /// <summary>
+        /// 创建用于反序列化的节点类型提供者（S4）。
+        /// 在加载图之前调用，让序列化器能从 TypeDefinition 重建端口结构而不依赖 JSON 中可能过期的端口元数据。
+        /// </summary>
+        private static ActionRegistryTypeProvider CreateTypeProvider()
+        {
+            var registry = new NodeTypeRegistry();
+            var actionRegistry = SceneBlueprintProfile.CreateActionRegistry();
+            ActionNodeTypeAdapter.RegisterAll(actionRegistry, registry);
+            return new ActionRegistryTypeProvider(registry);
         }
 
         private void UpdateTitle()
@@ -1618,7 +1631,8 @@ namespace SceneBlueprint.Editor
 
             try
             {
-                var serializer = CreateGraphSerializer();
+                var typeProvider = CreateTypeProvider();
+                var serializer = CreateGraphSerializer(typeProvider);
                 var graph = serializer.Deserialize(asset.GraphJson);
 
                 _currentAsset = asset;
@@ -1653,7 +1667,8 @@ namespace SceneBlueprint.Editor
 
             try
             {
-                var serializer = CreateGraphSerializer();
+                var typeProvider = CreateTypeProvider();
+                var serializer = CreateGraphSerializer(typeProvider);
                 var graph = serializer.Deserialize(asset.GraphJson);
 
                 _currentAsset = asset;

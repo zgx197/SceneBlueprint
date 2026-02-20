@@ -13,6 +13,12 @@ namespace NodeGraph.Serialization
     public class JsonGraphModel
     {
         public string id = "";
+        /// <summary>
+        /// 格式版本号。<br/>
+        /// 1 = 旧格式（连线用 Port GUID）<br/>
+        /// 2 = 新格式（连线用语义 Id，端口含 semanticId）
+        /// </summary>
+        public int schemaVersion = 1;
         public JsonSettingsModel settings = new JsonSettingsModel();
         public List<JsonNodeModel> nodes = new List<JsonNodeModel>();
         public List<JsonEdgeModel> edges = new List<JsonEdgeModel>();
@@ -45,6 +51,8 @@ namespace NodeGraph.Serialization
     {
         public string id = "";
         public string name = "";
+        /// <summary>稳定语义 ID（schemaVersion >= 2 时写入）。空则将 name 用作 fallback。</summary>
+        public string semanticId = "";
         public string direction = "Input";   // "Input" / "Output"
         public string kind = "Data";         // "Data" / "Control"
         public string dataType = "";
@@ -56,8 +64,10 @@ namespace NodeGraph.Serialization
     public class JsonEdgeModel
     {
         public string id = "";
-        public string sourcePortId = "";
-        public string targetPortId = "";
+        public string fromNodeId = "";
+        public string fromPortId = "";   // 语义 Port Id（如 "waveIndex"）
+        public string toNodeId = "";
+        public string toPortId = "";     // 语义 Port Id（如 "compareValue"）
         public string? userData;
     }
 

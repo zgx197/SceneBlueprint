@@ -1,6 +1,6 @@
 #nullable enable
 using UnityEngine;
-using SceneBlueprint.Core.Export;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Runtime
 {

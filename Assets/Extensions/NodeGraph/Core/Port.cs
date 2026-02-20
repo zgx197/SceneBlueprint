@@ -35,7 +35,13 @@ namespace NodeGraph.Core
     /// </summary>
     public class PortDefinition
     {
+        /// <summary>端口显示名称（UI 用，可自由修改）</summary>
         public string Name { get; }
+        /// <summary>
+        /// 稳定语义 ID（序列化、连线引用使用）。
+        /// 若未显式指定，默认等于 Name。
+        /// </summary>
+        public string SemanticId { get; }
         public PortDirection Direction { get; }
         public PortKind Kind { get; }
         public string DataType { get; }
@@ -48,9 +54,11 @@ namespace NodeGraph.Core
             PortKind kind = PortKind.Control,
             string dataType = "exec",
             PortCapacity capacity = PortCapacity.Multiple,
-            int sortOrder = 0)
+            int sortOrder = 0,
+            string? semanticId = null)
         {
             Name = name ?? throw new ArgumentNullException(nameof(name));
+            SemanticId = string.IsNullOrEmpty(semanticId) ? name : semanticId;
             Direction = direction;
             Kind = kind;
             DataType = dataType ?? throw new ArgumentNullException(nameof(dataType));
@@ -72,6 +80,12 @@ namespace NodeGraph.Core
 
         /// <summary>端口显示名称</summary>
         public string Name { get; set; }
+
+        /// <summary>
+        /// 稳定语义 ID（序列化、连线引用使用）。
+        /// 来自 PortDefinition.SemanticId，与实例 GUID（Id）不同。
+        /// </summary>
+        public string SemanticId { get; }
 
         /// <summary>输入 / 输出</summary>
         public PortDirection Direction { get; }
@@ -95,6 +109,7 @@ namespace NodeGraph.Core
             if (definition == null) throw new ArgumentNullException(nameof(definition));
 
             Name = definition.Name;
+            SemanticId = definition.SemanticId;
             Direction = definition.Direction;
             Kind = definition.Kind;
             DataType = definition.DataType;
@@ -110,11 +125,13 @@ namespace NodeGraph.Core
             PortKind kind,
             string dataType,
             PortCapacity capacity,
-            int sortOrder = 0)
+            int sortOrder = 0,
+            string? semanticId = null)
         {
             Id = id;
             NodeId = nodeId;
             Name = name;
+            SemanticId = string.IsNullOrEmpty(semanticId) ? name : semanticId;
             Direction = direction;
             Kind = kind;
             DataType = dataType;
@@ -122,6 +139,6 @@ namespace NodeGraph.Core
             SortOrder = sortOrder;
         }
 
-        public override string ToString() => $"Port({Name}, {Direction}, {Kind}, {DataType})";
+        public override string ToString() => $"Port({SemanticId}, {Direction}, {Kind}, {DataType})";
     }
 }

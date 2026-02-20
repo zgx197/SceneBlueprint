@@ -5,7 +5,7 @@ using System.Globalization;
 using System.Linq;
 using NodeGraph.Core;
 using SceneBlueprint.Core;
-using SceneBlueprint.Core.Export;
+using SceneBlueprint.Contract;
 using SceneBlueprint.Editor;
 using SceneBlueprint.Editor.Templates;
 using SceneBlueprint.Runtime.Markers;
@@ -388,9 +388,9 @@ namespace SceneBlueprint.Editor.Export
                     transitions.Add(new TransitionEntry
                     {
                         FromActionId = sp.NodeId,
-                        FromPortId = ResolvePortSemanticId(graph, sp, registry),
+                        FromPortId = sp.SemanticId,
                         ToActionId = tp.NodeId,
-                        ToPortId = ResolvePortSemanticId(graph, tp, registry),
+                        ToPortId = tp.SemanticId,
                         Condition = new ConditionData { Type = "Immediate" }
                     });
                 }
@@ -404,9 +404,9 @@ namespace SceneBlueprint.Editor.Export
                             transitions.Add(new TransitionEntry
                             {
                                 FromActionId = realSource.NodeId,
-                                FromPortId = ResolvePortSemanticId(graph, realSource, registry),
+                                FromPortId = realSource.SemanticId,
                                 ToActionId = tp.NodeId,
-                                ToPortId = ResolvePortSemanticId(graph, tp, registry),
+                                ToPortId = tp.SemanticId,
                                 Condition = new ConditionData { Type = "Immediate" }
                             });
                         }
@@ -422,9 +422,9 @@ namespace SceneBlueprint.Editor.Export
                             transitions.Add(new TransitionEntry
                             {
                                 FromActionId = sp.NodeId,
-                                FromPortId = ResolvePortSemanticId(graph, sp, registry),
+                                FromPortId = sp.SemanticId,
                                 ToActionId = realTarget.NodeId,
-                                ToPortId = ResolvePortSemanticId(graph, realTarget, registry),
+                                ToPortId = realTarget.SemanticId,
                                 Condition = new ConditionData { Type = "Immediate" }
                             });
                         }
@@ -456,9 +456,9 @@ namespace SceneBlueprint.Editor.Export
                 result.Add(new DataConnectionEntry
                 {
                     FromActionId = sp.NodeId,
-                    FromPortId   = ResolvePortSemanticId(graph, sp, registry),
+                    FromPortId   = sp.SemanticId,
                     ToActionId   = tp.NodeId,
-                    ToPortId     = ResolvePortSemanticId(graph, tp, registry),
+                    ToPortId     = tp.SemanticId,
                 });
             }
 
@@ -488,38 +488,11 @@ namespace SceneBlueprint.Editor.Export
             return new TransitionEntry
             {
                 FromActionId = sourcePort.NodeId,
-                FromPortId = ResolvePortSemanticId(graph, sourcePort, registry),
+                FromPortId = sourcePort.SemanticId,
                 ToActionId = targetPort.NodeId,
-                ToPortId = ResolvePortSemanticId(graph, targetPort, registry),
+                ToPortId = targetPort.SemanticId,
                 Condition = new ConditionData { Type = "Immediate" }
             };
-        }
-
-        /// <summary>
-        /// 从 Port.Name（显示名）反查 ActionDefinition 中的语义 ID。
-        /// <para>适配器层将 SBPortDef.DisplayName 传给了 NGPortDef.Name，
-        /// 导出时需要还原为原始的语义 ID（如 "in"/"out"）。</para>
-        /// </summary>
-        private static string ResolvePortSemanticId(
-            Graph graph, NodeGraph.Core.Port port, ActionRegistry registry)
-        {
-            var node = graph.FindNode(port.NodeId);
-            if (node?.UserData is ActionNodeData data
-                && registry.TryGet(data.ActionTypeId, out var actionDef))
-            {
-                foreach (var sbPort in actionDef.Ports)
-                {
-                    // 通过显示名 + 方向匹配回语义 ID
-                    var displayName = string.IsNullOrEmpty(sbPort.DisplayName) ? sbPort.Id : sbPort.DisplayName;
-                    if (displayName == port.Name
-                        && sbPort.Direction == port.Direction)
-                    {
-                        return sbPort.Id;
-                    }
-                }
-            }
-            // 回退：无法反查时使用原始 Name（边界节点等特殊情况）
-            return port.Name;
         }
 
         // ══════════════════════════════════════

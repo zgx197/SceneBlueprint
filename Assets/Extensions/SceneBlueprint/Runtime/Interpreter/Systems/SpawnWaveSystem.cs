@@ -1,6 +1,6 @@
 #nullable enable
 using System.Collections.Generic;
-using SceneBlueprint.Core.Export;
+using SceneBlueprint.Contract;
 using UnityEngine;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems

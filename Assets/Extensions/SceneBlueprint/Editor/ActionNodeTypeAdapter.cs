@@ -94,7 +94,8 @@ namespace SceneBlueprint.Editor
                 kind: kind,
                 dataType: dataType,
                 capacity: capacity,
-                sortOrder: sortOrder
+                sortOrder: sortOrder,
+                semanticId: sbPort.Id
             );
         }
     }

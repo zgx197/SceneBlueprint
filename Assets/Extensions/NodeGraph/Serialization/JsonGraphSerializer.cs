@@ -16,10 +16,19 @@ namespace NodeGraph.Serialization
     public class JsonGraphSerializer : IGraphSerializer
     {
         private readonly IUserDataSerializer? _userDataSerializer;
+        private readonly INodeTypeProvider? _typeProvider;
 
-        public JsonGraphSerializer(IUserDataSerializer? userDataSerializer = null)
+        /// <param name="userDataSerializer">节点/边业务数据序列化器</param>
+        /// <param name="typeProvider">
+        /// 节点类型提供者（S4）。非 null 时反序列化从 TypeDefinition 重建端口结构，
+        /// 同时序列化会跳过非动态节点的端口元数据（端口从定义重建，不存副本）。
+        /// </param>
+        public JsonGraphSerializer(
+            IUserDataSerializer? userDataSerializer = null,
+            INodeTypeProvider? typeProvider = null)
         {
             _userDataSerializer = userDataSerializer;
+            _typeProvider = typeProvider;
         }
 
         // ══════════════════════════════════════
@@ -54,7 +63,7 @@ namespace NodeGraph.Serialization
                 var sp = graph.FindPort(edge.SourcePortId);
                 var tp = graph.FindPort(edge.TargetPortId);
                 if (sp != null && tp != null && nodeIdSet.Contains(sp.NodeId) && nodeIdSet.Contains(tp.NodeId))
-                    model.edges.Add(EdgeToModel(edge));
+                    model.edges.Add(EdgeToModel(edge, graph));
             }
 
             return SimpleJson.Serialize(model);
@@ -93,7 +102,8 @@ namespace NodeGraph.Serialization
                     Enum.TryParse<PortDirection>(pm.direction, out var dir);
                     Enum.TryParse<PortKind>(pm.kind, out var kind);
                     Enum.TryParse<PortCapacity>(pm.capacity, out var cap);
-                    var port = new Port(idMap[pm.id], node.Id, pm.name, dir, kind, pm.dataType, cap, pm.sortOrder);
+                    var semanticId = string.IsNullOrEmpty(pm.semanticId) ? pm.name : pm.semanticId;
+                    var port = new Port(idMap[pm.id], node.Id, pm.name, dir, kind, pm.dataType, cap, pm.sortOrder, semanticId);
                     node.AddPortDirect(port);
                 }
 
@@ -104,13 +114,16 @@ namespace NodeGraph.Serialization
                 newNodes.Add(node);
             }
 
-            // 创建连线（使用新 ID）
+            // 创建连线：用新节点 ID + 语义端口 Id 定位端口
             foreach (var em in model.edges)
             {
-                string newSrcPort = idMap.TryGetValue(em.sourcePortId, out var s) ? s : em.sourcePortId;
-                string newTgtPort = idMap.TryGetValue(em.targetPortId, out var t) ? t : em.targetPortId;
-                var edge = new Edge(idMap[em.id], newSrcPort, newTgtPort);
+                string newFromNodeId = idMap.TryGetValue(em.fromNodeId, out var fn) ? fn : em.fromNodeId;
+                string newToNodeId   = idMap.TryGetValue(em.toNodeId,   out var tn) ? tn : em.toNodeId;
+                var srcPort = FindPortBySemanticId(target, newFromNodeId, em.fromPortId);
+                var tgtPort = FindPortBySemanticId(target, newToNodeId,   em.toPortId);
+                if (srcPort == null || tgtPort == null) continue;
 
+                var edge = new Edge(idMap[em.id], srcPort.Id, tgtPort.Id);
                 if (em.userData != null && _userDataSerializer != null)
                     edge.UserData = _userDataSerializer.DeserializeEdgeData(em.userData);
 
@@ -129,6 +142,7 @@ namespace NodeGraph.Serialization
             var model = new JsonGraphModel
             {
                 id = graph.Id,
+                schemaVersion = 2,
                 settings = new JsonSettingsModel
                 {
                     topology = graph.Settings.Topology.ToString()
@@ -139,7 +153,7 @@ namespace NodeGraph.Serialization
                 model.nodes.Add(NodeToModel(node));
 
             foreach (var edge in graph.Edges)
-                model.edges.Add(EdgeToModel(edge));
+                model.edges.Add(EdgeToModel(edge, graph));
 
             foreach (var group in graph.Groups)
             {
@@ -203,7 +217,12 @@ namespace NodeGraph.Serialization
 
             foreach (var em in model.edges)
             {
-                var edge = ModelToEdge(em);
+                var srcPort = FindPortBySemanticId(graph, em.fromNodeId, em.fromPortId);
+                var tgtPort = FindPortBySemanticId(graph, em.toNodeId, em.toPortId);
+                if (srcPort == null || tgtPort == null) continue;
+                var edge = new Edge(em.id, srcPort.Id, tgtPort.Id);
+                if (em.userData != null && _userDataSerializer != null)
+                    edge.UserData = _userDataSerializer.DeserializeEdgeData(em.userData);
                 graph.AddEdgeDirect(edge);
             }
 
@@ -269,18 +288,28 @@ namespace NodeGraph.Serialization
                 allowDynamicPorts = node.AllowDynamicPorts
             };
 
-            foreach (var port in node.Ports)
+            // S4：有 typeProvider 时，普通节点端口从 TypeDefinition 重建，不存入 JSON。
+            // 动态端口节点（AllowDynamicPorts）的端口仍需持久化（边界节点等）。
+            bool skipPorts = _typeProvider != null
+                && !node.AllowDynamicPorts
+                && _typeProvider.GetNodeType(node.TypeId) != null;
+
+            if (!skipPorts)
             {
-                nm.ports.Add(new JsonPortModel
+                foreach (var port in node.Ports)
                 {
-                    id = port.Id,
-                    name = port.Name,
-                    direction = port.Direction.ToString(),
-                    kind = port.Kind.ToString(),
-                    dataType = port.DataType,
-                    capacity = port.Capacity.ToString(),
-                    sortOrder = port.SortOrder
-                });
+                    nm.ports.Add(new JsonPortModel
+                    {
+                        id = port.Id,
+                        name = port.Name,
+                        semanticId = port.SemanticId,
+                        direction = port.Direction.ToString(),
+                        kind = port.Kind.ToString(),
+                        dataType = port.DataType,
+                        capacity = port.Capacity.ToString(),
+                        sortOrder = port.SortOrder
+                    });
+                }
             }
 
             if (node.UserData != null && _userDataSerializer != null)
@@ -300,14 +329,28 @@ namespace NodeGraph.Serialization
                 AllowDynamicPorts = nm.allowDynamicPorts
             };
 
-            foreach (var pm in nm.ports)
+            // S4：优先从 TypeDefinition 重建端口（当 typeProvider 可用且类型存在且非动态节点）
+            var typeDef = (!nm.allowDynamicPorts) ? _typeProvider?.GetNodeType(nm.typeId) : null;
+            if (typeDef != null)
             {
-                Enum.TryParse<PortDirection>(pm.direction, out var dir);
-                Enum.TryParse<PortKind>(pm.kind, out var kind);
-                Enum.TryParse<PortCapacity>(pm.capacity, out var cap);
+                foreach (var portDef in typeDef.DefaultPorts)
+                {
+                    var port = new Port(IdGenerator.NewId(), node.Id, portDef);
+                    node.AddPortDirect(port);
+                }
+            }
+            else
+            {
+                foreach (var pm in nm.ports)
+                {
+                    Enum.TryParse<PortDirection>(pm.direction, out var dir);
+                    Enum.TryParse<PortKind>(pm.kind, out var kind);
+                    Enum.TryParse<PortCapacity>(pm.capacity, out var cap);
+                    var semanticId = string.IsNullOrEmpty(pm.semanticId) ? pm.name : pm.semanticId;
 
-                var port = new Port(pm.id, node.Id, pm.name, dir, kind, pm.dataType, cap, pm.sortOrder);
-                node.AddPortDirect(port);
+                    var port = new Port(pm.id, node.Id, pm.name, dir, kind, pm.dataType, cap, pm.sortOrder, semanticId);
+                    node.AddPortDirect(port);
+                }
             }
 
             if (nm.userData != null && _userDataSerializer != null)
@@ -316,13 +359,17 @@ namespace NodeGraph.Serialization
             return node;
         }
 
-        private JsonEdgeModel EdgeToModel(Edge edge)
+        private JsonEdgeModel EdgeToModel(Edge edge, Graph graph)
         {
+            var srcPort = graph.FindPort(edge.SourcePortId);
+            var tgtPort = graph.FindPort(edge.TargetPortId);
             var em = new JsonEdgeModel
             {
                 id = edge.Id,
-                sourcePortId = edge.SourcePortId,
-                targetPortId = edge.TargetPortId
+                fromNodeId = srcPort?.NodeId ?? "",
+                fromPortId = srcPort?.SemanticId ?? "",
+                toNodeId   = tgtPort?.NodeId ?? "",
+                toPortId   = tgtPort?.SemanticId ?? "",
             };
 
             if (edge.UserData != null && _userDataSerializer != null)
@@ -331,14 +378,13 @@ namespace NodeGraph.Serialization
             return em;
         }
 
-        private Edge ModelToEdge(JsonEdgeModel em)
+        private static Port? FindPortBySemanticId(Graph graph, string nodeId, string semanticId)
         {
-            var edge = new Edge(em.id, em.sourcePortId, em.targetPortId);
-
-            if (em.userData != null && _userDataSerializer != null)
-                edge.UserData = _userDataSerializer.DeserializeEdgeData(em.userData);
-
-            return edge;
+            var node = graph.FindNode(nodeId);
+            if (node == null) return null;
+            foreach (var p in node.Ports)
+                if (p.SemanticId == semanticId) return p;
+            return null;
         }
 
         // ══════════════════════════════════════

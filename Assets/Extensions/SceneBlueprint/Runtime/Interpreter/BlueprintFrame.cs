@@ -1,7 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using SceneBlueprint.Core.Export;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Runtime.Interpreter
 {

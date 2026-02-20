@@ -3,6 +3,7 @@
     "rootNamespace": "SceneBlueprint.Editor",
     "references": [
         "SceneBlueprint.Core",
+        "SceneBlueprint.Contract",
         "SceneBlueprint.Actions",
         "SceneBlueprint.Runtime",
         "SceneBlueprint.SpatialAbstraction",
