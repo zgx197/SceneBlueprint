@@ -24,6 +24,7 @@ using SceneBlueprint.Editor.Templates;
 using SceneBlueprint.Runtime;
 using SceneBlueprint.Runtime.Markers;
 using SceneBlueprint.Runtime.Templates;
+using SceneBlueprint.Editor.Analysis;
 
 namespace SceneBlueprint.Editor
 {
@@ -68,11 +69,20 @@ namespace SceneBlueprint.Editor
         private const float MinCanvasWidth = 260f;
         private const string WorkbenchVisiblePrefsKey = "SceneBlueprint.Workbench.Visible";
         private const string WorkbenchWidthPrefsKey = "SceneBlueprint.Workbench.Width";
+        private const string AnalysisHeightPrefsKey = "SceneBlueprint.Analysis.Height";
+        private const float MinAnalysisHeight = 60f;
+        private const float DefaultAnalysisHeight = 160f;
+        private const float AnalysisSplitterHeight = 4f;
+        private const double AnalysisDebounceSeconds = 0.6;
         private float _inspectorWidth = DefaultInspectorWidth;
         private float _workbenchWidth = DefaultWorkbenchWidth;
+        private float _analysisHeight = DefaultAnalysisHeight;
         private bool _isDraggingSplitter;
         private bool _isDraggingWorkbenchSplitter;
+        private bool _isDraggingAnalysisSplitter;
         private bool _showWorkbench = true;
+        // ── 分析自动触发（Debounce）──
+        private double _analysisDebounceUntil;
         private bool _useEditorToolSelectionInput = true;
         private Core.ActionRegistry? _actionRegistryCache;
         private IEditorSpatialModeDescriptor? _spatialModeDescriptor;
@@ -91,6 +101,10 @@ namespace SceneBlueprint.Editor
             new Dictionary<string, int>();
         private int _previewObservedSubGraphFrameCount = -1;
 
+        // ── 蓝图分析（T4）──
+        private AnalysisReport? _lastAnalysisReport;
+        private Vector2 _analysisScrollPos;
+
 
         [MenuItem("SceneBlueprint/蓝图编辑器 &B")]
         public static void Open()
@@ -107,6 +121,7 @@ namespace SceneBlueprint.Editor
 
             _showWorkbench = EditorPrefs.GetBool(WorkbenchVisiblePrefsKey, true);
             _workbenchWidth = EditorPrefs.GetFloat(WorkbenchWidthPrefsKey, DefaultWorkbenchWidth);
+            _analysisHeight = EditorPrefs.GetFloat(AnalysisHeightPrefsKey, DefaultAnalysisHeight);
             _useEditorToolSelectionInput = MarkerSelectionInputRoutingSettings.LoadUseEditorTool();
             _toolContext.Attach(_useEditorToolSelectionInput);
             GizmoRenderPipeline.SetInteractionMode(GizmoRenderPipeline.MarkerInteractionMode.Edit);
@@ -138,6 +153,13 @@ namespace SceneBlueprint.Editor
         {
             EditorPrefs.SetBool(WorkbenchVisiblePrefsKey, _showWorkbench);
             EditorPrefs.SetFloat(WorkbenchWidthPrefsKey, _workbenchWidth);
+            EditorPrefs.SetFloat(AnalysisHeightPrefsKey, _analysisHeight);
+            EditorApplication.update -= PollAnalysisDebounce;
+            if (_viewModel != null)
+            {
+                _viewModel.Commands.OnCommandExecuted -= OnCommandExecutedForAnalysis;
+                _viewModel.Commands.OnHistoryChanged  -= OnGraphHistoryChangedForAnalysis;
+            }
             MarkerSelectionInputRoutingSettings.SaveUseEditorTool(_useEditorToolSelectionInput);
 
             EditorApplication.hierarchyChanged -= OnEditorHierarchyChanged;
@@ -233,6 +255,14 @@ namespace SceneBlueprint.Editor
         /// </summary>
         private void InitializeWithGraph(Graph? existingGraph)
         {
+            // 取消旧 ViewModel 的命令历史订阅
+            if (_viewModel != null)
+            {
+                _viewModel.Commands.OnCommandExecuted -= OnCommandExecutedForAnalysis;
+                _viewModel.Commands.OnHistoryChanged  -= OnGraphHistoryChangedForAnalysis;
+            }
+            _lastAnalysisReport = null;
+            EditorApplication.update -= PollAnalysisDebounce;
             _dirtyPreviewNodeIds.Clear();
             _previewDirtyAll = false;
             _previewFlushScheduled = false;
@@ -314,9 +344,16 @@ namespace SceneBlueprint.Editor
             // 10. 更新窗口标题
             UpdateTitle();
 
+            // 11. 订阅 CommandHistory 事件以自动触发分析（Debounce）
+            _viewModel.Commands.OnCommandExecuted += OnCommandExecutedForAnalysis;
+            _viewModel.Commands.OnHistoryChanged  += OnGraphHistoryChangedForAnalysis;
+
             // 初始化完成后尝试刷新预览（支持未保存蓝图）
             if (graph.Nodes.Count > 0)
                 MarkPreviewDirtyAll("InitializeWithGraph");
+
+            // 图加载后立即做一次初始分析（不依赖命令执行触发）
+            ScheduleAnalysis();
         }
 
         private JsonGraphSerializer CreateGraphSerializer(INodeTypeProvider? typeProvider = null)
@@ -1065,12 +1102,32 @@ namespace SceneBlueprint.Editor
                 evt.Use();
             }
 
-            // ── Inspector 面板 ──
+            // ── Inspector + Analysis 竖向分割 ──
             _inspectorDrawer?.SetVariableDeclarations(BuildCombinedVariables());
-            if (_inspectorPanel.Draw(inspectorRect, _viewModel))
+            bool hasAnalysisSplit = _lastAnalysisReport != null;
+            Rect inspectorContentRect = inspectorRect;
+            Rect analysisSplitterBarRect = default;
+            Rect analysisContentRect = default;
+            if (hasAnalysisSplit)
+            {
+                float clampedH = Mathf.Clamp(_analysisHeight, MinAnalysisHeight, inspectorRect.height * 0.6f);
+                _analysisHeight = clampedH;
+                float splitterY = inspectorRect.yMax - clampedH - AnalysisSplitterHeight;
+                inspectorContentRect    = new Rect(inspectorRect.x, inspectorRect.y, inspectorRect.width, Mathf.Max(40f, splitterY - inspectorRect.y));
+                analysisSplitterBarRect = new Rect(inspectorRect.x, splitterY, inspectorRect.width, AnalysisSplitterHeight);
+                analysisContentRect     = new Rect(inspectorRect.x, splitterY + AnalysisSplitterHeight, inspectorRect.width, clampedH);
+                HandleAnalysisSplitter(analysisSplitterBarRect, evt, inspectorRect);
+            }
+            if (_inspectorPanel.Draw(inspectorContentRect, _viewModel))
             {
                 // 属性被修改，刷新画布摘要显示
                 _viewModel.RequestRepaint();
+            }
+            if (hasAnalysisSplit)
+            {
+                if (evt.type == EventType.Repaint)
+                    EditorGUI.DrawRect(analysisSplitterBarRect, new Color(0.15f, 0.15f, 0.15f, 1f));
+                DrawAnalysisPanel(analysisContentRect);
             }
 
             DetectPreviewGraphShapeChange();
@@ -1164,6 +1221,41 @@ namespace SceneBlueprint.Editor
             }
         }
 
+        private void HandleAnalysisSplitter(Rect splitterRect, Event evt, Rect parentRect)
+        {
+            EditorGUIUtility.AddCursorRect(splitterRect, MouseCursor.ResizeVertical);
+
+            switch (evt.type)
+            {
+                case EventType.MouseDown:
+                    if (splitterRect.Contains(evt.mousePosition))
+                    {
+                        _isDraggingAnalysisSplitter = true;
+                        evt.Use();
+                    }
+                    break;
+
+                case EventType.MouseDrag:
+                    if (_isDraggingAnalysisSplitter)
+                    {
+                        float newHeight = parentRect.yMax - evt.mousePosition.y - AnalysisSplitterHeight;
+                        _analysisHeight = Mathf.Clamp(newHeight, MinAnalysisHeight, parentRect.height * 0.6f);
+                        Repaint();
+                        evt.Use();
+                    }
+                    break;
+
+                case EventType.MouseUp:
+                    if (_isDraggingAnalysisSplitter)
+                    {
+                        _isDraggingAnalysisSplitter = false;
+                        EditorPrefs.SetFloat(AnalysisHeightPrefsKey, _analysisHeight);
+                        evt.Use();
+                    }
+                    break;
+            }
+        }
+
         // ── 工具栏 ──
 
         private void DrawToolbar()
@@ -1232,7 +1324,22 @@ namespace SceneBlueprint.Editor
                     ? $"子蓝图: {subGraphCount}  节点: {nodeCount}  连线: {edgeCount}  {bindingInfo}"
                     : $"节点: {nodeCount}  连线: {edgeCount}  {bindingInfo}";
 
-                GUILayout.Label(statusText, EditorStyles.miniLabel);
+                if (_lastAnalysisReport != null)
+                {
+                    string analysisStatus = _lastAnalysisReport.HasErrors   ? $"  ✕ {_lastAnalysisReport.ErrorCount}错误"
+                                          : _lastAnalysisReport.HasWarnings ? $"  △ {_lastAnalysisReport.WarningCount}警告"
+                                          : "  ✓ 通过";
+                    var prevColor = GUI.color;
+                    GUI.color = _lastAnalysisReport.HasErrors   ? new Color(1f, 0.4f, 0.4f)
+                              : _lastAnalysisReport.HasWarnings ? new Color(1f, 0.8f, 0.2f)
+                              : new Color(0.4f, 0.9f, 0.4f);
+                    GUILayout.Label(statusText + analysisStatus, EditorStyles.miniLabel);
+                    GUI.color = prevColor;
+                }
+                else
+                {
+                    GUILayout.Label(statusText, EditorStyles.miniLabel);
+                }
 
             }
 
@@ -1262,12 +1369,60 @@ namespace SceneBlueprint.Editor
             GUILayout.BeginArea(panelRect);
             {
                 EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandHeight(true));
-                {
-                    DrawBlackboardPanel();
-                }
+                DrawBlackboardPanel();
                 EditorGUILayout.EndVertical();
             }
             GUILayout.EndArea();
+        }
+
+        /// <summary>在给定 Rect 区域内绘制分析结果面板（带 BeginArea）。</summary>
+        private void DrawAnalysisPanel(Rect rect)
+        {
+            GUILayout.BeginArea(rect);
+            DrawAnalysisSection();
+            GUILayout.EndArea();
+        }
+
+        private void DrawAnalysisSection()
+        {
+            if (_lastAnalysisReport == null) return;
+            var prevColor = GUI.color;
+
+            // 标题栏
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            GUI.color = _lastAnalysisReport.HasErrors   ? new Color(1f, 0.35f, 0.35f)
+                      : _lastAnalysisReport.HasWarnings ? new Color(1f, 0.8f, 0.2f)
+                      : new Color(0.4f, 0.9f, 0.4f);
+            string title = _lastAnalysisReport.HasErrors
+                ? $"分析  {_lastAnalysisReport.ErrorCount} 错误  {_lastAnalysisReport.WarningCount} 警告"
+                : _lastAnalysisReport.HasWarnings ? $"分析  {_lastAnalysisReport.WarningCount} 警告"
+                : "分析  ✓ 无问题";
+            GUILayout.Label(title, EditorStyles.miniLabel, GUILayout.ExpandWidth(true));
+            GUI.color = prevColor;
+            EditorGUILayout.EndHorizontal();
+
+            // 条目列表
+            _analysisScrollPos = EditorGUILayout.BeginScrollView(_analysisScrollPos, GUILayout.ExpandHeight(true));
+            foreach (var d in _lastAnalysisReport.Diagnostics)
+            {
+                EditorGUILayout.BeginHorizontal();
+                GUI.color = d.Severity == DiagnosticSeverity.Error   ? new Color(1f, 0.35f, 0.35f)
+                          : d.Severity == DiagnosticSeverity.Warning ? new Color(1f, 0.75f, 0.2f)
+                          : Color.white;
+                string icon = d.Severity == DiagnosticSeverity.Error ? "✕"
+                            : d.Severity == DiagnosticSeverity.Warning ? "△" : "ℹ";
+                GUILayout.Label($"{icon} [{d.Code}]", EditorStyles.miniLabel, GUILayout.Width(70));
+                GUI.color = prevColor;
+                if (GUILayout.Button(d.Message, EditorStyles.miniLabel, GUILayout.ExpandWidth(true))
+                    && d.NodeId != null && _viewModel != null)
+                {
+                    _viewModel.Selection.SelectMultiple(new[] { d.NodeId });
+                    _viewModel.RequestRepaint();
+                    Repaint();
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+            EditorGUILayout.EndScrollView();
         }
 
         private void OnEditorHierarchyChanged()
@@ -1735,10 +1890,101 @@ namespace SceneBlueprint.Editor
             Repaint();
         }
 
+        /// <summary>命令执行/Undo/Redo 后重新调度 Debounce 分析。</summary>
+        private void OnCommandExecutedForAnalysis(ICommand _) => ScheduleAnalysis();
+
+        private void OnGraphHistoryChangedForAnalysis() => ScheduleAnalysis();
+
+        /// <summary>
+        /// 调度一次 debounce 分析：每次调用都刷新截止时间；
+        /// 用 EditorApplication.update 单次挂载代替 OnGUI 轮询，避免持续 Repaint 循环。
+        /// </summary>
+        private void ScheduleAnalysis()
+        {
+            _analysisDebounceUntil = EditorApplication.timeSinceStartup + AnalysisDebounceSeconds;
+            EditorApplication.update -= PollAnalysisDebounce;
+            EditorApplication.update += PollAnalysisDebounce;
+        }
+
+        /// <summary>挂载在 EditorApplication.update 上，等待 debounce 到期后执行分析并自动反注册。</summary>
+        private void PollAnalysisDebounce()
+        {
+            if (EditorApplication.timeSinceStartup < _analysisDebounceUntil) return;
+            EditorApplication.update -= PollAnalysisDebounce;
+            RunAnalysis();
+        }
+
+        /// <summary>运行蓝图分析（T4 Analyze Phase），结果缓存到 _lastAnalysisReport。</summary>
+        private AnalysisReport RunAnalysis()
+        {
+            if (_viewModel == null || _profile == null)
+            {
+                _lastAnalysisReport = AnalysisReport.Empty;
+                Repaint();
+                return AnalysisReport.Empty;
+            }
+            var analyzer = SceneBlueprintProfile.CreateAnalyzer(
+                new ActionRegistryTypeProvider(_profile.NodeTypes), GetActionRegistry());
+            _lastAnalysisReport = analyzer.Analyze(_viewModel.Graph);
+            foreach (var d in _lastAnalysisReport.Diagnostics)
+            {
+                switch (d.Severity)
+                {
+                    case DiagnosticSeverity.Error:   SBLog.Error(SBLogTags.Export, d.ToString()); break;
+                    case DiagnosticSeverity.Warning: SBLog.Warn(SBLogTags.Export, d.ToString()); break;
+                    default:                         SBLog.Info(SBLogTags.Export, d.ToString()); break;
+                }
+            }
+            UpdateNodeOverlayColors(_lastAnalysisReport);
+            Repaint();
+            return _lastAnalysisReport;
+        }
+
+        /// <summary>将分析报告映射为节点覆盖颜色，写入 ViewModel。Error=红，Warning=黄，无问题=清空。</summary>
+        private void UpdateNodeOverlayColors(AnalysisReport report)
+        {
+            if (_viewModel == null) return;
+
+            if (report.Diagnostics.Count == 0)
+            {
+                _viewModel.NodeOverlayColors = null;
+                return;
+            }
+
+            var colors = new Dictionary<string, NodeGraph.Math.Color4>();
+            foreach (var d in report.Diagnostics)
+            {
+                if (d.NodeId == null) continue;
+                var color = d.Severity == DiagnosticSeverity.Error
+                    ? new NodeGraph.Math.Color4(0.95f, 0.2f, 0.2f, 1f)
+                    : new NodeGraph.Math.Color4(1f, 0.75f, 0.1f, 1f);
+                // Error 优先：若已有 Warning，Error 可覆盖它
+                if (!colors.ContainsKey(d.NodeId) || d.Severity == DiagnosticSeverity.Error)
+                    colors[d.NodeId] = color;
+            }
+            _viewModel.NodeOverlayColors = colors.Count > 0 ? colors : null;
+        }
+
         private void ExportBlueprint()
         {
             if (_viewModel == null) return;
 
+            // ── Phase 1: Analyze ──
+            var report = RunAnalysis();
+            if (report.HasErrors)
+            {
+                if (!_showWorkbench) { _showWorkbench = true; EditorPrefs.SetBool(WorkbenchVisiblePrefsKey, true); }
+                EditorUtility.DisplayDialog("分析失败，无法导出",
+                    $"蓝图存在 {report.ErrorCount} 个错误，请查看工作台分析面板或 Console 日志。",
+                    "确定");
+                return;
+            }
+            if (report.HasWarnings)
+            {
+                SBLog.Warn(SBLogTags.Export, $"蓝图存在 {report.WarningCount} 条警告，已继续导出。");
+            }
+
+            // ── Phase 2-3: Compile + Emit ──
             var registry = GetActionRegistry();
 
             // 从场景绑定存储收集绑定数据
@@ -1758,29 +2004,15 @@ namespace SceneBlueprint.Editor
                 options: exportOptions,
                 variables: _currentAsset?.Variables);
 
-            // 输出验证消息
+            // 转换时产生的消息（非校验，属于意外转换异常）
             foreach (var msg in result.Messages)
             {
                 switch (msg.Level)
                 {
-                    case ValidationLevel.Error:
-                        SBLog.Error(SBLogTags.Export, msg.Message);
-                        break;
-                    case ValidationLevel.Warning:
-                        SBLog.Warn(SBLogTags.Export, msg.Message);
-                        break;
-                    default:
-                        SBLog.Info(SBLogTags.Export, msg.Message);
-                        break;
+                    case ValidationLevel.Error:   SBLog.Error(SBLogTags.Export, msg.Message); break;
+                    case ValidationLevel.Warning: SBLog.Warn(SBLogTags.Export, msg.Message);  break;
+                    default:                      SBLog.Info(SBLogTags.Export, msg.Message);  break;
                 }
-            }
-
-            if (result.HasErrors)
-            {
-                EditorUtility.DisplayDialog("导出失败",
-                    $"蓝图存在 {result.Messages.Count(m => m.Level == ValidationLevel.Error)} 个错误，请查看 Console 日志。",
-                    "确定");
-                return;
             }
 
             // 序列化为 JSON
@@ -1816,18 +2048,11 @@ namespace SceneBlueprint.Editor
                     $"过渡数: {result.Data.Transitions.Length}, " +
                     $"绑定数: {boundBindings}/{totalBindings})");
 
-                if (result.HasWarnings)
-                {
-                    EditorUtility.DisplayDialog("导出完成（有警告）",
-                        $"蓝图已导出，但有 {result.Messages.Count(m => m.Level == ValidationLevel.Warning)} 条警告，请查看 Console。",
-                        "确定");
-                }
-                else
-                {
-                    EditorUtility.DisplayDialog("导出成功",
-                        $"蓝图已导出到:\n{path}\n\n行动数: {result.Data.Actions.Length}\n过渡数: {result.Data.Transitions.Length}",
-                        "确定");
-                }
+                string successMsg = report.HasWarnings
+                    ? $"蓝图已导出（{report.WarningCount} 条警告）：\n{path}"
+                    : $"蓝图已导出到:\n{path}\n\n行动数: {result.Data.Actions.Length}\n过渡数: {result.Data.Transitions.Length}";
+                EditorUtility.DisplayDialog(report.HasWarnings ? "导出完成（有警告）" : "导出成功",
+                    successMsg, "确定");
             }
         }
 

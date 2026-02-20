@@ -71,6 +71,9 @@ namespace NodeGraph.View
         /// <summary>当前悬停的端口 ID（用于渲染高亮效果，每帧更新）</summary>
         public string? HoveredPortId { get; set; }
 
+        /// <summary>节点诊断覆盖颜色（节点 ID → 边框颜色）。由宿主窗口根据分析结果写入，null 表示无覆盖。</summary>
+        public Dictionary<string, Color4>? NodeOverlayColors { get; set; }
+
         /// <summary>当前悬停的槽位索引（Multiple 端口用，-1 表示非 Multiple 或无悬停）</summary>
         public int HoveredPortSlotIndex { get; set; } = -1;
 

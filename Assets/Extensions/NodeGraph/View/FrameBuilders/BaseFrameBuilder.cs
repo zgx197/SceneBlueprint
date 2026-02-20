@@ -487,6 +487,11 @@ namespace NodeGraph.View
                     }
                 }
 
+                // 诊断覆盖边框色（由宿主窗口根据分析结果写入）
+                if (viewModel.NodeOverlayColors != null &&
+                    viewModel.NodeOverlayColors.TryGetValue(node.Id, out var overlayColor))
+                    nodeFrame.OverlayBorderColor = overlayColor;
+
                 BuildPorts(nodeFrame, node, bounds, viewModel, theme);
                 BuildNodeContent(nodeFrame, node, bounds, viewModel, theme, selected, isPrimary);
 

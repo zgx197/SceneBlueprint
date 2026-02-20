@@ -4,6 +4,8 @@ using NodeGraph.Core;
 using NodeGraph.View;
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Editor.Analysis;
+using SceneBlueprint.Editor.Analysis.Rules;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Templates;
 using SceneBlueprint.Runtime.Templates;
@@ -63,6 +65,20 @@ namespace SceneBlueprint.Editor
             }
 
             return profile;
+        }
+
+        /// <summary>
+        /// 创建配置完成的 BlueprintAnalyzer（T4 Analyze Phase 入口）。
+        /// 按推荐顺序注册内置规则：SB003 → SB001 → SB002 → SB004 → SB005。
+        /// </summary>
+        public static BlueprintAnalyzer CreateAnalyzer(INodeTypeProvider typeProvider, ActionRegistry actionRegistry)
+        {
+            return new BlueprintAnalyzer(typeProvider, actionRegistry)
+                .AddRule(new MultipleStartRule())              // SB003：快速失败
+                .AddRule(new ReachabilityRule())               // SB001：计算可达集合
+                .AddRule(new RequiredPortRule())               // SB002：依赖可达集合
+                .AddRule(new DeadOutputRule())                 // SB004
+                .AddRule(new IsolatedNodeRule());              // SB005
         }
 
         /// <summary>

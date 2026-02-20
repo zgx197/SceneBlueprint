@@ -22,8 +22,10 @@ namespace SceneBlueprint.Editor.Export
     /// 2. 遍历所有节点 → ActionEntry（属性扁平化为 PropertyValue[]）
     /// 3. 遍历所有连线 → TransitionEntry（含 ConditionData）
     /// 4. 合并场景绑定（从 Manager 或 BindingContext 读取）
-    /// 5. 执行验证规则
-    /// 6. 返回 SceneBlueprintData
+    /// 5. 返回 SceneBlueprintData
+    ///
+    /// 注：图合法性校验（节点可达性、Required 端口等）已由 BlueprintAnalyzer 在导出前完成，
+    /// Exporter 本身只负责"Graph → Contract"转换。
     /// </summary>
     public static class BlueprintExporter
     {
@@ -118,10 +120,7 @@ namespace SceneBlueprint.Editor.Export
             // ── Step 3.5: 收集 Annotation 数据（后处理）──
             EnrichBindingsWithAnnotations(actions, registry, messages);
 
-            // ── Step 4: 验证 ──
-            Validate(graph, registry, actions, boundaryNodeIds, messages);
-
-            // ── Step 5: 组装 ──
+            // ── Step 4: 组装 ──
             var allVariables = MergeVariables(variables, graph, registry);
             var dataConnections = ExportDataConnections(graph, boundaryNodeIds, registry);
             var data = new SceneBlueprintData
@@ -689,182 +688,6 @@ namespace SceneBlueprint.Editor.Export
             }
         }
 
-        // ══════════════════════════════════════
-        //  验证
-        // ══════════════════════════════════════
-
-        private static void Validate(
-            Graph graph, ActionRegistry registry,
-            List<ActionEntry> actions, HashSet<string> boundaryNodeIds,
-            List<ValidationMessage> messages)
-        {
-            // 规则 1：必须有且仅有一个 Flow.Start
-            var startNodes = actions.Where(a => a.TypeId == "Flow.Start").ToList();
-            if (startNodes.Count == 0)
-                messages.Add(ValidationMessage.Error("蓝图缺少 Flow.Start 入口节点"));
-            else if (startNodes.Count > 1)
-                messages.Add(ValidationMessage.Error($"蓝图有 {startNodes.Count} 个 Flow.Start 节点，应仅有一个"));
-
-            // 规则 2：TypeId 已注册
-            foreach (var action in actions)
-            {
-                if (!registry.TryGet(action.TypeId, out _))
-                {
-                    // 已在 ExportNode 中报告，此处跳过重复
-                }
-            }
-
-            // 规则 3：孤立节点（无连入也无连出，跳过边界节点）
-            var connectedNodeIds = new HashSet<string>();
-            foreach (var edge in graph.Edges)
-            {
-                var sp = graph.FindPort(edge.SourcePortId);
-                var tp = graph.FindPort(edge.TargetPortId);
-                if (sp != null) connectedNodeIds.Add(sp.NodeId);
-                if (tp != null) connectedNodeIds.Add(tp.NodeId);
-            }
-
-            foreach (var node in graph.Nodes)
-            {
-                if (boundaryNodeIds.Contains(node.Id)) continue;
-
-                if (!connectedNodeIds.Contains(node.Id))
-                {
-                    messages.Add(ValidationMessage.Warning(
-                        $"节点 '{node.Id}' (TypeId: {(node.UserData as ActionNodeData)?.ActionTypeId ?? "?"}) 是孤立节点（无连入也无连出）"));
-                }
-            }
-
-            // 规则 4：端口连接方向合法性（Out → In，跳过边界节点相关连线）
-            foreach (var edge in graph.Edges)
-            {
-                var sp = graph.FindPort(edge.SourcePortId);
-                var tp = graph.FindPort(edge.TargetPortId);
-                if (sp == null || tp == null) continue;
-                if (boundaryNodeIds.Contains(sp.NodeId) || boundaryNodeIds.Contains(tp.NodeId)) continue;
-
-                if (sp.Direction != NodeGraph.Core.PortDirection.Output || tp.Direction != NodeGraph.Core.PortDirection.Input)
-                {
-                    messages.Add(ValidationMessage.Error(
-                        $"连线 '{edge.Id}' 方向错误：{sp.Direction} → {tp.Direction}"));
-                }
-            }
-
-            // 规则 5：子蓝图数量统计（信息级别）
-            if (graph.SubGraphFrames.Count > 0)
-            {
-                messages.Add(ValidationMessage.Info(
-                    $"展平了 {graph.SubGraphFrames.Count} 个子蓝图，" +
-                    $"跳过了 {boundaryNodeIds.Count} 个边界节点"));
-            }
-
-            // 规则 6：执行 SO 配置的验证规则
-            ValidateSOPRules(graph, registry, actions, boundaryNodeIds, messages);
-        }
-
-        /// <summary>
-        /// 执行通过 ValidationRuleSO 配置的验证规则。
-        /// 与 C# 内置规则合并，补充业务层面的验证。
-        /// </summary>
-        private static void ValidateSOPRules(
-            Graph graph, ActionRegistry registry,
-            List<ActionEntry> actions, HashSet<string> boundaryNodeIds,
-            List<ValidationMessage> messages)
-        {
-            var rules = ValidationRuleRegistry.GetEnabled();
-            if (rules.Count == 0) return;
-
-            foreach (var rule in rules)
-            {
-                switch (rule.Type)
-                {
-                    case ValidationType.PropertyRequired:
-                        ValidatePropertyRequired(rule, graph, registry, messages);
-                        break;
-                    case ValidationType.BindingRequired:
-                        ValidateBindingRequired(rule, graph, registry, messages);
-                        break;
-                    case ValidationType.MinNodesInSubGraph:
-                        ValidateMinNodesInSubGraph(rule, graph, boundaryNodeIds, messages);
-                        break;
-                }
-            }
-        }
-
-        /// <summary>PropertyRequired：指定 Action 的指定属性必须非空</summary>
-        private static void ValidatePropertyRequired(
-            ValidationRuleSO rule, Graph graph, ActionRegistry registry,
-            List<ValidationMessage> messages)
-        {
-            if (string.IsNullOrEmpty(rule.TargetActionTypeId) || string.IsNullOrEmpty(rule.TargetPropertyKey))
-                return;
-
-            foreach (var node in graph.Nodes)
-            {
-                if (node.UserData is not ActionNodeData data) continue;
-                if (data.ActionTypeId != rule.TargetActionTypeId) continue;
-
-                var raw = data.Properties.GetRaw(rule.TargetPropertyKey);
-                bool isEmpty = raw == null || (raw is string s && string.IsNullOrWhiteSpace(s));
-
-                if (isEmpty)
-                {
-                    var msg = $"[{rule.RuleId}] 节点 '{node.Id}' ({data.ActionTypeId}) 的属性 '{rule.TargetPropertyKey}' 不能为空";
-                    if (!string.IsNullOrEmpty(rule.Description)) msg += $" — {rule.Description}";
-                    messages.Add(ToMessage(rule.Severity, msg));
-                }
-            }
-        }
-
-        /// <summary>BindingRequired：指定 Action 的所有 SceneBinding 必须已配置</summary>
-        private static void ValidateBindingRequired(
-            ValidationRuleSO rule, Graph graph, ActionRegistry registry,
-            List<ValidationMessage> messages)
-        {
-            if (string.IsNullOrEmpty(rule.TargetActionTypeId)) return;
-            if (!registry.TryGet(rule.TargetActionTypeId, out var actionDef)) return;
-
-            foreach (var node in graph.Nodes)
-            {
-                if (node.UserData is not ActionNodeData data) continue;
-                if (data.ActionTypeId != rule.TargetActionTypeId) continue;
-
-                foreach (var req in actionDef.SceneRequirements)
-                {
-                    var val = data.Properties.Get<string>(req.BindingKey);
-                    if (string.IsNullOrEmpty(val))
-                    {
-                        var msg = $"[{rule.RuleId}] 节点 '{node.Id}' ({data.ActionTypeId}) 缺少场景绑定: {req.DisplayName}";
-                        if (!string.IsNullOrEmpty(rule.Description)) msg += $" — {rule.Description}";
-                        messages.Add(ToMessage(rule.Severity, msg));
-                    }
-                }
-            }
-        }
-
-        /// <summary>MinNodesInSubGraph：子蓝图内至少 N 个节点</summary>
-        private static void ValidateMinNodesInSubGraph(
-            ValidationRuleSO rule, Graph graph, HashSet<string> boundaryNodeIds,
-            List<ValidationMessage> messages)
-        {
-            foreach (var frame in graph.SubGraphFrames)
-            {
-                // 统计非边界节点的子图内节点数
-                int count = 0;
-                foreach (var node in graph.Nodes)
-                {
-                    if (frame.ContainedNodeIds.Contains(node.Id) && !boundaryNodeIds.Contains(node.Id))
-                        count++;
-                }
-
-                if (count < rule.MinNodeCount)
-                {
-                    var msg = $"[{rule.RuleId}] 子蓝图 '{frame.Title}' 只有 {count} 个节点，最少需要 {rule.MinNodeCount} 个";
-                    if (!string.IsNullOrEmpty(rule.Description)) msg += $" — {rule.Description}";
-                    messages.Add(ToMessage(rule.Severity, msg));
-                }
-            }
-        }
 
         /// <summary>
         /// 判断给定 ActionTypeId 是否需要将 AreaMarker 作为整体区域导出
@@ -927,17 +750,6 @@ namespace SceneBlueprint.Editor.Export
             }
         }
 
-        /// <summary>将 ValidationSeverity 转为 ValidationMessage</summary>
-        private static ValidationMessage ToMessage(Core.ValidationSeverity severity, string msg)
-        {
-            return severity switch
-            {
-                Core.ValidationSeverity.Error => ValidationMessage.Error(msg),
-                Core.ValidationSeverity.Warning => ValidationMessage.Warning(msg),
-                Core.ValidationSeverity.Info => ValidationMessage.Info(msg),
-                _ => ValidationMessage.Info(msg)
-            };
-        }
     }
 
     // ══════════════════════════════════════

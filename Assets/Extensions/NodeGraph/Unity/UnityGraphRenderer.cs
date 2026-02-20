@@ -440,6 +440,20 @@ namespace NodeGraph.Unity
 
                 DrawRoundedBorder(bounds, glowColor, t.SelectionBorderWidth, cornerPx);
             }
+
+            // 10. 诊断覆盖边框（Error=红色 / Warning=黄色，始终渲染在选中发光之上）
+            if (node.OverlayBorderColor.HasValue)
+            {
+                var oc = node.OverlayBorderColor.Value;
+                for (int i = 2; i >= 1; i--)
+                {
+                    float expand = 2f * i;
+                    var glowRect = bounds.Expand(expand);
+                    int glowRadius = Mathf.Max(2, cornerPx + (int)expand);
+                    DrawRoundedBorder(glowRect, oc.WithAlpha(0.2f / i), t.SelectionBorderWidth + 1f, glowRadius);
+                }
+                DrawRoundedBorder(bounds, oc, t.SelectionBorderWidth + 1f, cornerPx);
+            }
         }
 
         /// <summary>

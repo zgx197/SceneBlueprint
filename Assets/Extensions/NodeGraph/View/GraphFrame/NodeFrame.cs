@@ -46,5 +46,8 @@ namespace NodeGraph.View
 
         /// <summary>节点描述文字（来自 IDescribableNode.Description，空时不渲染描述条）</summary>
         public string? Description { get; set; }
+
+        /// <summary>诊断覆盖边框颜色（null = 无覆盖）。由宿主窗口根据分析结果写入，渲染在选中发光之上。</summary>
+        public Color4? OverlayBorderColor { get; set; }
     }
 }
