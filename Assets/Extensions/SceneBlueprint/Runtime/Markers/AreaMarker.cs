@@ -1,7 +1,6 @@
 #nullable enable
 using System.Collections.Generic;
 using UnityEngine;
-using SceneBlueprint.Core;
 
 namespace SceneBlueprint.Runtime.Markers
 {
@@ -27,7 +26,7 @@ namespace SceneBlueprint.Runtime.Markers
     [AddComponentMenu("SceneBlueprint/Area Marker")]
     public class AreaMarker : SceneMarker
     {
-        public override string MarkerTypeId => MarkerTypeIds.Area;
+        public override string MarkerTypeId => "Area";
 
         [Header("区域形状")]
 

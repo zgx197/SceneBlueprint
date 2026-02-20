@@ -1,7 +1,7 @@
 #nullable enable
 using System;
 using UnityEngine;
-using SceneBlueprint.Core;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Runtime
 {

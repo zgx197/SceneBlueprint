@@ -14,7 +14,6 @@ using SceneBlueprint.Contract;
 using SceneBlueprint.Editor.Export;
 using GraphPort = NodeGraph.Core.Port;
 using GraphPortDefinition = NodeGraph.Core.PortDefinition;
-using CoreValidationSeverity = SceneBlueprint.Core.ValidationSeverity;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers;
 using SceneBlueprint.Editor.Markers.Pipeline;

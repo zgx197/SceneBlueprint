@@ -1,9 +1,11 @@
 #nullable enable
 using UnityEngine;
-using SceneBlueprint.Core;
 
 namespace SceneBlueprint.Runtime.Templates
 {
+    /// <summary>验证规则严重级别</summary>
+    public enum RuleSeverity { Warning, Error }
+
     /// <summary>
     /// 验证规则类型。
     /// </summary>
@@ -51,7 +53,7 @@ namespace SceneBlueprint.Runtime.Templates
         public string Description = "";
 
         [Tooltip("严重级别")]
-        public ValidationSeverity Severity = ValidationSeverity.Warning;
+        public RuleSeverity Severity = RuleSeverity.Warning;
 
         [Tooltip("是否启用此规则")]
         public bool Enabled = true;

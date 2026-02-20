@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using NodeGraph.Math;
+using SceneBlueprint.Contract;
 using SceneBlueprint.Core;
 using SceneBlueprint.Runtime.Templates;
 

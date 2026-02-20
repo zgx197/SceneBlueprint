@@ -4,6 +4,23 @@ using System;
 namespace SceneBlueprint.Contract
 {
     /// <summary>
+    /// 场景绑定类型——决定导出时的数据格式。
+    /// <para>从 SceneBlueprint.Core.PropertyDefinition 迁移至此，供 Runtime 和 Core 共同引用。</para>
+    /// </summary>
+    public enum BindingType
+    {
+        /// <summary>位置/朝向——导出为位置+旋转数据</summary>
+        Transform,
+        /// <summary>多边形区域——导出为顶点坐标数组</summary>
+        Area,
+        /// <summary>路径——导出为路径点序列</summary>
+        Path,
+        /// <summary>碰撞器/触发器——导出为字符串 ID</summary>
+        Collider
+    }
+
+
+    /// <summary>
     /// 蓝图导出数据（顶层）。
     /// 纯数据类，零框架依赖。运行时通过 JSON 反序列化消费此数据。
     /// </summary>

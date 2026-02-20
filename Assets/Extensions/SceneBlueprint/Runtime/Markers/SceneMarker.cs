@@ -1,7 +1,6 @@
 #nullable enable
 using System;
 using UnityEngine;
-using SceneBlueprint.Core;
 
 namespace SceneBlueprint.Runtime.Markers
 {

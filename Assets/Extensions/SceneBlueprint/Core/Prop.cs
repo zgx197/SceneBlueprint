@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Core
 {

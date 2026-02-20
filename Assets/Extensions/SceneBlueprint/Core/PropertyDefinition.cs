@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Core
 {
@@ -53,26 +54,6 @@ namespace SceneBlueprint.Core
         StructList,
         /// <summary>Blackboard 变量选择器 → Popup 下拉，选项来自当前蓝图的变量声明列表</summary>
         VariableSelector
-    }
-
-    /// <summary>
-    /// 场景绑定类型——行动引用场景中的对象时，需要指定绑定方式。
-    /// <para>
-    /// 导出时的行为差异：
-    /// - Transform/Area/Path → 直接导出坐标数据（自包含，无需场景引用）
-    /// - Collider → 导出字符串 ID（运行时需查找）
-    /// </para>
-    /// </summary>
-    public enum BindingType
-    {
-        /// <summary>位置/朝向——导出为位置+旋转数据（如 Boss 出场点）</summary>
-        Transform,
-        /// <summary>多边形区域——导出为顶点坐标数组（如刷怪范围）</summary>
-        Area,
-        /// <summary>路径——导出为路径点序列（如巡逻路线、行进刷怪路径）</summary>
-        Path,
-        /// <summary>碰撞器/触发器——导出为字符串 ID（运行时查找）</summary>
-        Collider
     }
 
     /// <summary>

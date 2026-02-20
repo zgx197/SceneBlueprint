@@ -1,6 +1,5 @@
 #nullable enable
 using UnityEngine;
-using SceneBlueprint.Core;
 
 namespace SceneBlueprint.Runtime.Markers
 {
@@ -14,7 +13,7 @@ namespace SceneBlueprint.Runtime.Markers
     [AddComponentMenu("SceneBlueprint/Point Marker")]
     public class PointMarker : SceneMarker
     {
-        public override string MarkerTypeId => MarkerTypeIds.Point;
+        public override string MarkerTypeId => "Point";
 
         [Header("显示")]
 
