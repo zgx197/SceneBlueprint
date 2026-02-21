@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Core.Generated;
 using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Actions.Trigger
@@ -23,12 +24,6 @@ namespace SceneBlueprint.Actions.Trigger
     [ActionType(AT.Trigger.EnterArea)]
     public class TriggerEnterAreaDef : IActionDefinitionProvider
     {
-        public static class Props
-        {
-            public const string TriggerArea        = "triggerArea";
-            public const string RequireFullyInside = "requireFullyInside";
-        }
-
         public ActionDefinition Define() => new ActionDefinition
         {
             TypeId = AT.Trigger.EnterArea,
@@ -40,19 +35,19 @@ namespace SceneBlueprint.Actions.Trigger
 
             Ports = new[]
             {
-                Port.In("in", "输入"),     // 被上游激活
-                Port.Out("out", "进入时"),  // 条件满足后触发下游
+                Port.In(ActionPortIds.TriggerEnterArea.In,  "输入"),     // 被上游激活
+                Port.Out(ActionPortIds.TriggerEnterArea.Out, "进入时"),  // 条件满足后触发下游
             },
 
             Properties = new[]
             {
-                Prop.SceneBinding(Props.TriggerArea, "触发区域", BindingType.Area, order: 0),
-                Prop.Bool(Props.RequireFullyInside, "需要完全进入", defaultValue: false, order: 1),
+                Prop.SceneBinding(ActionPortIds.TriggerEnterArea.TriggerArea, "触发区域", BindingType.Area, order: 0),
+                Prop.Bool(ActionPortIds.TriggerEnterArea.RequireFullyInside, "需要完全进入", defaultValue: false, order: 1),
             },
 
             SceneRequirements = new[]
             {
-                new MarkerRequirement(Props.TriggerArea, MarkerTypeIds.Area,
+                new MarkerRequirement(ActionPortIds.TriggerEnterArea.TriggerArea, MarkerTypeIds.Area,
                     displayName: "触发区域",
                     defaultTag: "Trigger.Enter",
                     required: true)

@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Actions.VFX
 {
@@ -13,13 +14,6 @@ namespace SceneBlueprint.Actions.VFX
     [ActionType(AT.Vfx.CameraShake)]
     public class CameraShakeDef : IActionDefinitionProvider
     {
-        public static class Props
-        {
-            public const string Intensity  = "intensity";
-            public const string Duration   = "duration";
-            public const string Frequency  = "frequency";
-        }
-
         public ActionDefinition Define() => new ActionDefinition
         {
             TypeId = AT.Vfx.CameraShake,
@@ -31,15 +25,15 @@ namespace SceneBlueprint.Actions.VFX
 
             Ports = new[]
             {
-                Port.In("in", "输入"),
-                Port.Out("out", "输出")
+                Port.In(ActionPortIds.VFXCameraShake.In, "输入"),
+                Port.Out(ActionPortIds.VFXCameraShake.Out, "输出")
             },
 
             Properties = new[]
             {
-                Prop.Float(Props.Intensity,  "强度",    defaultValue: 1f,   min: 0.1f, max: 10f,  order: 0),
-                Prop.Float(Props.Duration,   "时长(秒)", defaultValue: 0.5f, min: 0.1f, max: 5f,   order: 1),
-                Prop.Float(Props.Frequency,  "频率",    defaultValue: 20f,  min: 1f,   max: 100f, order: 2)
+                Prop.Float(ActionPortIds.VFXCameraShake.Intensity,  "强度",    defaultValue: 1f,   min: 0.1f, max: 10f,  order: 0),
+                Prop.Float(ActionPortIds.VFXCameraShake.Duration,   "时长(秒)", defaultValue: 0.5f, min: 0.1f, max: 5f,   order: 1),
+                Prop.Float(ActionPortIds.VFXCameraShake.Frequency,  "频率",    defaultValue: 20f,  min: 1f,   max: 100f, order: 2)
             },
 
             SceneRequirements = System.Array.Empty<MarkerRequirement>()

@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Actions.Flow
 {
@@ -28,20 +29,6 @@ namespace SceneBlueprint.Actions.Flow
     [ActionType(AT.Flow.Filter)]
     public class FlowFilterDef : IActionDefinitionProvider
     {
-        public static class Ports
-        {
-            public const string In           = "in";
-            public const string CompareValue = "compareValue";
-            public const string Pass         = "pass";
-            public const string Reject       = "reject";
-        }
-
-        public static class Props
-        {
-            public const string Op         = "op";
-            public const string ConstValue = "constValue";
-        }
-
         public ActionDefinition Define() => new ActionDefinition
         {
             TypeId = AT.Flow.Filter,
@@ -53,18 +40,18 @@ namespace SceneBlueprint.Actions.Flow
 
             Ports = new[]
             {
-                Port.In(Ports.In, "输入"),
-                Port.DataIn(Ports.CompareValue, "比较値", DataTypes.Any), // 接收上游数据端口的值
-                Port.Out(Ports.Pass,   "满足"),    // 条件满足时触发
-                Port.Out(Ports.Reject, "不满足"),  // 条件不满足时触发（可选）
+                Port.In(ActionPortIds.FlowFilter.In, "输入"),
+                Port.DataIn(ActionPortIds.FlowFilter.CompareValue, "比较値", DataTypes.Any), // 接收上游数据端口的值
+                Port.Out(ActionPortIds.FlowFilter.Pass,   "满足"),    // 条件满足时触发
+                Port.Out(ActionPortIds.FlowFilter.Reject, "不满足"),  // 条件不满足时触发（可选）
             },
 
             Properties = new[]
             {
-                Prop.Enum(Props.Op, "操作符",
+                Prop.Enum(ActionPortIds.FlowFilter.Op, "操作符",
                     new[] { "==", "!=", ">", "<", ">=", "<=" },
                     defaultValue: "==", order: 0),
-                Prop.String(Props.ConstValue, "常量（无连线时 pass）",
+                Prop.String(ActionPortIds.FlowFilter.ConstValue, "常量（无连线时 pass）",
                     defaultValue: "0", order: 1),
             },
 

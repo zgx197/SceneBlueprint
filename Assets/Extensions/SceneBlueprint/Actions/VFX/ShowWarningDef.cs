@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Actions.VFX
 {
@@ -14,14 +15,6 @@ namespace SceneBlueprint.Actions.VFX
     [ActionType(AT.Vfx.ShowWarning)]
     public class ShowWarningDef : IActionDefinitionProvider
     {
-        public static class Props
-        {
-            public const string Text     = "text";
-            public const string Duration = "duration";
-            public const string Style    = "style";
-            public const string FontSize = "fontSize";
-        }
-
         public ActionDefinition Define() => new ActionDefinition
         {
             TypeId = AT.Vfx.ShowWarning,
@@ -33,18 +26,18 @@ namespace SceneBlueprint.Actions.VFX
 
             Ports = new[]
             {
-                Port.In("in", "输入"),
-                Port.Out("out", "输出")
+                Port.In(ActionPortIds.VFXShowWarning.In, "输入"),
+                Port.Out(ActionPortIds.VFXShowWarning.Out, "输出")
             },
 
             Properties = new[]
             {
-                Prop.String(Props.Text,     "显示文字", defaultValue: "警告！", order: 0),
-                Prop.Float(Props.Duration,  "时长(秒)", defaultValue: 2f,    min: 0.5f, max: 10f,  order: 1),
-                Prop.Enum(Props.Style,      "样式",
+                Prop.String(ActionPortIds.VFXShowWarning.Text,     "显示文字", defaultValue: "警告！", order: 0),
+                Prop.Float(ActionPortIds.VFXShowWarning.Duration,  "时长(秒)", defaultValue: 2f,    min: 0.5f, max: 10f,  order: 1),
+                Prop.Enum(ActionPortIds.VFXShowWarning.Style,      "样式",
                     new[] { "Warning", "Info", "Boss" },
                     defaultValue: "Warning", order: 2),
-                Prop.Float(Props.FontSize,  "字号",     defaultValue: 48f,   min: 16f,  max: 128f, order: 3),
+                Prop.Float(ActionPortIds.VFXShowWarning.FontSize,  "字号",     defaultValue: 48f,   min: 16f,  max: 128f, order: 3),
             },
 
             SceneRequirements = System.Array.Empty<MarkerRequirement>()

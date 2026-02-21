@@ -2,6 +2,7 @@
 using System;
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Actions.Blackboard
 {
@@ -15,12 +16,6 @@ namespace SceneBlueprint.Actions.Blackboard
     [ActionType(AT.Blackboard.Set)]
     public class BlackboardSetDef : IActionDefinitionProvider
     {
-        public static class Props
-        {
-            public const string VariableIndex = "variableIndex";
-            public const string Value         = "value";
-        }
-
         public ActionDefinition Define() => new ActionDefinition
         {
             TypeId      = AT.Blackboard.Set,
@@ -32,14 +27,14 @@ namespace SceneBlueprint.Actions.Blackboard
 
             Ports = new[]
             {
-                Port.In("in",  "输入"),
-                Port.Out("out", "输出"),
+                Port.In(ActionPortIds.BlackboardSet.In,   "输入"),
+                Port.Out(ActionPortIds.BlackboardSet.Out, "输出"),
             },
 
             Properties = new[]
             {
-                Prop.VariableSelector(Props.VariableIndex, "变量", defaultValue: -1, order: 0),
-                Prop.String(Props.Value, "値", defaultValue: "", order: 1),
+                Prop.VariableSelector(ActionPortIds.BlackboardSet.VariableIndex, "变量", defaultValue: -1, order: 0),
+                Prop.String(ActionPortIds.BlackboardSet.Value, "値", defaultValue: "", order: 1),
             },
 
             SceneRequirements = Array.Empty<MarkerRequirement>()

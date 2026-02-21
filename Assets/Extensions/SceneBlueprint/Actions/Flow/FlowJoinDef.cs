@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Actions.Flow
 {
@@ -19,15 +20,6 @@ namespace SceneBlueprint.Actions.Flow
     [ActionType(AT.Flow.Join)]
     public class FlowJoinDef : IActionDefinitionProvider
     {
-        /// <summary>
-        /// 运行时由编译器自动写入的属性键（不在 Inspector 中显示）。
-        /// TransitionSystem 通过此键读取待收集的进边数量。
-        /// </summary>
-        public static class Props
-        {
-            public const string InEdgeCount = "inEdgeCount";
-        }
-
         public ActionDefinition Define() => new ActionDefinition
         {
             TypeId = AT.Flow.Join,
@@ -38,8 +30,8 @@ namespace SceneBlueprint.Actions.Flow
             Duration = ActionDuration.Duration, // 持续型——需要等待所有输入完成
             Ports = new[]
             {
-                Port.InMulti("in", "输入"), // 汇合语义：可接收多个前置行动
-                Port.Out("out", "输出")
+                Port.InMulti(ActionPortIds.FlowJoin.In,  "输入"), // 汇合语义：可接收多个前置行动
+                Port.Out(ActionPortIds.FlowJoin.Out, "输出")
             },
         };
     }

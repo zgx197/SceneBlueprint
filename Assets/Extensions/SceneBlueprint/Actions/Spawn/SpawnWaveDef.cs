@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Core.Generated;
 using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Actions.Spawn
@@ -30,21 +31,6 @@ namespace SceneBlueprint.Actions.Spawn
     [ActionType(AT.Spawn.Wave)]
     public class SpawnWaveActionDef : IActionDefinitionProvider
     {
-        public static class Ports
-        {
-            public const string In          = "in";
-            public const string Out         = "out";
-            public const string OnWaveStart = "onWaveStart";
-            public const string WaveIndex   = "waveIndex";
-            public const string TotalWaves  = "totalWaves";
-        }
-
-        public static class Props
-        {
-            public const string SpawnArea = "spawnArea";
-            public const string Waves     = "waves";
-        }
-
         public ActionDefinition Define() => new ActionDefinition
         {
             TypeId = AT.Spawn.Wave,
@@ -55,19 +41,19 @@ namespace SceneBlueprint.Actions.Spawn
             Duration = ActionDuration.Duration, // 持续型——多波次需要时间
             Ports = new[]
             {
-                Port.In(Ports.In, "输入"),
-                Port.Out(Ports.Out, "全部完成"),
-                Port.Out(Ports.OnWaveStart, "每波开始"),
-                Port.DataOut(Ports.WaveIndex,  "当前波次", DataTypes.Int),
-                Port.DataOut(Ports.TotalWaves, "总波次数", DataTypes.Int),
+                Port.In(ActionPortIds.SpawnWave.In,  "输入"),
+                Port.Out(ActionPortIds.SpawnWave.Out, "全部完成"),
+                Port.Out(ActionPortIds.SpawnWave.OnWaveStart, "每波开始"),
+                Port.DataOut(ActionPortIds.SpawnWave.WaveIndex,  "当前波次", DataTypes.Int),
+                Port.DataOut(ActionPortIds.SpawnWave.TotalWaves, "总波次数", DataTypes.Int),
             },
             Properties = new[]
             {
-                Prop.SceneBinding(Props.SpawnArea, "刷怪区域", BindingType.Area, order: 0),
+                Prop.SceneBinding(ActionPortIds.SpawnWave.SpawnArea, "刷怪区域", BindingType.Area, order: 0),
                 // 波次配置列表，StructList 类型
                 // 侧边 Inspector 用 ReorderableList 编辑，节点画布显示摘要
                 // 存储格式：JSON 数组字符串 [{"count":5,"intervalTicks":0,"monsterFilter":"Normal"}, ...]
-                Prop.StructList(Props.Waves, "波次配置",
+                Prop.StructList(ActionPortIds.SpawnWave.Waves, "波次配置",
                     fields: new[]
                     {
                         Prop.Int("count", "刷怪数量", defaultValue: 5, min: 1, max: 50),
@@ -81,12 +67,12 @@ namespace SceneBlueprint.Actions.Spawn
             },
             SceneRequirements = new[]
             {
-                new MarkerRequirement("spawnArea", MarkerTypeIds.Area,
+                new MarkerRequirement(ActionPortIds.SpawnWave.SpawnArea, MarkerTypeIds.Area,
                     required: true, displayName: "刷怪区域"),
             },
             OutputVariables = new[]
             {
-                OutputVar.Int("waveIndex", "当前波次"),
+                OutputVar.Int(ActionPortIds.SpawnWave.WaveIndex, "当前波次"),
             }
         };
     }

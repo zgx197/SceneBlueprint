@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Actions.Flow
 {
@@ -15,28 +16,23 @@ namespace SceneBlueprint.Actions.Flow
     [ActionType(AT.Flow.Delay)]
     public class FlowDelayDef : IActionDefinitionProvider
     {
-        public static class Props
-        {
-            public const string Delay = "duration";
-        }
-
         public ActionDefinition Define() => new ActionDefinition
         {
             TypeId = AT.Flow.Delay,
             DisplayName = "延迟",
             Category = "Flow",
             Description = "等待指定时间后继续执行",
-            ThemeColor = new Color4(0.6f, 0.6f, 0.6f), // 灰色——表示“等待”
+            ThemeColor = new Color4(0.6f, 0.6f, 0.6f), // 灰色——表示"等待"
             Duration = ActionDuration.Duration, // 持续型——需要等待时间到期
             Ports = new[]
             {
-                Port.In("in", "输入"),
-                Port.Out("out", "输出")
+                Port.In(ActionPortIds.FlowDelay.In,   "输入"),
+                Port.Out(ActionPortIds.FlowDelay.Out, "输出")
             },
             Properties = new[]
             {
                 // 延迟时间，单位秒。范围 0~300秒，默认 1秒。
-                Prop.Float(Props.Delay, "延迟时间(秒)", defaultValue: 1f, min: 0f, max: 300f)
+                Prop.Float(ActionPortIds.FlowDelay.Duration, "延迟时间(秒)", defaultValue: 1f, min: 0f, max: 300f)
             }
         };
     }
