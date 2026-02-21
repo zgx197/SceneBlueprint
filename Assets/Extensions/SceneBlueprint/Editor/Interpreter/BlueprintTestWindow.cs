@@ -3,6 +3,7 @@ using UnityEditor;
 using UnityEngine;
 using SceneBlueprint.Runtime.Interpreter;
 using SceneBlueprint.Runtime.Interpreter.Systems;
+using SceneBlueprint.Runtime.Interpreter.Diagnostics;
 using SceneBlueprint.Runtime;
 
 namespace SceneBlueprint.Editor.Interpreter
@@ -33,6 +34,12 @@ namespace SceneBlueprint.Editor.Interpreter
         private BlueprintRunner? _runner;
         private string _statusText = "未加载";
         private Vector2 _scrollPos;
+
+        // ── 调试历史 ──
+        private BlueprintDebugController? _debugCtrl;
+        private int  _inspectTick = -1;   // -1 = 跟随最新帧
+        private bool _showDebug   = true; // 调试面板折叠状态
+        private Vector2 _diffScrollPos;
 
         /// <summary>运行时配置（从全局设置读取）</summary>
         private BlueprintRuntimeSettings Settings => BlueprintRuntimeSettings.Instance;
@@ -105,8 +112,15 @@ namespace SceneBlueprint.Editor.Interpreter
             if (_runner?.Frame != null)
             {
                 EditorGUILayout.Space(4);
-                EditorGUILayout.LabelField("Action 状态", EditorStyles.boldLabel);
-                DrawActionStates();
+
+                // 调试历史面板
+                if (_debugCtrl != null)
+                    DrawDebugPanel();
+                else
+                {
+                    EditorGUILayout.LabelField("Action 状态", EditorStyles.boldLabel);
+                    DrawActionStates(null);
+                }
             }
         }
 
@@ -114,43 +128,175 @@ namespace SceneBlueprint.Editor.Interpreter
         //  Action 状态表绘制
         // ══════════════════════════════════════════
 
-        private void DrawActionStates()
+        /// <summary>
+        /// 绘制 Action 状态表。
+        /// <paramref name="snapshot"/> 为 null 时显示实时 Frame 数据；
+        /// 传入快照时显示历史帧数据，并在 Phase 发生变化的行旁显示 diff 箭头。
+        /// </summary>
+        private void DrawActionStates(BlueprintFrameSnapshot? snapshot)
         {
-            var frame = _runner!.Frame!;
+            var frame    = _runner!.Frame!;
+            int rowCount = snapshot != null ? snapshot.States.Length : frame.ActionCount;
 
-            _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos, GUILayout.ExpandHeight(true));
+            _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos, GUILayout.MaxHeight(200));
 
             // 表头
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                GUILayout.Label("Idx", GUILayout.Width(30));
-                GUILayout.Label("TypeId", GUILayout.Width(150));
+                GUILayout.Label("Idx",   GUILayout.Width(30));
+                GUILayout.Label("TypeId",GUILayout.Width(160));
                 GUILayout.Label("Phase", GUILayout.Width(100));
-                GUILayout.Label("Ticks", GUILayout.Width(50));
+                GUILayout.Label("Ticks", GUILayout.Width(44));
+                GUILayout.Label("变化",   GUILayout.Width(120));
             }
 
             // 表体
-            for (int i = 0; i < frame.ActionCount; i++)
+            for (int i = 0; i < rowCount; i++)
             {
-                var typeId = frame.GetTypeId(i);
-                ref var state = ref frame.States[i];
-                var phaseColor = GetPhaseColor(state.Phase);
+                string typeId;
+                ActionPhase phase;
+                int    ticks;
+
+                if (snapshot != null)
+                {
+                    typeId = i < frame.Actions.Length ? frame.Actions[i].TypeId : $"#{i}";
+                    phase  = snapshot.States[i].Phase;
+                    ticks  = snapshot.States[i].TicksInPhase;
+                }
+                else
+                {
+                    typeId = frame.GetTypeId(i);
+                    phase  = frame.States[i].Phase;
+                    ticks  = frame.States[i].TicksInPhase;
+                }
+
+                // 找到该行对应的 diff（如果有）
+                string diffLabel = "";
+                if (snapshot != null)
+                {
+                    foreach (var d in snapshot.Diffs)
+                    {
+                        if (d.ActionIndex == i)
+                        {
+                            diffLabel = $"{d.PhaseBefore} → {d.PhaseAfter}";
+                            break;
+                        }
+                    }
+                }
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     GUILayout.Label(i.ToString(), GUILayout.Width(30));
-                    GUILayout.Label(typeId, GUILayout.Width(150));
+                    GUILayout.Label(typeId, GUILayout.Width(160));
 
                     var prevColor = GUI.contentColor;
-                    GUI.contentColor = phaseColor;
-                    GUILayout.Label(state.Phase.ToString(), GUILayout.Width(100));
+                    GUI.contentColor = GetPhaseColor(phase);
+                    GUILayout.Label(phase.ToString(), GUILayout.Width(100));
                     GUI.contentColor = prevColor;
 
-                    GUILayout.Label(state.TicksInPhase.ToString(), GUILayout.Width(50));
+                    GUILayout.Label(ticks.ToString(), GUILayout.Width(44));
+
+                    if (diffLabel != "")
+                    {
+                        GUI.contentColor = new Color(1f, 0.85f, 0.2f);
+                        GUILayout.Label(diffLabel, GUILayout.Width(120));
+                        GUI.contentColor = prevColor;
+                    }
                 }
             }
 
             EditorGUILayout.EndScrollView();
+        }
+
+        // ══════════════════════════════════════════
+        //  调试历史面板
+        // ══════════════════════════════════════════
+
+        private void DrawDebugPanel()
+        {
+            var h = _debugCtrl!.History;
+
+            _showDebug = EditorGUILayout.Foldout(_showDebug, "调试历史", true, EditorStyles.foldoutHeader);
+            if (!_showDebug) return;
+
+            using (new EditorGUILayout.VerticalScope("box"))
+            {
+                // ── 时间轴控制栏 ──
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    bool isLive = _inspectTick < 0;
+                    GUI.color = isLive ? new Color(0.5f, 1f, 0.5f) : Color.white;
+                    if (GUILayout.Button("跟随最新帧", GUILayout.Width(88)))
+                        _inspectTick = -1;
+                    GUI.color = Color.white;
+
+                    int oldest = h.OldestTick >= 0 ? h.OldestTick : 0;
+                    int latest = h.LatestTick >= 0 ? h.LatestTick : 0;
+
+                    GUI.enabled = h.Count >= 2;
+                    int displayTick = isLive ? latest : _inspectTick;
+                    int newTick = EditorGUILayout.IntSlider(displayTick, oldest, latest);
+                    if (newTick != displayTick)
+                        _inspectTick = newTick;
+                    GUI.enabled = true;
+
+                    GUILayout.Label(
+                        isLive ? $"T={latest} (实时)" : $"T={_inspectTick}",
+                        GUILayout.Width(80));
+
+                    GUILayout.Label($"{h.Count}/{h.Capacity}", GUILayout.Width(60));
+                }
+
+                // ── Action 状态（实时或历史快照）──
+                bool showingLive = _inspectTick < 0;
+                BlueprintFrameSnapshot? snap = showingLive
+                    ? null
+                    : h.GetByTick(_inspectTick);
+
+                EditorGUILayout.LabelField(
+                    showingLive ? "Action 状态（实时）" : $"Action 状态 @ T={_inspectTick}",
+                    EditorStyles.boldLabel);
+                DrawActionStates(snap);
+
+                // ── Diff + Events（仅历史模式）──
+                if (snap != null)
+                {
+                    EditorGUILayout.Space(4);
+                    EditorGUILayout.LabelField("Phase 变化 & 排队事件", EditorStyles.boldLabel);
+
+                    _diffScrollPos = EditorGUILayout.BeginScrollView(_diffScrollPos, GUILayout.MaxHeight(100));
+
+                    foreach (var d in snap.Diffs)
+                    {
+                        string tid = d.ActionIndex < _runner!.Frame!.Actions.Length
+                            ? _runner.Frame.Actions[d.ActionIndex].TypeId
+                            : $"#{d.ActionIndex}";
+                        var prevC = GUI.contentColor;
+                        GUI.contentColor = GetPhaseColor(d.PhaseAfter);
+                        EditorGUILayout.LabelField(
+                            $"[{d.ActionIndex}] {tid}: {d.PhaseBefore} → {d.PhaseAfter}");
+                        GUI.contentColor = prevC;
+                    }
+
+                    if (snap.Diffs.Length == 0)
+                        EditorGUILayout.LabelField("  （本帧无 Phase 变化）");
+
+                    EditorGUILayout.Space(2);
+                    foreach (var ev in snap.PendingEventsSnapshot)
+                    {
+                        var prevC = GUI.contentColor;
+                        GUI.contentColor = new Color(1f, 0.85f, 0.3f);
+                        EditorGUILayout.LabelField(
+                            $"  事件: [{ev.FromActionIndex}]:{ev.FromPortId} → [{ev.ToActionIndex}]:{ev.ToPortId}");
+                        GUI.contentColor = prevC;
+                    }
+
+                    if (snap.PendingEventsSnapshot.Length == 0)
+                        EditorGUILayout.LabelField("  （无排队事件）");
+
+                    EditorGUILayout.EndScrollView();
+                }
+            }
         }
 
         private static Color GetPhaseColor(ActionPhase phase) => phase switch
@@ -170,11 +316,15 @@ namespace SceneBlueprint.Editor.Interpreter
 
         private BlueprintRunner CreateRunner()
         {
+            _inspectTick = -1;
+            _debugCtrl   = new BlueprintDebugController(600);
+
             var runner = new BlueprintRunner
             {
                 Log = msg => UnityEngine.Debug.Log(msg),
                 LogWarning = msg => UnityEngine.Debug.LogWarning(msg),
-                LogError = msg => UnityEngine.Debug.LogError(msg)
+                LogError = msg => UnityEngine.Debug.LogError(msg),
+                DebugController = _debugCtrl
             };
 
             // 注册所有基础 System
@@ -267,8 +417,10 @@ namespace SceneBlueprint.Editor.Interpreter
         private void Reset()
         {
             _runner?.Shutdown();
-            _runner = null;
-            _statusText = "已重置";
+            _runner      = null;
+            _debugCtrl   = null;
+            _inspectTick = -1;
+            _statusText  = "已重置";
             Repaint();
         }
 

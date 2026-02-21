@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using SceneBlueprint.Contract;
+using SceneBlueprint.Runtime.Interpreter.Diagnostics;
 
 namespace SceneBlueprint.Runtime.Interpreter
 {
@@ -45,6 +46,12 @@ namespace SceneBlueprint.Runtime.Interpreter
 
         /// <summary>当前 Tick 数</summary>
         public int TickCount => Frame?.TickCount ?? 0;
+
+        /// <summary>
+        /// 调试控制器（可选）。设置后自动记录帧快照，支持暂停/步进检视。
+        /// <code>runner.DebugController = new BlueprintDebugController();</code>
+        /// </summary>
+        public BlueprintDebugController? DebugController { get; set; }
 
         /// <summary>日志回调（外部注入，用于调试输出）</summary>
         public Action<string>? Log { get; set; }
@@ -176,6 +183,10 @@ namespace SceneBlueprint.Runtime.Interpreter
             if (Frame == null || Frame.IsCompleted)
                 return;
 
+            // 调试暂停：跳过模拟，保持 Frame 状态冻结
+            if (DebugController?.IsPaused == true)
+                return;
+
             // 按顺序执行所有 System
             for (int i = 0; i < _systems.Count; i++)
             {
@@ -197,6 +208,9 @@ namespace SceneBlueprint.Runtime.Interpreter
                     Frame.States[i].TicksInPhase++;
                 }
             }
+
+            // 调试快照：tick 末记录历史（在完成检测之前，确保最后一帧也被记录）
+            DebugController?.OnTickCompleted(Frame);
 
             // 检查完成条件：没有活跃 Action 且没有待处理事件
             if (!Frame.HasActiveActions() && Frame.PendingEvents.Count == 0)
