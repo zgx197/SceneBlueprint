@@ -105,8 +105,8 @@ namespace SceneBlueprint.Runtime.Interpreter.Diagnostics
                 BlackboardEntries[idx++] = new BlackboardEntry(
                     kvp.Key,
                     decl?.Name  ?? kvp.Key.ToString(),
-                    decl?.Type  ?? kvp.Value.Type.Name,
-                    kvp.Value.Value?.ToString() ?? "null"
+                    decl?.Type  ?? kvp.Value.ValueType.Name,
+                    kvp.Value.BoxedValue?.ToString() ?? "null"
                 );
             }
         }

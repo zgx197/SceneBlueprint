@@ -347,8 +347,8 @@ namespace SceneBlueprint.Editor.Interpreter
             {
                 var decl  = _runner.Frame.FindVariable(kvp.Key);
                 string name    = decl?.Name ?? kvp.Key.ToString();
-                string typeStr = decl?.Type  ?? kvp.Value.Type.Name;
-                string valStr  = kvp.Value.Value?.ToString() ?? "null";
+                string typeStr = decl?.Type  ?? kvp.Value.ValueType.Name;
+                string valStr  = kvp.Value.BoxedValue?.ToString() ?? "null";
                 var prev = GUI.contentColor;
                 GUI.contentColor = new Color(0.7f, 1f, 0.85f);
                 EditorGUILayout.LabelField($"  {name}[{kvp.Key}] : {typeStr} = {valStr}");
