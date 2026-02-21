@@ -11,12 +11,20 @@ namespace SceneBlueprint.Actions.VFX
     /// 通过 Flow.Filter 控制触发时机，文字内容由策划在属性中配置。
     /// </para>
     /// </summary>
-    [ActionType("VFX.ShowWarning")]
+    [ActionType(AT.Vfx.ShowWarning)]
     public class ShowWarningDef : IActionDefinitionProvider
     {
+        public static class Props
+        {
+            public const string Text     = "text";
+            public const string Duration = "duration";
+            public const string Style    = "style";
+            public const string FontSize = "fontSize";
+        }
+
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId = "VFX.ShowWarning",
+            TypeId = AT.Vfx.ShowWarning,
             DisplayName = "屏幕警告",
             Category = "VFX",
             Description = "在屏幕中央显示警告文字",
@@ -31,15 +39,12 @@ namespace SceneBlueprint.Actions.VFX
 
             Properties = new[]
             {
-                Prop.String("text", "显示文字", defaultValue: "警告！", order: 0),
-
-                Prop.Float("duration", "时长(秒)", defaultValue: 2f, min: 0.5f, max: 10f, order: 1),
-
-                Prop.Enum("style", "样式",
+                Prop.String(Props.Text,     "显示文字", defaultValue: "警告！", order: 0),
+                Prop.Float(Props.Duration,  "时长(秒)", defaultValue: 2f,    min: 0.5f, max: 10f,  order: 1),
+                Prop.Enum(Props.Style,      "样式",
                     new[] { "Warning", "Info", "Boss" },
                     defaultValue: "Warning", order: 2),
-
-                Prop.Float("fontSize", "字号", defaultValue: 48f, min: 16f, max: 128f, order: 3),
+                Prop.Float(Props.FontSize,  "字号",     defaultValue: 48f,   min: 16f,  max: 128f, order: 3),
             },
 
             SceneRequirements = System.Array.Empty<MarkerRequirement>()

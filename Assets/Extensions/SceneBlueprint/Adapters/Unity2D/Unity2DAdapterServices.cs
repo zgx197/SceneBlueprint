@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using SceneBlueprint.Core;
+using SceneBlueprint.Contract;
 using SceneBlueprint.Runtime.Markers;
 using SceneBlueprint.SpatialAbstraction;
 using UnityEditor;

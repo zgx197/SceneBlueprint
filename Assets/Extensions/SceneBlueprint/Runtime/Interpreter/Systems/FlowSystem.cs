@@ -1,5 +1,7 @@
 #nullable enable
 using UnityEngine;
+using SceneBlueprint.Core;
+using SceneBlueprint.Actions.Flow;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -17,10 +19,10 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     /// - Flow.Join：等待所有输入端口都被触发后 Complete
     /// </para>
     /// </summary>
+    [UpdateInGroup(SystemGroup.Framework)]
     public class FlowSystem : BlueprintSystemBase
     {
         public override string Name => "FlowSystem";
-        public override int Order => 10; // 在 TransitionSystem 之后
 
         public override void Update(BlueprintFrame frame)
         {
@@ -33,7 +35,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
         /// <summary>处理 Flow.Start：Running → 立即 Completed</summary>
         private void ProcessFlowStart(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("Flow.Start");
+            var indices = frame.GetActionIndices(AT.Flow.Start);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];
@@ -42,7 +44,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 if (state.Phase == ActionPhase.Running)
                 {
                     state.Phase = ActionPhase.Completed;
-                    Debug.Log($"[FlowSystem] Flow.Start (index={idx}) → Completed");
+                    Debug.Log($"[FlowSystem] {AT.Flow.Start} (index={idx}) → Completed");
                 }
             }
         }
@@ -50,7 +52,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
         /// <summary>处理 Flow.End：Running → Completed，标记蓝图执行结束</summary>
         private void ProcessFlowEnd(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("Flow.End");
+            var indices = frame.GetActionIndices(AT.Flow.End);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];
@@ -60,7 +62,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.Phase = ActionPhase.Completed;
                     frame.IsCompleted = true;
-                    Debug.Log($"[FlowSystem] Flow.End (index={idx}) → Completed，蓝图执行结束");
+                    Debug.Log($"[FlowSystem] {AT.Flow.End} (index={idx}) → Completed，蓝图执行结束");
                 }
             }
         }
@@ -71,7 +73,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
         /// </summary>
         private void ProcessFlowDelay(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("Flow.Delay");
+            var indices = frame.GetActionIndices(AT.Flow.Delay);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];
@@ -85,7 +87,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.IsFirstEntry = false;
 
-                    var delayStr = frame.GetProperty(idx, "delay");
+                    var delayStr = frame.GetProperty(idx, FlowDelayDef.Props.Delay);
                     if (float.TryParse(delayStr, out var delaySec))
                     {
                         // 简单映射：1 秒 ≈ 60 Tick（假设 60fps，后续迁移时使用确定性时间）
@@ -116,7 +118,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
         /// </summary>
         private void ProcessFlowJoin(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("Flow.Join");
+            var indices = frame.GetActionIndices(AT.Flow.Join);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];

@@ -1,6 +1,8 @@
 #nullable enable
 using System.Globalization;
 using UnityEngine;
+using SceneBlueprint.Core;
+using SceneBlueprint.Actions.Blackboard;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -14,14 +16,15 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     /// 4. 立即完成（ActionPhase.Completed）
     /// </para>
     /// </summary>
+    [UpdateInGroup(SystemGroup.Framework)]
+    [UpdateAfter(typeof(FlowSystem))]
     public class BlackboardSetSystem : BlueprintSystemBase
     {
         public override string Name  => "BlackboardSetSystem";
-        public override int    Order => 12; // FlowSystem(10) 之后，FlowFilterSystem(15) 之前
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("Blackboard.Set");
+            var indices = frame.GetActionIndices(AT.Blackboard.Set);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];
@@ -33,8 +36,8 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         private static void ProcessSet(BlueprintFrame frame, int actionIndex, ref ActionRuntimeState state)
         {
-            var varIdxStr = frame.GetProperty(actionIndex, "variableIndex");
-            var valueStr  = frame.GetProperty(actionIndex, "value");
+            var varIdxStr = frame.GetProperty(actionIndex, BlackboardSetDef.Props.VariableIndex);
+            var valueStr  = frame.GetProperty(actionIndex, BlackboardSetDef.Props.Value);
 
             if (!int.TryParse(varIdxStr, out int varIdx) || varIdx < 0)
             {

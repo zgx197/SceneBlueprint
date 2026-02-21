@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Actions.Spawn
 {
@@ -26,12 +27,27 @@ namespace SceneBlueprint.Actions.Spawn
     /// - onWaveStart：每波开始生成前触发（不阻塞刷怪），可连接事件节点（屏幕震动等）
     /// </para>
     /// </summary>
-    [ActionType("Spawn.Wave")]
+    [ActionType(AT.Spawn.Wave)]
     public class SpawnWaveActionDef : IActionDefinitionProvider
     {
+        public static class Ports
+        {
+            public const string In          = "in";
+            public const string Out         = "out";
+            public const string OnWaveStart = "onWaveStart";
+            public const string WaveIndex   = "waveIndex";
+            public const string TotalWaves  = "totalWaves";
+        }
+
+        public static class Props
+        {
+            public const string SpawnArea = "spawnArea";
+            public const string Waves     = "waves";
+        }
+
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId = "Spawn.Wave",
+            TypeId = AT.Spawn.Wave,
             DisplayName = "波次刷怪",
             Category = "Spawn",
             Description = "在区域内按波次随机生成怪物（绑定带 WaveSpawnConfig 的 AreaMarker）",
@@ -39,19 +55,19 @@ namespace SceneBlueprint.Actions.Spawn
             Duration = ActionDuration.Duration, // 持续型——多波次需要时间
             Ports = new[]
             {
-                Port.In("in", "输入"),
-                Port.Out("out", "全部完成"),           // 所有波次完成后触发
-                Port.Out("onWaveStart", "每波开始"),   // 每波开始时触发，不阻塞刷怪
-                Port.DataOut("waveIndex",  "当前波次", DataTypes.Int),  // 数据端口：0-based 波次索引
-                Port.DataOut("totalWaves", "总波次数", DataTypes.Int),  // 数据端口：配置的波次总数
+                Port.In(Ports.In, "输入"),
+                Port.Out(Ports.Out, "全部完成"),
+                Port.Out(Ports.OnWaveStart, "每波开始"),
+                Port.DataOut(Ports.WaveIndex,  "当前波次", DataTypes.Int),
+                Port.DataOut(Ports.TotalWaves, "总波次数", DataTypes.Int),
             },
             Properties = new[]
             {
-                Prop.SceneBinding("spawnArea", "刷怪区域", BindingType.Area, order: 0),
+                Prop.SceneBinding(Props.SpawnArea, "刷怪区域", BindingType.Area, order: 0),
                 // 波次配置列表，StructList 类型
                 // 侧边 Inspector 用 ReorderableList 编辑，节点画布显示摘要
                 // 存储格式：JSON 数组字符串 [{"count":5,"intervalTicks":0,"monsterFilter":"Normal"}, ...]
-                Prop.StructList("waves", "波次配置",
+                Prop.StructList(Props.Waves, "波次配置",
                     fields: new[]
                     {
                         Prop.Int("count", "刷怪数量", defaultValue: 5, min: 1, max: 50),

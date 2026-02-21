@@ -98,18 +98,6 @@ namespace SceneBlueprint.Editor
             }
         }
 
-        public string SerializeEdgeData(IEdgeData data)
-        {
-            // SceneBlueprint 当前不使用 EdgeData
-            return "{}";
-        }
-
-        public IEdgeData? DeserializeEdgeData(string json)
-        {
-            // SceneBlueprint 当前不使用 EdgeData
-            return null;
-        }
-
         // ── JSON 辅助方法 ──
 
         private static string EscapeJson(string s)

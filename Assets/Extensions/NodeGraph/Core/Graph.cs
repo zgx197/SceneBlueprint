@@ -172,16 +172,16 @@ namespace NodeGraph.Core
 
         /// <summary>
         /// 连接两个端口。自动纠正方向（确保 source=Output, target=Input）。
-        /// 返回创建的 Edge；若连接被拒绝则返回 null。
+        /// 返回 ConnectResult，含新建的边和被顶替的旧边（Single 端口替换时非 null）。
         /// </summary>
-        public Edge? Connect(string sourcePortId, string targetPortId)
+        public ConnectResult Connect(string sourcePortId, string targetPortId)
         {
             if (sourcePortId == null) throw new ArgumentNullException(nameof(sourcePortId));
             if (targetPortId == null) throw new ArgumentNullException(nameof(targetPortId));
 
             var sourcePort = FindPort(sourcePortId);
             var targetPort = FindPort(targetPortId);
-            if (sourcePort == null || targetPort == null) return null;
+            if (sourcePort == null || targetPort == null) return ConnectResult.Rejected;
 
             // 判断是否为边界端口的内部连接（桥接模式）
             var sNode = FindNode(sourcePort.NodeId);
@@ -209,12 +209,13 @@ namespace NodeGraph.Core
             }
 
             // 连接验证
-            var result = Settings.ConnectionPolicy.CanConnect(this, sourcePort, targetPort);
-            if (result != ConnectionResult.Success) return null;
+            var validationResult = Settings.ConnectionPolicy.CanConnect(this, sourcePort, targetPort);
+            if (validationResult != ConnectionResult.Success) return ConnectResult.Rejected;
 
-            // 如果目标端口是 Single 容量且已有连接，先断开旧连接
+            // 如果目标端口是 Single 容量且已有连接，先断开旧连接并记录（供调用方 Undo 使用）
             // 边界端口始终跳过（需同时承载外部+内部多条连线）
             bool targetIsBoundary = tBoundary || sBoundary;
+            Edge? displacedEdge = null;
             if (targetPort.Capacity == PortCapacity.Single && !targetIsBoundary)
             {
                 if (_portEdgeIndex.TryGetValue(targetPortId, out var existing) && existing.Count > 0)
@@ -224,6 +225,7 @@ namespace NodeGraph.Core
                     {
                         if (e.TargetPortId == targetPortId)
                         {
+                            displacedEdge = e;
                             RemoveEdgeInternal(e);
                             break;
                         }
@@ -240,7 +242,7 @@ namespace NodeGraph.Core
             _edgeMap[edgeId] = edge;
             AddEdgeToIndex(edge);
             Events.RaiseEdgeAdded(edge);
-            return edge;
+            return new ConnectResult(edge, displacedEdge);
         }
 
         /// <summary>断开指定连线</summary>

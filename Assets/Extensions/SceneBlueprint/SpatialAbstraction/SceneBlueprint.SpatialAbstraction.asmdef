@@ -3,6 +3,7 @@
     "rootNamespace": "SceneBlueprint.SpatialAbstraction",
     "references": [
         "SceneBlueprint.Core",
+        "SceneBlueprint.Contract",
         "SceneBlueprint.Domain"
     ],
     "includePlatforms": [],

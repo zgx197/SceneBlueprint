@@ -1,6 +1,7 @@
 #nullable enable
 using SceneBlueprint.Contract;
 using UnityEngine;
+using SceneBlueprint.Core;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -18,17 +19,17 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     /// - 设置 Transform / AI / Stats 等 Component
     /// </para>
     /// </summary>
+    [UpdateInGroup(SystemGroup.Business)]
     public class SpawnPresetSystem : BlueprintSystemBase
     {
         public override string Name => "SpawnPresetSystem";
-        public override int Order => 100; // 业务 System
 
         /// <summary>外部刷怪处理器（可选，未设置时仅打印日志）</summary>
         public ISpawnHandler? SpawnHandler { get; set; }
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("Spawn.Preset");
+            var indices = frame.GetActionIndices(AT.Spawn.Preset);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];
@@ -158,7 +159,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
             for (int i = 0; i < annotations.Length; i++)
             {
-                if (annotations[i].TypeId != "Spawn") continue;
+                if (annotations[i].TypeId != "Spawn") continue; // Annotation TypeId，非 Action TypeId
 
                 info.HasData = true;
                 var props = annotations[i].Properties;

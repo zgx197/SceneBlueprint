@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Runtime.Interpreter
@@ -123,7 +124,7 @@ namespace SceneBlueprint.Runtime.Interpreter
                 if (sys.Enabled)
                 {
                     sys.OnInit(Frame);
-                    Log?.Invoke($"[BlueprintRunner] System 已初始化: {sys.Name} (Order={sys.Order})");
+                    Log?.Invoke($"[BlueprintRunner] System 已初始化: {sys.Name}");
                 }
             }
 
@@ -266,8 +267,90 @@ namespace SceneBlueprint.Runtime.Interpreter
         private void EnsureSystemsSorted()
         {
             if (_systemsSorted) return;
-            _systems.Sort((a, b) => a.Order.CompareTo(b.Order));
+
+            // 按分组分桶：有 [UpdateInGroup] 用分组值，否则直接用 Order 值（兼容旧写法）
+            var buckets = new Dictionary<int, List<BlueprintSystemBase>>();
+            foreach (var sys in _systems)
+            {
+                int band = GetBandOrder(sys);
+                if (!buckets.TryGetValue(band, out var list))
+                    buckets[band] = list = new List<BlueprintSystemBase>();
+                list.Add(sys);
+            }
+
+            _systems.Clear();
+            var sortedBands = new List<int>(buckets.Keys);
+            sortedBands.Sort();
+            foreach (var band in sortedBands)
+            {
+                var group = buckets[band];
+                // 先按 Order 值做稳定基准，再按 [UpdateAfter] 拓扑排序
+#pragma warning disable CS0618
+                group.Sort((a, b) => a.Order.CompareTo(b.Order));
+#pragma warning restore CS0618
+                _systems.AddRange(TopologicalSort(group));
+            }
+
             _systemsSorted = true;
+        }
+
+        /// <summary>
+        /// 获取 System 的桶编号：有 [UpdateInGroup] 取分组 int 值，否则取 Order（每个 System 独占一个桶）。
+        /// </summary>
+        private static int GetBandOrder(BlueprintSystemBase sys)
+        {
+            var attr = sys.GetType().GetCustomAttribute<UpdateInGroupAttribute>();
+#pragma warning disable CS0618
+            return attr != null ? (int)attr.Group : sys.Order;
+#pragma warning restore CS0618
+        }
+
+        /// <summary>
+        /// Kahn 算法拓扑排序：基于同组内的 [UpdateAfter] 依赖声明。
+        /// 若出现循环依赖（设计错误），剩余节点按原顺序追加。
+        /// </summary>
+        private static List<BlueprintSystemBase> TopologicalSort(List<BlueprintSystemBase> systems)
+        {
+            if (systems.Count <= 1) return systems;
+
+            var typeMap = new Dictionary<Type, BlueprintSystemBase>(systems.Count);
+            foreach (var s in systems) typeMap[s.GetType()] = s;
+
+            // graph[dep] = 依赖 dep 的 System 列表（dep 必须先于它们执行）
+            var graph    = new Dictionary<BlueprintSystemBase, List<BlueprintSystemBase>>(systems.Count);
+            var inDegree = new Dictionary<BlueprintSystemBase, int>(systems.Count);
+            foreach (var s in systems) { graph[s] = new List<BlueprintSystemBase>(); inDegree[s] = 0; }
+
+            foreach (var s in systems)
+            {
+                foreach (UpdateAfterAttribute attr in s.GetType().GetCustomAttributes<UpdateAfterAttribute>(false))
+                {
+                    if (typeMap.TryGetValue(attr.SystemType, out var dep))
+                    {
+                        graph[dep].Add(s);
+                        inDegree[s]++;
+                    }
+                }
+            }
+
+            var queue  = new Queue<BlueprintSystemBase>();
+            foreach (var s in systems)
+                if (inDegree[s] == 0) queue.Enqueue(s);
+
+            var result = new List<BlueprintSystemBase>(systems.Count);
+            while (queue.Count > 0)
+            {
+                var s = queue.Dequeue();
+                result.Add(s);
+                foreach (var dependent in graph[s])
+                    if (--inDegree[dependent] == 0) queue.Enqueue(dependent);
+            }
+
+            // 循环依赖兜底：将剩余 System 原样追加（不应出现，但避免丢失 System）
+            foreach (var s in systems)
+                if (!result.Contains(s)) result.Add(s);
+
+            return result;
         }
     }
 }

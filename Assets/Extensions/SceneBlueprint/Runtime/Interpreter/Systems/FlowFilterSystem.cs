@@ -1,6 +1,8 @@
 #nullable enable
 using System;
 using UnityEngine;
+using SceneBlueprint.Core;
+using SceneBlueprint.Actions.Flow;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -20,14 +22,15 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     /// 节点自身不会主动进入 Completed，由蓝图结束时统一清理。
     /// </para>
     /// </summary>
+    [UpdateInGroup(SystemGroup.Framework)]
+    [UpdateAfter(typeof(BlackboardGetSystem))]
     public class FlowFilterSystem : BlueprintSystemBase
     {
         public override string Name => "FlowFilterSystem";
-        public override int Order => 15; // FlowSystem(10) 之后，业务 System 之前
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("Flow.Filter");
+            var indices = frame.GetActionIndices(AT.Flow.Filter);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];
@@ -42,24 +45,24 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         private static void ProcessFilter(BlueprintFrame frame, int actionIndex, ref ActionRuntimeState state)
         {
-            var op         = frame.GetProperty(actionIndex, "op");
-            var constValue = frame.GetProperty(actionIndex, "constValue");
+            var op         = frame.GetProperty(actionIndex, FlowFilterDef.Props.Op);
+            var constValue = frame.GetProperty(actionIndex, FlowFilterDef.Props.ConstValue);
 
             // 读取 compareValue DataIn 端口的值
-            string? compareValue = frame.GetDataPortValue(actionIndex, "compareValue");
+            string? compareValue = frame.GetDataPortValue(actionIndex, FlowFilterDef.Ports.CompareValue);
 
             if (compareValue == null)
             {
                 // DataIn 端口无连线：无条件 pass（过滤功能关闭）
                 Debug.LogWarning($"[FlowFilterSystem] Flow.Filter (index={actionIndex}) compareValue 端口无连线，无条件 pass");
-                EmitPortEvents(frame, actionIndex, "pass");
+                EmitPortEvents(frame, actionIndex, FlowFilterDef.Ports.Pass);
                 state.Phase = ActionPhase.Listening;
                 state.TransitionPropagated = true;
                 return;
             }
 
             bool conditionMet = EvaluateCondition(compareValue, op, constValue);
-            string portId = conditionMet ? "pass" : "reject";
+            string portId = conditionMet ? FlowFilterDef.Ports.Pass : FlowFilterDef.Ports.Reject;
 
             Debug.Log($"[FlowFilterSystem] Flow.Filter (index={actionIndex}): " +
                       $"compareValue={compareValue} {op} constValue={constValue} → {conditionMet} → {portId}");
@@ -81,7 +84,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             for (int t = 0; t < transitionIndices.Count; t++)
             {
                 var transition = frame.Transitions[transitionIndices[t]];
-                if (transition.FromPortId == portId)
+                if (transition.FromPortId == portId) // portId 已是常量
                 {
                     var toIndex = frame.GetActionIndex(transition.ToActionId);
                     if (toIndex >= 0)

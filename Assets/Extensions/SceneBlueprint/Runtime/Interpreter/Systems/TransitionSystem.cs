@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using SceneBlueprint.Contract;
 using UnityEngine;
+using SceneBlueprint.Core;
+using SceneBlueprint.Actions.Flow;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -23,10 +25,10 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     /// 类似于帧同步中 Signal/Event 的帧内路由。
     /// </para>
     /// </summary>
+    [UpdateInGroup(SystemGroup.PostProcess)]
     public class TransitionSystem : BlueprintSystemBase
     {
         public override string Name => "TransitionSystem";
-        public override int Order => 900; // 在所有业务 System 之后执行
 
         // 临时列表，避免每帧分配
         private readonly List<PortEvent> _newEvents = new();
@@ -90,7 +92,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 Debug.Log($"[TransitionSystem] 处理事件 {i}: {evt}, 目标节点 TypeId={targetAction.TypeId}, 当前状态={targetState.Phase}");
 
                 // Flow.Join 特殊处理：累加计数，收齐所有输入后才激活
-                if (targetAction.TypeId == "Flow.Join")
+                if (targetAction.TypeId == AT.Flow.Join)
                 {
                     Debug.Log($"[TransitionSystem] 检测到 Flow.Join 节点 (index={evt.ToActionIndex})");
                     
@@ -98,7 +100,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                     targetState.CustomInt++;
 
                     // 读取需要的入边数量
-                    var inEdgeCountStr = frame.GetProperty(evt.ToActionIndex, "inEdgeCount");
+                    var inEdgeCountStr = frame.GetProperty(evt.ToActionIndex, FlowJoinDef.Props.InEdgeCount);
                     int requiredCount = int.TryParse(inEdgeCountStr, out var req) ? req : 1;
 
                     Debug.Log($"[TransitionSystem] Flow.Join 当前收到输入: {targetState.CustomInt}/{requiredCount}");

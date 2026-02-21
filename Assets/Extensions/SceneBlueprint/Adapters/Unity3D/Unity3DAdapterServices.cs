@@ -1,5 +1,6 @@
 #nullable enable
 using SceneBlueprint.Core;
+using SceneBlueprint.Contract;
 using SceneBlueprint.Runtime.Markers;
 using SceneBlueprint.SpatialAbstraction;
 using UnityEditor;

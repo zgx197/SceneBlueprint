@@ -68,7 +68,6 @@ namespace NodeGraph.Serialization
         public string fromPortId = "";   // 语义 Port Id（如 "waveIndex"）
         public string toNodeId = "";
         public string toPortId = "";     // 语义 Port Id（如 "compareValue"）
-        public string? userData;
     }
 
     [Serializable]

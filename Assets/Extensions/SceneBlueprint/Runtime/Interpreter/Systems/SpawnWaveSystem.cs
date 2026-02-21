@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using SceneBlueprint.Contract;
 using UnityEngine;
+using SceneBlueprint.Core;
+using SceneBlueprint.Actions.Spawn;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -31,10 +33,11 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     /// 9. 递增波次索引，全部完成 → Completed
     /// </para>
     /// </summary>
+    [UpdateInGroup(SystemGroup.Business)]
+    [UpdateAfter(typeof(SpawnPresetSystem))]
     public class SpawnWaveSystem : BlueprintSystemBase
     {
         public override string Name => "SpawnWaveSystem";
-        public override int Order => 110;
 
         public ISpawnHandler? SpawnHandler { get; set; }
 
@@ -42,7 +45,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("Spawn.Wave");
+            var indices = frame.GetActionIndices(AT.Spawn.Wave);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];
@@ -109,8 +112,8 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             if (isFirstWave || intervalElapsed)
             {
                 // 写入数据端口值（供连接了 DataIn 的下游节点读取）
-                frame.SetDataPortValue(actionIndex, "waveIndex",  currentWave.ToString());
-                frame.SetDataPortValue(actionIndex, "totalWaves", waveEntries.Length.ToString());
+                frame.SetDataPortValue(actionIndex, SpawnWaveActionDef.Ports.WaveIndex,  state.CustomInt.ToString());
+                frame.SetDataPortValue(actionIndex, SpawnWaveActionDef.Ports.TotalWaves, waveEntries.Length.ToString());
 
                 // 触发 onWaveStart 端口事件（不阻塞刷怪）
                 EmitWaveStartEvent(frame, actionIndex, currentWave);
@@ -186,7 +189,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
         /// </summary>
         private static WaveEntryRuntime[] ParseWaveEntries(BlueprintFrame frame, int actionIndex)
         {
-            var wavesJson = frame.GetProperty(actionIndex, "waves");
+            var wavesJson = frame.GetProperty(actionIndex, SpawnWaveActionDef.Props.Waves);
             if (string.IsNullOrEmpty(wavesJson) || wavesJson == "[]")
             {
                 // 兜底：默认单波次，5 个怪物，立即开始，使用全部怪物池
@@ -308,13 +311,13 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             for (int t = 0; t < transitionIndices.Count; t++)
             {
                 var transition = frame.Transitions[transitionIndices[t]];
-                if (transition.FromPortId == "onWaveStart")
+                if (transition.FromPortId == SpawnWaveActionDef.Ports.OnWaveStart)
                 {
                     var toIndex = frame.GetActionIndex(transition.ToActionId);
                     if (toIndex >= 0)
                     {
                         frame.PendingEvents.Add(new PortEvent(
-                            actionIndex, "onWaveStart", toIndex, transition.ToPortId));
+                            actionIndex, SpawnWaveActionDef.Ports.OnWaveStart, toIndex, transition.ToPortId));
                         emitted = true;
                     }
                 }

@@ -16,12 +16,21 @@ namespace SceneBlueprint.Actions.Flow
     /// [行动B] ─┘
     /// </para>
     /// </summary>
-    [ActionType("Flow.Join")]
+    [ActionType(AT.Flow.Join)]
     public class FlowJoinDef : IActionDefinitionProvider
     {
+        /// <summary>
+        /// 运行时由编译器自动写入的属性键（不在 Inspector 中显示）。
+        /// TransitionSystem 通过此键读取待收集的进边数量。
+        /// </summary>
+        public static class Props
+        {
+            public const string InEdgeCount = "inEdgeCount";
+        }
+
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId = "Flow.Join",
+            TypeId = AT.Flow.Join,
             DisplayName = "汇合",
             Category = "Flow",
             Description = "等待所有输入完成后再继续",

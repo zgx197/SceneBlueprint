@@ -23,13 +23,13 @@ namespace SceneBlueprint.Runtime.Interpreter
 
         /// <summary>
         /// System 执行优先级（越小越先执行）。
-        /// <para>
-        /// 推荐约定：
-        /// - 0~99：框架级 System（TransitionSystem 等）
-        /// - 100~199：业务 System（FlowSystem / SpawnSystem 等）
-        /// - 200+：后处理 System
-        /// </para>
         /// </summary>
+        /// <remarks>
+        /// 已由 <see cref="UpdateInGroupAttribute"/> + <see cref="UpdateAfterAttribute"/> 声明式属性取代。
+        /// 保留此属性仅用于向后兼容——无 [UpdateInGroup] 标记的 System 仍以此值排序。
+        /// 新增 System 请改用属性声明。
+        /// </remarks>
+        [System.Obsolete("请改用 [UpdateInGroup] + [UpdateAfter] 声明式属性替代 Order 数字。")]
         public virtual int Order => 100;
 
         /// <summary>是否启用（可动态开关）</summary>

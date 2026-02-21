@@ -3,6 +3,7 @@ using System.Linq;
 using NUnit.Framework;
 using NodeGraph.Core;
 using SceneBlueprint.Core;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Tests.Integration
 {

@@ -13,12 +13,17 @@ namespace SceneBlueprint.Actions.Blackboard
     /// 下游 Flow.Filter 可通过变量名直接读取声明变量，无需依赖缓存。
     /// </para>
     /// </summary>
-    [ActionType("Blackboard.Get")]
+    [ActionType(AT.Blackboard.Get)]
     public class BlackboardGetDef : IActionDefinitionProvider
     {
+        public static class Props
+        {
+            public const string VariableIndex = "variableIndex";
+        }
+
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId      = "Blackboard.Get",
+            TypeId      = AT.Blackboard.Get,
             DisplayName = "读取变量",
             Category    = "Blackboard",
             Description = "从声明变量读取当前值，传递控制流至下游",
@@ -33,7 +38,7 @@ namespace SceneBlueprint.Actions.Blackboard
 
             Properties = new[]
             {
-                Prop.VariableSelector("variableIndex", "变量", defaultValue: -1, order: 0),
+                Prop.VariableSelector(Props.VariableIndex, "变量", defaultValue: -1, order: 0),
             },
 
             SceneRequirements = Array.Empty<MarkerRequirement>()

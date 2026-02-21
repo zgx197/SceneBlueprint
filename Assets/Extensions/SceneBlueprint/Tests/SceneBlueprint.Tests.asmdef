@@ -3,6 +3,7 @@
     "rootNamespace": "SceneBlueprint.Tests",
     "references": [
         "SceneBlueprint.Core",
+        "SceneBlueprint.Contract",
         "SceneBlueprint.Actions",
         "SceneBlueprint.Runtime",
         "NodeGraph.Core",

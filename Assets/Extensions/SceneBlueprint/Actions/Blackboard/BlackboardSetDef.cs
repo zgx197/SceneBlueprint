@@ -12,12 +12,18 @@ namespace SceneBlueprint.Actions.Blackboard
     /// 运行时根据变量声明的 Scope 自动路由到 Local（frame.Blackboard）或 Global（GlobalBlackboard）。
     /// </para>
     /// </summary>
-    [ActionType("Blackboard.Set")]
+    [ActionType(AT.Blackboard.Set)]
     public class BlackboardSetDef : IActionDefinitionProvider
     {
+        public static class Props
+        {
+            public const string VariableIndex = "variableIndex";
+            public const string Value         = "value";
+        }
+
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId      = "Blackboard.Set",
+            TypeId      = AT.Blackboard.Set,
             DisplayName = "设置变量",
             Category    = "Blackboard",
             Description = "向声明变量写入新值（Local 写入蓝图实例，Global 跨实例共享）",
@@ -32,8 +38,8 @@ namespace SceneBlueprint.Actions.Blackboard
 
             Properties = new[]
             {
-                Prop.VariableSelector("variableIndex", "变量", defaultValue: -1, order: 0),
-                Prop.String("value",        "值",    defaultValue: "", order: 1),
+                Prop.VariableSelector(Props.VariableIndex, "变量", defaultValue: -1, order: 0),
+                Prop.String(Props.Value, "値", defaultValue: "", order: 1),
             },
 
             SceneRequirements = Array.Empty<MarkerRequirement>()

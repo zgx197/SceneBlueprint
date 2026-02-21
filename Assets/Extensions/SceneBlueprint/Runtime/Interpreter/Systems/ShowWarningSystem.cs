@@ -1,5 +1,7 @@
 #nullable enable
 using UnityEngine;
+using SceneBlueprint.Core;
+using SceneBlueprint.Actions.VFX;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -17,17 +19,18 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     ///   CustomInt → 目标持续 Tick 数（从 duration 属性换算）
     /// </para>
     /// </summary>
+    [UpdateInGroup(SystemGroup.Business)]
+    [UpdateAfter(typeof(CameraShakeSystem))]
     public class ShowWarningSystem : BlueprintSystemBase
     {
         public override string Name => "ShowWarningSystem";
-        public override int Order => 121; // 紧跟 CameraShakeSystem(120)
 
         /// <summary>屏幕警告处理器（外部注入）</summary>
         public IShowWarningHandler? WarningHandler { get; set; }
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("VFX.ShowWarning");
+            var indices = frame.GetActionIndices(AT.Vfx.ShowWarning);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];
@@ -41,10 +44,10 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.IsFirstEntry = false;
 
-                    var text = frame.GetProperty(idx, "text");
-                    var durationStr = frame.GetProperty(idx, "duration");
-                    var style = frame.GetProperty(idx, "style");
-                    var fontSizeStr = frame.GetProperty(idx, "fontSize");
+                    var text        = frame.GetProperty(idx, ShowWarningDef.Props.Text);
+                    var durationStr = frame.GetProperty(idx, ShowWarningDef.Props.Duration);
+                    var style       = frame.GetProperty(idx, ShowWarningDef.Props.Style);
+                    var fontSizeStr = frame.GetProperty(idx, ShowWarningDef.Props.FontSize);
 
                     if (string.IsNullOrEmpty(text)) text = "警告！";
                     if (string.IsNullOrEmpty(style)) style = "Warning";

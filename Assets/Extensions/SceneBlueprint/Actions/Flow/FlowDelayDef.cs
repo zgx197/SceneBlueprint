@@ -12,12 +12,17 @@ namespace SceneBlueprint.Actions.Flow
     /// </para>
     /// <para>节点拓扑：[前置] ─in→ [Delay: 2秒] ─out→ [后续]</para>
     /// </summary>
-    [ActionType("Flow.Delay")]
+    [ActionType(AT.Flow.Delay)]
     public class FlowDelayDef : IActionDefinitionProvider
     {
+        public static class Props
+        {
+            public const string Delay = "duration";
+        }
+
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId = "Flow.Delay",
+            TypeId = AT.Flow.Delay,
             DisplayName = "延迟",
             Category = "Flow",
             Description = "等待指定时间后继续执行",
@@ -31,7 +36,7 @@ namespace SceneBlueprint.Actions.Flow
             Properties = new[]
             {
                 // 延迟时间，单位秒。范围 0~300秒，默认 1秒。
-                Prop.Float("duration", "延迟时间(秒)", defaultValue: 1f, min: 0f, max: 300f)
+                Prop.Float(Props.Delay, "延迟时间(秒)", defaultValue: 1f, min: 0f, max: 300f)
             }
         };
     }

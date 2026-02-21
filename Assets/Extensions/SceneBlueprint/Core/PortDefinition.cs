@@ -80,6 +80,15 @@ namespace SceneBlueprint.Core
         /// 端口描述文本（可选），用于编辑器提示和文档生成
         /// </summary>
         public string Description { get; set; } = "";
+
+        /// <summary>
+        /// 端口未连接时的默认值（仅 Data 输入端口有效）。
+        /// <para>
+        /// 为 null 表示无默认值（端口未连接时系统代码自行处理）。
+        /// 编辑器可在端口旁以灰色文字显示默认值提示，如 "未连接时: 1.0"。
+        /// </para>
+        /// </summary>
+        public object? DefaultValue { get; set; }
     }
 
     /// <summary>
@@ -189,7 +198,7 @@ namespace SceneBlueprint.Core
         /// <param name="required">是否必需，默认 false</param>
         /// <param name="description">描述文本（可选）</param>
         public static PortDefinition DataIn(string id, string displayName, string dataType, 
-            bool required = false, string description = "")
+            bool required = false, string description = "", object? defaultValue = null)
         {
             return new PortDefinition
             {
@@ -200,7 +209,8 @@ namespace SceneBlueprint.Core
                 Capacity = PortCapacity.Single,
                 DataType = dataType,
                 Required = required,
-                Description = description
+                Description = description,
+                DefaultValue = defaultValue
             };
         }
 
@@ -246,10 +256,10 @@ namespace SceneBlueprint.Core
         /// <param name="required">是否必需，默认 false</param>
         /// <param name="description">描述文本（可选）</param>
         public static PortDefinition DataIn<TDataType>(string id, string displayName, 
-            bool required = false, string description = "")
+            bool required = false, string description = "", object? defaultValue = null)
         {
             var dataType = GetDataTypeId<TDataType>();
-            return DataIn(id, displayName, dataType, required, description);
+            return DataIn(id, displayName, dataType, required, description, defaultValue);
         }
 
         /// <summary>

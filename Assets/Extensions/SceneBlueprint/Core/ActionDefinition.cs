@@ -164,6 +164,18 @@ namespace SceneBlueprint.Core
         /// </para>
         /// </summary>
         public OutputVariableDefinition[] OutputVariables { get; set; } = System.Array.Empty<OutputVariableDefinition>();
+
+        // ── 类型级自定义验证 ──
+
+        /// <summary>
+        /// 类型级自定义验证器（可选）。
+        /// <para>
+        /// 由分析层（SB006）在验证阶段对每个可达节点调用。
+        /// 用于表达“只有这种行动类型才有的约束”，
+        /// 例如 Branch 节点要求 trueOut/falseOut 必须各连一条。
+        /// </para>
+        /// </summary>
+        public IActionValidator? Validator { get; set; }
     }
 
     /// <summary>

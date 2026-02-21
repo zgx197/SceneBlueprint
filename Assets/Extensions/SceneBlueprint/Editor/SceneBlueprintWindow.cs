@@ -280,8 +280,11 @@ namespace SceneBlueprint.Editor
             settings.ConnectionPolicy = new SceneBlueprintConnectionPolicy();
 
             // 2. 创建 Profile，将 Action 类型注册到 settings.NodeTypes 中
+            // Create() 同时返回内部构建的 ActionRegistry，直接复用，避免二次 AutoDiscover
             var textMeasurer = new UnityTextMeasurer();
-            _profile = SceneBlueprintProfile.Create(textMeasurer, settings.NodeTypes);
+            var (profile, builtActionRegistry) = SceneBlueprintProfile.Create(textMeasurer, settings.NodeTypes);
+            _profile = profile;
+            _actionRegistryCache = builtActionRegistry;
 
             // 3. 使用已有图或创建空白图
             var graph = existingGraph ?? new Graph(settings);
@@ -315,9 +318,8 @@ namespace SceneBlueprint.Editor
                 _viewModel.EdgeLabelRenderer
             );
 
-            // 7. 创建 Inspector 面板 + 绑定上下文
-            var actionRegistry = SceneBlueprintProfile.CreateActionRegistry();
-            _inspectorDrawer = new ActionNodeInspectorDrawer(actionRegistry);
+            // 7. 创建 Inspector 面板 + 绑定上下文（复用 builtActionRegistry，无需二次构造）
+            _inspectorDrawer = new ActionNodeInspectorDrawer(builtActionRegistry);
             _inspectorDrawer.OnPropertyChanged = OnNodePropertyChanged;
             _inspectorPanel = new InspectorPanel(_inspectorDrawer);
 
@@ -329,7 +331,7 @@ namespace SceneBlueprint.Editor
             RebuildPreviewMarkerNodeIndex();
 
             // 8. 启用 Scene View 标记工具（P3：由 ToolContext 托管生命周期）
-            _toolContext.EnableMarkerTool(actionRegistry, EnsureSpatialModeDescriptor());
+            _toolContext.EnableMarkerTool(builtActionRegistry, EnsureSpatialModeDescriptor());
             // 9. 双向联动：订阅蓝图选中变化 + 场景侧事件 + Unity 场景选中监听
             _viewModel.Selection.OnSelectionChanged -= OnBlueprintSelectionChanged;
             _viewModel.Selection.OnSelectionChanged += OnBlueprintSelectionChanged;
@@ -363,9 +365,15 @@ namespace SceneBlueprint.Editor
         /// <summary>
         /// 创建用于反序列化的节点类型提供者（S4）。
         /// 在加载图之前调用，让序列化器能从 TypeDefinition 重建端口结构而不依赖 JSON 中可能过期的端口元数据。
+        /// _profile 已存在时直接包装其 NodeTypes（零额外开销）；
+        /// 仅在 DomainReload 路径（profile 尚未建立）才重新构建。
         /// </summary>
-        private static ActionRegistryTypeProvider CreateTypeProvider()
+        private ActionRegistryTypeProvider CreateTypeProvider()
         {
+            if (_profile != null)
+                return new ActionRegistryTypeProvider(_profile.NodeTypes);
+
+            // DomainReload 路径：_profile 尚未建立，必须完整构建
             var registry = new NodeTypeRegistry();
             var actionRegistry = SceneBlueprintProfile.CreateActionRegistry();
             ActionNodeTypeAdapter.RegisterAll(actionRegistry, registry);
@@ -2218,7 +2226,7 @@ namespace SceneBlueprint.Editor
                         var slot = new SceneBindingSlot
                         {
                             BindingKey = scopedBindingKey,
-                            BindingType = prop.SceneBindingType ?? Core.BindingType.Transform,
+                            BindingType = prop.SceneBindingType ?? Contract.BindingType.Transform,
                             DisplayName = prop.DisplayName,
                             SourceActionTypeId = actionData.ActionTypeId,
                             BoundObject = _bindingContext.Get(scopedBindingKey)
@@ -2304,7 +2312,7 @@ namespace SceneBlueprint.Editor
                     string resolvedBindingKey = ResolveBindingKeyForExport(kvp.Key, bindingTypeMap);
                     var bindingType = bindingTypeMap.TryGetValue(resolvedBindingKey, out var resolvedType)
                         ? resolvedType
-                        : Core.BindingType.Transform;
+                        : Contract.BindingType.Transform;
 
                     EncodeBindingForExport(
                         kvp.Value,
@@ -2327,9 +2335,9 @@ namespace SceneBlueprint.Editor
             return null;
         }
 
-        private Dictionary<string, Core.BindingType> BuildBindingTypeMapFromGraph(Core.ActionRegistry registry)
+        private Dictionary<string, Contract.BindingType> BuildBindingTypeMapFromGraph(Core.ActionRegistry registry)
         {
-            var map = new Dictionary<string, Core.BindingType>();
+            var map = new Dictionary<string, Contract.BindingType>();
             if (_viewModel == null) return map;
 
             foreach (var node in _viewModel.Graph.Nodes)
@@ -2342,7 +2350,7 @@ namespace SceneBlueprint.Editor
                     if (prop.Type != Core.PropertyType.SceneBinding) continue;
                     if (string.IsNullOrEmpty(prop.Key)) continue;
                     string scopedBindingKey = BindingScopeUtility.BuildScopedKey(node.Id, prop.Key);
-                    map[scopedBindingKey] = prop.SceneBindingType ?? Core.BindingType.Transform;
+                    map[scopedBindingKey] = prop.SceneBindingType ?? Contract.BindingType.Transform;
                 }
             }
 
@@ -2351,7 +2359,7 @@ namespace SceneBlueprint.Editor
 
         private static string ResolveBindingKeyForExport(
             string contextBindingKey,
-            Dictionary<string, Core.BindingType> bindingTypeMap)
+            Dictionary<string, Contract.BindingType> bindingTypeMap)
         {
             if (string.IsNullOrEmpty(contextBindingKey))
                 return contextBindingKey;
@@ -2384,7 +2392,7 @@ namespace SceneBlueprint.Editor
 
         private void EncodeBindingForExport(
             GameObject? sceneObject,
-            Core.BindingType bindingType,
+            Contract.BindingType bindingType,
             out string stableObjectId,
             out string adapterType,
             out string spatialPayloadJson)
@@ -2449,7 +2457,7 @@ namespace SceneBlueprint.Editor
                     var slot = new SceneBindingSlot
                     {
                         BindingKey = scopedBindingKey,
-                        BindingType = prop.SceneBindingType ?? Core.BindingType.Transform,
+                        BindingType = prop.SceneBindingType ?? Contract.BindingType.Transform,
                         DisplayName = prop.DisplayName,
                         SourceActionTypeId = actionData.ActionTypeId,
                         BoundObject = _bindingContext?.Get(scopedBindingKey)

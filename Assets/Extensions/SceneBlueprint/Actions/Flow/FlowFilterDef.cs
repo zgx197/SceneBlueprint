@@ -25,12 +25,26 @@ namespace SceneBlueprint.Actions.Flow
     ///                                     └─ reject → [条件不满足时的下游（可选）]
     /// </para>
     /// </summary>
-    [ActionType("Flow.Filter")]
+    [ActionType(AT.Flow.Filter)]
     public class FlowFilterDef : IActionDefinitionProvider
     {
+        public static class Ports
+        {
+            public const string In           = "in";
+            public const string CompareValue = "compareValue";
+            public const string Pass         = "pass";
+            public const string Reject       = "reject";
+        }
+
+        public static class Props
+        {
+            public const string Op         = "op";
+            public const string ConstValue = "constValue";
+        }
+
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId = "Flow.Filter",
+            TypeId = AT.Flow.Filter,
             DisplayName = "条件过滤",
             Category = "Flow",
             Description = "通过数据端口接收上游值，与常量比较，条件满足走 pass，否则走 reject",
@@ -39,18 +53,18 @@ namespace SceneBlueprint.Actions.Flow
 
             Ports = new[]
             {
-                Port.In("in", "输入"),
-                Port.DataIn("compareValue", "比较值", DataTypes.Any), // 接收上游数据端口的值
-                Port.Out("pass",   "满足"),    // 条件满足时触发
-                Port.Out("reject", "不满足"),  // 条件不满足时触发（可选）
+                Port.In(Ports.In, "输入"),
+                Port.DataIn(Ports.CompareValue, "比较値", DataTypes.Any), // 接收上游数据端口的值
+                Port.Out(Ports.Pass,   "满足"),    // 条件满足时触发
+                Port.Out(Ports.Reject, "不满足"),  // 条件不满足时触发（可选）
             },
 
             Properties = new[]
             {
-                Prop.Enum("op", "操作符",
+                Prop.Enum(Props.Op, "操作符",
                     new[] { "==", "!=", ">", "<", ">=", "<=" },
                     defaultValue: "==", order: 0),
-                Prop.String("constValue", "常量（无连线时 pass）",
+                Prop.String(Props.ConstValue, "常量（无连线时 pass）",
                     defaultValue: "0", order: 1),
             },
 

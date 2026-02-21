@@ -2,7 +2,9 @@
     "name": "SceneBlueprint.Runtime",
     "rootNamespace": "SceneBlueprint.Runtime",
     "references": [
-        "SceneBlueprint.Contract"
+        "SceneBlueprint.Contract",
+        "SceneBlueprint.Core",
+        "SceneBlueprint.Actions"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

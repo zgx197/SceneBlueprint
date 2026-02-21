@@ -28,8 +28,8 @@ namespace SceneBlueprint.Editor
         /// 节点类型注册表（通常传入 GraphSettings.NodeTypes，
         /// 确保 Graph 和 Profile 共享同一份注册表）
         /// </param>
-        /// <returns>配置完成的 BlueprintProfile</returns>
-        public static BlueprintProfile Create(ITextMeasurer textMeasurer, NodeTypeRegistry nodeTypeRegistry)
+        /// <returns>配置完成的 BlueprintProfile 以及构建期间创建的 ActionRegistry（供调用方复用，避免二次构造）</returns>
+        public static (BlueprintProfile Profile, ActionRegistry ActionRegistry) Create(ITextMeasurer textMeasurer, NodeTypeRegistry nodeTypeRegistry)
         {
             // 1. 创建并填充 ActionRegistry（自动发现所有 [ActionType] 标注的 Provider）
             var actionRegistry = new ActionRegistry();
@@ -64,12 +64,12 @@ namespace SceneBlueprint.Editor
                 profile.ContentRenderers[actionDef.TypeId] = contentRenderer;
             }
 
-            return profile;
+            return (profile, actionRegistry);
         }
 
         /// <summary>
         /// 创建配置完成的 BlueprintAnalyzer（T4 Analyze Phase 入口）。
-        /// 按推荐顺序注册内置规则：SB003 → SB001 → SB002 → SB004 → SB005。
+        /// 按推荐顺序注册内置规则：SB003 → SB001 → SB002 → SB006 → SB004 → SB005。
         /// </summary>
         public static BlueprintAnalyzer CreateAnalyzer(INodeTypeProvider typeProvider, ActionRegistry actionRegistry)
         {
@@ -77,6 +77,7 @@ namespace SceneBlueprint.Editor
                 .AddRule(new MultipleStartRule())              // SB003：快速失败
                 .AddRule(new ReachabilityRule())               // SB001：计算可达集合
                 .AddRule(new RequiredPortRule())               // SB002：依赖可达集合
+                .AddRule(new TypeValidationRule())             // SB006：类型级自定义验证（ActionDefinition.Validator）
                 .AddRule(new DeadOutputRule())                 // SB004
                 .AddRule(new IsolatedNodeRule());              // SB005
         }

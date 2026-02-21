@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using SceneBlueprint.Core;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.SpatialAbstraction.Defaults
 {

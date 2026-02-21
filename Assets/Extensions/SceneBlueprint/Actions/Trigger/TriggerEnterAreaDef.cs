@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Actions.Trigger
 {
@@ -19,12 +20,18 @@ namespace SceneBlueprint.Actions.Trigger
     /// </code>
     /// </para>
     /// </summary>
-    [ActionType("Trigger.EnterArea")]
+    [ActionType(AT.Trigger.EnterArea)]
     public class TriggerEnterAreaDef : IActionDefinitionProvider
     {
+        public static class Props
+        {
+            public const string TriggerArea        = "triggerArea";
+            public const string RequireFullyInside = "requireFullyInside";
+        }
+
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId = "Trigger.EnterArea",
+            TypeId = AT.Trigger.EnterArea,
             DisplayName = "进入区域",
             Category = "Trigger",
             Description = "等待玩家进入指定区域后继续",
@@ -39,13 +46,13 @@ namespace SceneBlueprint.Actions.Trigger
 
             Properties = new[]
             {
-                Prop.SceneBinding("triggerArea", "触发区域", BindingType.Area, order: 0),
-                Prop.Bool("requireFullyInside", "需要完全进入", defaultValue: false, order: 1),
+                Prop.SceneBinding(Props.TriggerArea, "触发区域", BindingType.Area, order: 0),
+                Prop.Bool(Props.RequireFullyInside, "需要完全进入", defaultValue: false, order: 1),
             },
 
             SceneRequirements = new[]
             {
-                new MarkerRequirement("triggerArea", MarkerTypeIds.Area,
+                new MarkerRequirement(Props.TriggerArea, MarkerTypeIds.Area,
                     displayName: "触发区域",
                     defaultTag: "Trigger.Enter",
                     required: true)

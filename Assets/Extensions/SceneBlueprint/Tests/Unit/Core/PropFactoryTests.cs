@@ -1,6 +1,7 @@
 #nullable enable
 using NUnit.Framework;
 using SceneBlueprint.Core;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Tests.Unit.Core
 {

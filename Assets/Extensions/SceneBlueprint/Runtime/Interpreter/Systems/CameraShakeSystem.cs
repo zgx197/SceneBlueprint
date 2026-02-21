@@ -1,6 +1,8 @@
 #nullable enable
 using System;
 using UnityEngine;
+using SceneBlueprint.Core;
+using SceneBlueprint.Actions.VFX;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -18,17 +20,18 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     ///   CustomInt → 目标持续 Tick 数（从 duration 属性换算）
     /// </para>
     /// </summary>
+    [UpdateInGroup(SystemGroup.Business)]
+    [UpdateAfter(typeof(SpawnWaveSystem))]
     public class CameraShakeSystem : BlueprintSystemBase
     {
         public override string Name => "CameraShakeSystem";
-        public override int Order => 120; // 业务 System，在 SpawnWaveSystem(110) 之后
 
         /// <summary>摄像机震动处理器（外部注入，与 SpawnWaveSystem.SpawnHandler 模式一致）</summary>
         public ICameraShakeHandler? ShakeHandler { get; set; }
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("VFX.CameraShake");
+            var indices = frame.GetActionIndices(AT.Vfx.CameraShake);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];
@@ -42,9 +45,9 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.IsFirstEntry = false;
 
-                    var durationStr = frame.GetProperty(idx, "duration");
-                    var intensityStr = frame.GetProperty(idx, "intensity");
-                    var frequencyStr = frame.GetProperty(idx, "frequency");
+                    var durationStr = frame.GetProperty(idx, CameraShakeDef.Props.Duration);
+                    var intensityStr = frame.GetProperty(idx, CameraShakeDef.Props.Intensity);
+                    var frequencyStr = frame.GetProperty(idx, CameraShakeDef.Props.Frequency);
 
                     float durationSec = 0.5f;
                     float.TryParse(durationStr, System.Globalization.NumberStyles.Float,

@@ -1,5 +1,6 @@
 #nullable enable
 using SceneBlueprint.Core;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.SpatialAbstraction
 {

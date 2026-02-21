@@ -6,9 +6,6 @@ using System.Runtime.CompilerServices;
 // 允许 Serialization 程序集访问 Core 的 internal 成员（用于反序列化直接构造）
 [assembly: InternalsVisibleTo("NodeGraph.Serialization")]
 
-// 允许 View 程序集访问 Core 的 internal 成员
-[assembly: InternalsVisibleTo("NodeGraph.View")]
-
 // 允许 Unity 适配层访问 Core 的 internal 成员（用于持久化转换）
 [assembly: InternalsVisibleTo("NodeGraph.Unity")]
 

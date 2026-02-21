@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprint.Contract;
 
 namespace SceneBlueprint.Actions.Spawn
 {

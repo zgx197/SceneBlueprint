@@ -124,9 +124,6 @@ namespace NodeGraph.Serialization
                 if (srcPort == null || tgtPort == null) continue;
 
                 var edge = new Edge(idMap[em.id], srcPort.Id, tgtPort.Id);
-                if (em.userData != null && _userDataSerializer != null)
-                    edge.UserData = _userDataSerializer.DeserializeEdgeData(em.userData);
-
                 target.AddEdgeDirect(edge);
             }
 
@@ -202,6 +199,11 @@ namespace NodeGraph.Serialization
 
         private Graph ModelToGraph(JsonGraphModel model)
         {
+            if (model.schemaVersion < 2)
+                throw new InvalidOperationException(
+                    $"不支持的图格式版本 v{model.schemaVersion}。当前仅支持 v2 及以上。" +
+                    $"请用上一版本的编辑器重新保存该文件以完成迁移。");
+
             var topology = GraphTopologyPolicy.DAG;
             if (Enum.TryParse<GraphTopologyPolicy>(model.settings.topology, out var parsed))
                 topology = parsed;
@@ -221,8 +223,6 @@ namespace NodeGraph.Serialization
                 var tgtPort = FindPortBySemanticId(graph, em.toNodeId, em.toPortId);
                 if (srcPort == null || tgtPort == null) continue;
                 var edge = new Edge(em.id, srcPort.Id, tgtPort.Id);
-                if (em.userData != null && _userDataSerializer != null)
-                    edge.UserData = _userDataSerializer.DeserializeEdgeData(em.userData);
                 graph.AddEdgeDirect(edge);
             }
 
@@ -371,9 +371,6 @@ namespace NodeGraph.Serialization
                 toNodeId   = tgtPort?.NodeId ?? "",
                 toPortId   = tgtPort?.SemanticId ?? "",
             };
-
-            if (edge.UserData != null && _userDataSerializer != null)
-                em.userData = _userDataSerializer.SerializeEdgeData(edge.UserData);
 
             return em;
         }

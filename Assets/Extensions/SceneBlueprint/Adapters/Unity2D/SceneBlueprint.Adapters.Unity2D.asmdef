@@ -3,6 +3,7 @@
     "rootNamespace": "SceneBlueprint.Adapters.Unity2D",
     "references": [
         "SceneBlueprint.Core",
+        "SceneBlueprint.Contract",
         "SceneBlueprint.Runtime",
         "SceneBlueprint.SpatialAbstraction"
     ],

@@ -1,5 +1,7 @@
 #nullable enable
 using UnityEngine;
+using SceneBlueprint.Core;
+using SceneBlueprint.Actions.Trigger;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -18,10 +20,10 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     /// - 后续迁移到 FrameSyncEngine 时，替换为真实的空间查询
     /// </para>
     /// </summary>
+    [UpdateInGroup(SystemGroup.Business)]
     public class TriggerEnterAreaSystem : BlueprintSystemBase
     {
         public override string Name => "TriggerEnterAreaSystem";
-        public override int Order => 105; // 业务 System 区间（100~199）
 
         /// <summary>
         /// 玩家位置提供器（外部注入）。
@@ -31,7 +33,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("Trigger.EnterArea");
+            var indices = frame.GetActionIndices(AT.Trigger.EnterArea);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];
@@ -71,7 +73,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             var bindings = frame.GetSceneBindings(actionIndex);
             for (int i = 0; i < bindings.Length; i++)
             {
-                if (bindings[i].BindingKey.Contains("triggerArea"))
+                if (bindings[i].BindingKey.Contains(TriggerEnterAreaDef.Props.TriggerArea))
                 {
                     var playerPos = PlayerPosition.GetPosition();
                     // 简单的 AABB 检测（后续可替换为多边形检测）

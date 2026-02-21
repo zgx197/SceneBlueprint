@@ -1,5 +1,7 @@
 #nullable enable
 using UnityEngine;
+using SceneBlueprint.Core;
+using SceneBlueprint.Actions.Blackboard;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -16,14 +18,15 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
     /// Phase 3 升级方向：改为通过强类型数据端口输出，替代内部缓存方式。
     /// </para>
     /// </summary>
+    [UpdateInGroup(SystemGroup.Framework)]
+    [UpdateAfter(typeof(BlackboardSetSystem))]
     public class BlackboardGetSystem : BlueprintSystemBase
     {
         public override string Name  => "BlackboardGetSystem";
-        public override int    Order => 13; // 紧随 BlackboardSetSystem(12)
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices("Blackboard.Get");
+            var indices = frame.GetActionIndices(AT.Blackboard.Get);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];
@@ -35,7 +38,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         private static void ProcessGet(BlueprintFrame frame, int actionIndex, ref ActionRuntimeState state)
         {
-            var varIdxStr = frame.GetProperty(actionIndex, "variableIndex");
+            var varIdxStr = frame.GetProperty(actionIndex, BlackboardGetDef.Props.VariableIndex);
 
             if (!int.TryParse(varIdxStr, out int varIdx) || varIdx < 0)
             {
