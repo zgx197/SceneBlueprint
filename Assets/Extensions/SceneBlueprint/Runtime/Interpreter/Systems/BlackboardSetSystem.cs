@@ -2,7 +2,7 @@
 using System.Globalization;
 using UnityEngine;
 using SceneBlueprint.Core;
-using SceneBlueprint.Actions.Blackboard;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -36,8 +36,8 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         private static void ProcessSet(BlueprintFrame frame, int actionIndex, ref ActionRuntimeState state)
         {
-            var varIdxStr = frame.GetProperty(actionIndex, BlackboardSetDef.Props.VariableIndex);
-            var valueStr  = frame.GetProperty(actionIndex, BlackboardSetDef.Props.Value);
+            var varIdxStr = frame.GetProperty(actionIndex, ActionPortIds.BlackboardSet.VariableIndex);
+            var valueStr  = frame.GetProperty(actionIndex, ActionPortIds.BlackboardSet.Value);
 
             if (!int.TryParse(varIdxStr, out int varIdx) || varIdx < 0)
             {

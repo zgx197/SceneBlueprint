@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -17,19 +18,19 @@ namespace SceneBlueprint.Runtime.Interpreter
     /// </summary>
     public static class GlobalBlackboard
     {
-        private static readonly Dictionary<int, object>    _declared = new();
+        private static readonly Dictionary<int, (object Value, Type Type)> _declared = new();
         private static readonly Dictionary<string, object> _internal = new();
 
         // ── 策划变量 API（按整型索引）──
 
-        /// <summary>设置声明变量值</summary>
+        /// <summary>设置声明变量值（同时记录运行时类型）</summary>
         public static void Set<T>(int index, T value) where T : notnull
-            => _declared[index] = value;
+            => _declared[index] = (value, typeof(T));
 
         /// <summary>获取声明变量值（不存在则返回 default）</summary>
         public static T? Get<T>(int index)
         {
-            if (_declared.TryGetValue(index, out var val) && val is T typed)
+            if (_declared.TryGetValue(index, out var entry) && entry.Value is T typed)
                 return typed;
             return default;
         }
@@ -37,7 +38,7 @@ namespace SceneBlueprint.Runtime.Interpreter
         /// <summary>尝试获取声明变量值</summary>
         public static bool TryGet<T>(int index, out T? value)
         {
-            if (_declared.TryGetValue(index, out var val) && val is T typed)
+            if (_declared.TryGetValue(index, out var entry) && entry.Value is T typed)
             {
                 value = typed;
                 return true;
@@ -50,7 +51,7 @@ namespace SceneBlueprint.Runtime.Interpreter
         public static void SetIfAbsent<T>(int index, T value) where T : notnull
         {
             if (!_declared.ContainsKey(index))
-                _declared[index] = value;
+                _declared[index] = (value, typeof(T));
         }
 
         /// <summary>是否包含指定变量</summary>

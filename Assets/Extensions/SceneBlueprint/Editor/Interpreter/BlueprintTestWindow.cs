@@ -40,6 +40,7 @@ namespace SceneBlueprint.Editor.Interpreter
         private int  _inspectTick = -1;   // -1 = 跟随最新帧
         private bool _showDebug   = true; // 调试面板折叠状态
         private Vector2 _diffScrollPos;
+        private Vector2 _bbScrollPos;
 
         /// <summary>运行时配置（从全局设置读取）</summary>
         private BlueprintRuntimeSettings Settings => BlueprintRuntimeSettings.Instance;
@@ -295,8 +296,65 @@ namespace SceneBlueprint.Editor.Interpreter
                         EditorGUILayout.LabelField("  （无排队事件）");
 
                     EditorGUILayout.EndScrollView();
+
+                    // ── Blackboard 变量（历史快照）──
+                    EditorGUILayout.Space(4);
+                    DrawBlackboardEntries(snap.BlackboardEntries);
+                }
+                else
+                {
+                    // ── Blackboard 变量（实时）──
+                    EditorGUILayout.Space(4);
+                    DrawBlackboardLive();
                 }
             }
+        }
+
+        private void DrawBlackboardEntries(BlackboardEntry[] entries)
+        {
+            EditorGUILayout.LabelField("Blackboard 变量", EditorStyles.boldLabel);
+            if (entries.Length == 0)
+            {
+                EditorGUILayout.LabelField("  （无声明变量）");
+                return;
+            }
+
+            _bbScrollPos = EditorGUILayout.BeginScrollView(_bbScrollPos, GUILayout.MaxHeight(80));
+            foreach (var e in entries)
+            {
+                var prev = GUI.contentColor;
+                GUI.contentColor = new Color(0.7f, 1f, 0.85f);
+                EditorGUILayout.LabelField($"  {e.Name}[{e.Index}] : {e.TypeStr} = {e.ValueStr}");
+                GUI.contentColor = prev;
+            }
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawBlackboardLive()
+        {
+            if (_runner?.Frame == null) return;
+
+            var declared = _runner.Frame.Blackboard.DeclaredEntries;
+            EditorGUILayout.LabelField("Blackboard 变量（实时）", EditorStyles.boldLabel);
+            if (declared.Count == 0)
+            {
+                EditorGUILayout.LabelField("  （无声明变量）");
+                return;
+            }
+
+            _bbScrollPos = EditorGUILayout.BeginScrollView(_bbScrollPos, GUILayout.MaxHeight(80));
+            foreach (var kvp in declared)
+            {
+                var decl  = _runner.Frame.FindVariable(kvp.Key);
+                string name    = decl?.Name ?? kvp.Key.ToString();
+                string typeStr = decl?.Type  ?? kvp.Value.Type.Name;
+                string valStr  = kvp.Value.Value?.ToString() ?? "null";
+                var prev = GUI.contentColor;
+                GUI.contentColor = new Color(0.7f, 1f, 0.85f);
+                EditorGUILayout.LabelField($"  {name}[{kvp.Key}] : {typeStr} = {valStr}");
+                GUI.contentColor = prev;
+            }
+            EditorGUILayout.EndScrollView();
         }
 
         private static Color GetPhaseColor(ActionPhase phase) => phase switch

@@ -1,7 +1,7 @@
 #nullable enable
 using UnityEngine;
 using SceneBlueprint.Core;
-using SceneBlueprint.Actions.Flow;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -87,7 +87,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.IsFirstEntry = false;
 
-                    var delayStr = frame.GetProperty(idx, FlowDelayDef.Props.Delay);
+                    var delayStr = frame.GetProperty(idx, ActionPortIds.FlowDelay.Duration);
                     if (float.TryParse(delayStr, out var delaySec))
                     {
                         // 简单映射：1 秒 ≈ 60 Tick（假设 60fps，后续迁移时使用确定性时间）

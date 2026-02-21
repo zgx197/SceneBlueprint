@@ -30,6 +30,9 @@ namespace SceneBlueprint.Runtime.Test
         [SerializeField] private bool _playerInRange;
         [SerializeField] private float _distanceToPlayer;
 
+        /// <summary>全局暂停标志：由 BlueprintDebugController.OnPaused/OnResumed 驱动，对所有违走的怪物 AI 生效。</summary>
+        public static bool IsBlueprintPaused = false;
+
         private Transform? _playerTransform;
         private MeshRenderer? _renderer;
         private Color _originalColor;
@@ -55,6 +58,8 @@ namespace SceneBlueprint.Runtime.Test
 
         private void Update()
         {
+            if (IsBlueprintPaused) return;
+
             switch (CurrentBehavior)
             {
                 case BehaviorType.Idle:

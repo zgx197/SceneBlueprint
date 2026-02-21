@@ -191,6 +191,23 @@ namespace SceneBlueprint.Runtime.Interpreter
             frame.DataInConnections = dataInIndex;
             Debug.Log($"[BlueprintLoader.BuildFrame] DataInConnections 索引构建完成，共 {dataInIndex.Count} 条数据连接");
 
+            // ── 7. 构建 DataPortDefaults 索引 ──
+            int defaultsCount = 0;
+            foreach (var action in data.Actions)
+            {
+                if (!idToIndex.TryGetValue(action.Id, out int idx)) continue;
+                if (action.PortDefaults == null || action.PortDefaults.Length == 0) continue;
+                foreach (var pd in action.PortDefaults)
+                {
+                    if (!string.IsNullOrEmpty(pd.PortId))
+                    {
+                        frame.DataPortDefaults[(idx, pd.PortId)] = pd.DefaultValue ?? "";
+                        defaultsCount++;
+                    }
+                }
+            }
+            Debug.Log($"[BlueprintLoader.BuildFrame] DataPortDefaults 构建完成，共 {defaultsCount} 个端口默认值");
+
             Debug.Log($"[BlueprintLoader.BuildFrame] ✓ Frame 构建完成，最终 ActionCount={frame.ActionCount}");
 
             return frame;

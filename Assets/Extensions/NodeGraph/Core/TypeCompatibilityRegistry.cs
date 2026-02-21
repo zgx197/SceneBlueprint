@@ -37,21 +37,26 @@ namespace NodeGraph.Core
             set.Add(toType);
         }
 
+        /// <summary>
+        /// 空安全处理：仅将 null 转为 ""，<b>不将空串归一为 AnyType</b>。
+        /// <para>通配符必须显式使用 <see cref="AnyType"/> 常量，空串表示未指定类型，不走通配。</para>
+        /// </summary>
+        public static string NormalizeDataType(string type)
+            => type ?? "";
+
         /// <summary>查询两个类型是否兼容（源端口类型能否连到目标端口类型）</summary>
         public bool IsCompatible(string sourceType, string targetType)
         {
             if (sourceType == null || targetType == null) return false;
 
-            // 相同类型总是兼容
+            // 相同类型总是兼容（含两端都是 ""、都是 "exec" 等情况）
             if (sourceType == targetType) return true;
 
             // exec 只能连 exec
             if (sourceType == ExecType || targetType == ExecType) return false;
 
-            // any（或空串）与任何非 exec 类型兼容
-            bool sourceAny = sourceType == AnyType || sourceType == "";
-            bool targetAny = targetType == AnyType || targetType == "";
-            if (sourceAny || targetAny) return true;
+            // 只有显式使用 AnyType 的端口才是通配符（空串不是通配）
+            if (sourceType == AnyType || targetType == AnyType) return true;
 
             // 检查已注册的隐式转换
             if (_conversions.TryGetValue(sourceType, out var set) && set.Contains(targetType))
@@ -71,10 +76,10 @@ namespace NodeGraph.Core
             // exec 不兼容其他类型
             if (type == ExecType) yield break;
 
-            // any 与一切兼容（无法枚举所有，只返回 any 本身）
+            // any 与一切非-exec 类型兼容（只返回 any 本身，无法枚举全集）
             if (type != AnyType) yield return AnyType;
 
-            // 已注册的转换目标
+            // 已注册的隐式转换目标
             if (_conversions.TryGetValue(type, out var set))
             {
                 foreach (var t in set) yield return t;

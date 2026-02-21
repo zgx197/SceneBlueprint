@@ -6,6 +6,34 @@ using UnityEngine;
 namespace SceneBlueprint.Runtime.Interpreter.Diagnostics
 {
     /// <summary>
+    /// 单条 Blackboard 变量的快照条目（值类型，零GC分配，序列化为字符串避免装箱问题）。
+    /// </summary>
+    public readonly struct BlackboardEntry
+    {
+        /// <summary>变量的整型索引（与 VariableDeclaration.Index 对应）</summary>
+        public readonly int Index;
+
+        /// <summary>变量名称（来自 VariableDeclaration.Name，调试显示用）</summary>
+        public readonly string Name;
+
+        /// <summary>变量类型字符串（"int"/"float"/"bool"/"string" 等）</summary>
+        public readonly string TypeStr;
+
+        /// <summary>序列化后的值字符串（ToString()），避免 object 装箱在快照层面产生类型丢失</summary>
+        public readonly string ValueStr;
+
+        public BlackboardEntry(int index, string name, string typeStr, string valueStr)
+        {
+            Index    = index;
+            Name     = name;
+            TypeStr  = typeStr;
+            ValueStr = valueStr;
+        }
+
+        public override string ToString() => $"{Name}[{Index}]:{TypeStr}={ValueStr}";
+    }
+
+    /// <summary>
     /// 某一帧结束时的蓝图状态快照。
     /// <para>
     /// 由 <see cref="BlueprintFrameHistory"/> 的对象池管理，外部只读，不要持久持有引用。
@@ -37,6 +65,12 @@ namespace SceneBlueprint.Runtime.Interpreter.Diagnostics
         /// </summary>
         public StateDiff[] Diffs = Array.Empty<StateDiff>();
 
+        /// <summary>
+        /// 本帧结束时 Local Blackboard 的声明变量快照。
+        /// 每个条目已序列化为字符串，不存在 object 装箱类型丢失问题。
+        /// </summary>
+        public BlackboardEntry[] BlackboardEntries = Array.Empty<BlackboardEntry>();
+
         // ── 内部对象池标记 ──
         internal bool InUse;
 
@@ -59,6 +93,22 @@ namespace SceneBlueprint.Runtime.Interpreter.Diagnostics
                 PendingEventsSnapshot = new PortEvent[events.Count];
             for (int i = 0; i < events.Count; i++)
                 PendingEventsSnapshot[i] = events[i];
+
+            // Blackboard：序列化为字符串条目，结合 Variables 补充名称与类型
+            var declared = frame.Blackboard.DeclaredEntries;
+            if (BlackboardEntries.Length != declared.Count)
+                BlackboardEntries = new BlackboardEntry[declared.Count];
+            int idx = 0;
+            foreach (var kvp in declared)
+            {
+                var decl = frame.FindVariable(kvp.Key);
+                BlackboardEntries[idx++] = new BlackboardEntry(
+                    kvp.Key,
+                    decl?.Name  ?? kvp.Key.ToString(),
+                    decl?.Type  ?? kvp.Value.Type.Name,
+                    kvp.Value.Value?.ToString() ?? "null"
+                );
+            }
         }
     }
 }

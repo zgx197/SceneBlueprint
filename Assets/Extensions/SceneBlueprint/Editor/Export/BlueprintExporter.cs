@@ -199,6 +199,22 @@ namespace SceneBlueprint.Editor.Export
 
                 entry.Properties = properties.ToArray();
                 entry.SceneBindings = sceneBindings.ToArray();
+
+                var portDefaults = new List<PortDefaultValue>();
+                foreach (var port in def.Ports)
+                {
+                    if (port.Kind == PortKind.Data &&
+                        port.Direction == PortDirection.Input &&
+                        port.DefaultValue != null)
+                    {
+                        portDefaults.Add(new PortDefaultValue
+                        {
+                            PortId       = port.Id,
+                            DefaultValue = port.DefaultValue.ToString() ?? ""
+                        });
+                    }
+                }
+                entry.PortDefaults = portDefaults.ToArray();
             }
             else
             {

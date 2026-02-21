@@ -103,6 +103,13 @@ namespace SceneBlueprint.Runtime.Interpreter
         /// </summary>
         public Dictionary<int, Dictionary<string, string>> DataPortValues { get; } = new();
 
+        /// <summary>
+        /// DataIn 端口默认值：(actionIndex, portId) → defaultValue 字符串。
+        /// 由 <see cref="Interpreter.BlueprintLoader"/> 从 ActionEntry.PortDefaults 构建；
+        /// <see cref="GetDataPortValue"/> 无连线时回退此表。
+        /// </summary>
+        public Dictionary<(int, string), string> DataPortDefaults { get; } = new();
+
         /// <summary>当前已执行的 Tick 数</summary>
         public int TickCount { get; internal set; }
 
@@ -217,7 +224,12 @@ namespace SceneBlueprint.Runtime.Interpreter
         public string? GetDataPortValue(int toActionIndex, string toPortId)
         {
             if (!DataInConnections.TryGetValue((toActionIndex, toPortId), out var from))
+            {
+                // 无连线：回退到端口声明的默认值（来自 ActionDefinition.PortDefinition.DefaultValue）
+                if (DataPortDefaults.TryGetValue((toActionIndex, toPortId), out var defaultVal))
+                    return defaultVal;
                 return null;
+            }
 
             var (fromActionIndex, fromPortId) = from;
             if (DataPortValues.TryGetValue(fromActionIndex, out var portMap) &&

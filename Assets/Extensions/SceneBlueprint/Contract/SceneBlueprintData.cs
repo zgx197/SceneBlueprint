@@ -61,6 +61,14 @@ namespace SceneBlueprint.Contract
         public string ToPortId = "";
     }
 
+    /// <summary>单个 DataIn 端口的默认值（无连线时使用）</summary>
+    [Serializable]
+    public class PortDefaultValue
+    {
+        public string PortId = "";
+        public string DefaultValue = "";
+    }
+
     /// <summary>行动条目（对应图中的一个节点）</summary>
     [Serializable]
     public class ActionEntry
@@ -69,6 +77,7 @@ namespace SceneBlueprint.Contract
         public string TypeId = "";
         public PropertyValue[] Properties = Array.Empty<PropertyValue>();
         public SceneBindingEntry[] SceneBindings = Array.Empty<SceneBindingEntry>();
+        public PortDefaultValue[] PortDefaults = Array.Empty<PortDefaultValue>();
     }
 
     /// <summary>属性值（扁平化键值对，字符串序列化）</summary>

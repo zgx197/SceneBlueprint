@@ -25,6 +25,9 @@ namespace SceneBlueprint.Runtime.Test
         private const float FadeInTime = 0.3f;
         private const float FadeOutTime = 0.5f;
 
+        // 蓝图调试暂停状态
+        private bool _pausedByBlueprint;
+
         // 缓存的 GUIStyle（避免每帧创建）
         private GUIStyle? _style;
         private GUIStyle? _shadowStyle;
@@ -58,9 +61,13 @@ namespace SceneBlueprint.Runtime.Test
             _showing = false;
         }
 
+        public void OnBlueprintPaused()  => _pausedByBlueprint = true;
+        public void OnBlueprintResumed() => _pausedByBlueprint = false;
+
         private void Update()
         {
             if (!_showing) return;
+            if (_pausedByBlueprint) return;
 
             _elapsed += Time.deltaTime;
             if (_elapsed >= _duration)

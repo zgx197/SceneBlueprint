@@ -15,6 +15,14 @@ namespace NodeGraph.Core
     /// </summary>
     public class DefaultConnectionPolicy : IConnectionPolicy
     {
+        private readonly IConnectionValidator[] _validators;
+
+        /// <param name="validators">额外校验器列表（责任链节点），在内置校验全部通过后按序执行。</param>
+        public DefaultConnectionPolicy(params IConnectionValidator[] validators)
+        {
+            _validators = validators ?? System.Array.Empty<IConnectionValidator>();
+        }
+
         public virtual ConnectionResult CanConnect(Graph graph, Port source, Port target)
         {
             // 0. 不能连接同一节点的端口
@@ -106,6 +114,14 @@ namespace NodeGraph.Core
             {
                 if (GraphAlgorithms.WouldCreateCycle(graph, outPort.NodeId, inPort.NodeId))
                     return ConnectionResult.CycleDetected;
+            }
+
+            // 7. 责任链：依次调用注册的额外验证器
+            foreach (var validator in _validators)
+            {
+                var extra = validator.Validate(graph, outPort, inPort);
+                if (extra.HasValue)
+                    return extra.Value;
             }
 
             return ConnectionResult.Success;

@@ -1,5 +1,6 @@
 #nullable enable
 using SceneBlueprint.Runtime.Interpreter;
+using SceneBlueprint.Runtime.Interpreter.Diagnostics;
 using SceneBlueprint.Runtime.Interpreter.Systems;
 using UnityEngine;
 
@@ -130,6 +131,13 @@ namespace SceneBlueprint.Runtime.Test
                 showWarningSystem
             );
 
+            // 创建调试控制器并连线场景处 Handler 的暂停感知
+            var debugCtrl = new BlueprintDebugController();
+            WireDebugPauseEvents(debugCtrl,
+                cameraShakeSystem.ShakeHandler as CameraShakeHandler,
+                showWarningSystem.WarningHandler as ShowWarningHandler);
+            _runner.DebugController = debugCtrl;
+
             _statusText = "正在加载...";
             _runner.Load(_blueprintJson.text);
 
@@ -146,6 +154,34 @@ namespace SceneBlueprint.Runtime.Test
             _running = false;
             _loaded = false;
             LoadBlueprint();
+        }
+
+        // ── 调试暂停事件连线 ──
+
+        /// <summary>
+        /// 将 DebugController 的 OnPaused/OnResumed 事件连线到场景侧 Handler，
+        /// 使 Blueprint 暂停时场景效果同步冻结。
+        /// </summary>
+        private static void WireDebugPauseEvents(
+            BlueprintDebugController ctrl,
+            CameraShakeHandler?      shakeHandler,
+            ShowWarningHandler?      warningHandler)
+        {
+            if (shakeHandler != null)
+            {
+                ctrl.OnPaused  += shakeHandler.OnBlueprintPaused;
+                ctrl.OnResumed += shakeHandler.OnBlueprintResumed;
+            }
+
+            if (warningHandler != null)
+            {
+                ctrl.OnPaused  += warningHandler.OnBlueprintPaused;
+                ctrl.OnResumed += warningHandler.OnBlueprintResumed;
+            }
+
+            // MonsterBehavior 是动态生成的，通过静态标志统一冻结所有实例的 AI 逻辑
+            ctrl.OnPaused  += () => MonsterBehavior.IsBlueprintPaused = true;
+            ctrl.OnResumed += () => MonsterBehavior.IsBlueprintPaused = false;
         }
 
         // ── Handler 动态查找 ──

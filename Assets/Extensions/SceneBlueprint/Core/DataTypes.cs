@@ -17,8 +17,8 @@ namespace SceneBlueprint.Core
     {
         // ── 基础类型 ──
 
-        /// <summary>任意类型（空串），用于不限制输入类型的 DataIn 端口（运行时按字符串比较）</summary>
-        public const string Any = "";
+        /// <summary>任意类型通配符，用于不限制输入类型的 DataIn 端口（与 TypeCompatibilityRegistry.AnyType 对齐）</summary>
+        public const string Any = "any";
 
         /// <summary>浮点数</summary>
         public const string Float = "float";

@@ -75,8 +75,8 @@ namespace SceneBlueprint.Core
             if (sourceType == targetType)
                 return true;
 
-            // 空串 = DataTypes.Any，任意一侧为 Any 则直接兼容
-            if (string.IsNullOrEmpty(sourceType) || string.IsNullOrEmpty(targetType))
+            // DataTypes.Any ("any") 与任意非-exec 类型兼容
+            if (sourceType == DataTypes.Any || targetType == DataTypes.Any)
                 return true;
 
             // 查找类型定义

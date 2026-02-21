@@ -24,6 +24,7 @@ using SceneBlueprint.Runtime;
 using SceneBlueprint.Runtime.Markers;
 using SceneBlueprint.Runtime.Templates;
 using SceneBlueprint.Editor.Analysis;
+using SceneBlueprint.Editor.WindowServices;
 
 namespace SceneBlueprint.Editor
 {
@@ -33,8 +34,14 @@ namespace SceneBlueprint.Editor
     /// ProcessInput → BuildFrame → Render 主循环。
     /// 布局：工具栏 | 画布区域 | Inspector 面板（可拖拽分栏）
     /// </summary>
-    public class SceneBlueprintWindow : EditorWindow
+    public class SceneBlueprintWindow : EditorWindow, IBlueprintEditorContext
     {
+        // ── IBlueprintEditorContext 显式实现 ──
+        GraphViewModel? IBlueprintEditorContext.ViewModel        => _viewModel;
+        BlueprintAsset? IBlueprintEditorContext.CurrentAsset     => _currentAsset;
+        Core.ActionRegistry IBlueprintEditorContext.GetActionRegistry() => GetActionRegistry();
+        void IBlueprintEditorContext.RequestRepaint()            => Repaint();
+
         // ── NodeGraph 核心组件 ──
         private GraphViewModel? _viewModel;
         private UnityGraphRenderer? _renderer;
@@ -72,7 +79,6 @@ namespace SceneBlueprint.Editor
         private const float MinAnalysisHeight = 60f;
         private const float DefaultAnalysisHeight = 160f;
         private const float AnalysisSplitterHeight = 4f;
-        private const double AnalysisDebounceSeconds = 0.6;
         private float _inspectorWidth = DefaultInspectorWidth;
         private float _workbenchWidth = DefaultWorkbenchWidth;
         private float _analysisHeight = DefaultAnalysisHeight;
@@ -80,29 +86,22 @@ namespace SceneBlueprint.Editor
         private bool _isDraggingWorkbenchSplitter;
         private bool _isDraggingAnalysisSplitter;
         private bool _showWorkbench = true;
-        // ── 分析自动触发（Debounce）──
-        private double _analysisDebounceUntil;
         private bool _useEditorToolSelectionInput = true;
         private Core.ActionRegistry? _actionRegistryCache;
         private IEditorSpatialModeDescriptor? _spatialModeDescriptor;
         private readonly SceneBlueprintToolContext _toolContext = new SceneBlueprintToolContext();
         private readonly ISceneBindingStore _sceneBindingStore = new SceneManagerBindingStore();
-        private readonly HashSet<string> _dirtyPreviewNodeIds = new HashSet<string>();
-        private bool _previewDirtyAll;
-        private bool _previewFlushScheduled;
         private Vector2 _blackboardScrollPos;
-        private readonly Dictionary<string, HashSet<string>> _previewMarkerToNodeIds =
-            new Dictionary<string, HashSet<string>>();
-        private readonly Dictionary<string, string> _previewNodeToMarkerId =
-            new Dictionary<string, string>();
-        private readonly HashSet<string> _previewObservedNodeIds = new HashSet<string>();
-        private readonly Dictionary<string, int> _previewObservedMarkerSignatures =
-            new Dictionary<string, int>();
-        private int _previewObservedSubGraphFrameCount = -1;
 
         // ── 蓝图分析（T4）──
         private AnalysisReport? _lastAnalysisReport;
+        private string _lastExportTime = "";
         private Vector2 _analysisScrollPos;
+
+        // ── WindowServices（M7 服务提取）──
+        private BlueprintAnalysisController? _analysisCtrl;
+        private NodePreviewScheduler?        _previewScheduler;
+        private SceneBindingCoordinator?     _bindingCoord;
 
 
         [MenuItem("SceneBlueprint/蓝图编辑器 &B")]
@@ -153,7 +152,8 @@ namespace SceneBlueprint.Editor
             EditorPrefs.SetBool(WorkbenchVisiblePrefsKey, _showWorkbench);
             EditorPrefs.SetFloat(WorkbenchWidthPrefsKey, _workbenchWidth);
             EditorPrefs.SetFloat(AnalysisHeightPrefsKey, _analysisHeight);
-            EditorApplication.update -= PollAnalysisDebounce;
+            _analysisCtrl?.Dispose();
+            _analysisCtrl = null;
             if (_viewModel != null)
             {
                 _viewModel.Commands.OnCommandExecuted -= OnCommandExecutedForAnalysis;
@@ -166,6 +166,9 @@ namespace SceneBlueprint.Editor
             Undo.undoRedoPerformed -= OnUndoRedoPerformed;
             Undo.postprocessModifications -= OnUndoPostprocessModifications;
             EditorApplication.delayCall -= FlushDirtyPreviews;
+            _previewScheduler?.ResetState();
+            _previewScheduler = null;
+            _bindingCoord     = null;
 
             _toolContext.Detach();
 
@@ -206,12 +209,7 @@ namespace SceneBlueprint.Editor
             // 注意：_currentAsset 不清空，由 [SerializeField] 在 Domain Reload 后保留
             _bindingContext = null;
             _actionRegistryCache = null;
-            _dirtyPreviewNodeIds.Clear();
-            _previewMarkerToNodeIds.Clear();
-            _previewNodeToMarkerId.Clear();
-            _previewDirtyAll = false;
-            _previewFlushScheduled = false;
-            ResetPreviewGraphShapeSnapshot();
+            _previewScheduler?.ResetState();
         }
 
         /// <summary>
@@ -262,12 +260,7 @@ namespace SceneBlueprint.Editor
             }
             _lastAnalysisReport = null;
             EditorApplication.update -= PollAnalysisDebounce;
-            _dirtyPreviewNodeIds.Clear();
-            _previewDirtyAll = false;
-            _previewFlushScheduled = false;
-            _previewMarkerToNodeIds.Clear();
-            _previewNodeToMarkerId.Clear();
-            _previewObservedMarkerSignatures.Clear();
+            _previewScheduler?.ResetState();
             EditorApplication.delayCall -= FlushDirtyPreviews;
 
             // 1. 确定使用哪个 GraphSettings
@@ -276,8 +269,8 @@ namespace SceneBlueprint.Editor
             var settings = existingGraph?.Settings
                 ?? new GraphSettings { Topology = GraphTopologyPolicy.DAG };
 
-            // 1b. 注入 SceneBlueprint 专用的连接策略（支持 Flow/Event/Data 端口验证）
-            settings.ConnectionPolicy = new SceneBlueprintConnectionPolicy();
+            // 1b. 注入连接策略：DefaultConnectionPolicy + DataTypeRegistryValidator 责任链
+            settings.ConnectionPolicy = new DefaultConnectionPolicy(new DataTypeRegistryValidator());
 
             // 2. 创建 Profile，将 Action 类型注册到 settings.NodeTypes 中
             // Create() 同时返回内部构建的 ActionRegistry，直接复用，避免二次 AutoDiscover
@@ -288,7 +281,6 @@ namespace SceneBlueprint.Editor
 
             // 3. 使用已有图或创建空白图
             var graph = existingGraph ?? new Graph(settings);
-            SyncPreviewGraphShapeSnapshot(graph);
 
             // 4. 创建 ViewModel
             _viewModel = new GraphViewModel(graph)
@@ -328,6 +320,15 @@ namespace SceneBlueprint.Editor
             _inspectorDrawer.SetBindingContext(_bindingContext);
             _inspectorDrawer.SetGraph(_viewModel.Graph);
             _inspectorDrawer.SetVariableDeclarations(_currentAsset?.Variables);
+
+            // ── 初始化 WindowServices ──
+            _analysisCtrl?.Dispose();
+            _analysisCtrl     = new BlueprintAnalysisController(this, () => _profile);
+            _previewScheduler = new NodePreviewScheduler(this, GetPreviewContextId);
+            _bindingCoord     = new SceneBindingCoordinator(this, _bindingContext, _sceneBindingStore);
+
+            // 调度器创建后才能同步快照和重建索引
+            SyncPreviewGraphShapeSnapshot(graph);
             RebuildPreviewMarkerNodeIndex();
 
             // 8. 启用 Scene View 标记工具（P3：由 ToolContext 托管生命周期）
@@ -400,316 +401,38 @@ namespace SceneBlueprint.Editor
         /// 标记单节点预览为脏，并在当前编辑器循环末尾合并刷新。
         /// </summary>
         private void MarkPreviewDirtyForNode(string nodeId, string reason)
-        {
-            if (string.IsNullOrEmpty(nodeId))
-                return;
+            => _previewScheduler?.MarkDirtyForNode(nodeId, reason);
 
-            MarkPreviewDirtyForNodes(new[] { nodeId }, reason);
-        }
-
-        /// <summary>
-        /// 标记一组节点预览为脏，并合并到下一次刷新批次。
-        /// </summary>
         private void MarkPreviewDirtyForNodes(IEnumerable<string> nodeIds, string reason)
-        {
-            if (_previewDirtyAll)
-                return;
-
-            int addedCount = 0;
-            foreach (var nodeId in nodeIds)
-            {
-                if (string.IsNullOrEmpty(nodeId))
-                    continue;
-
-                if (_dirtyPreviewNodeIds.Add(nodeId))
-                    addedCount++;
-            }
-
-            if (addedCount <= 0)
-                return;
-
-            SBLog.Debug(
-                SBLogTags.Pipeline,
-                "MarkPreviewDirtyForNodes: added={0}, reason={1}, pendingNodes={2}",
-                addedCount,
-                reason,
-                _dirtyPreviewNodeIds.Count);
-
-            SchedulePreviewFlush();
-        }
-
-        private static bool TryGetRandomAreaMarkerId(ActionNodeData nodeData, out string markerId)
-        {
-            markerId = "";
-            if (nodeData.ActionTypeId != "Location.RandomArea")
-                return false;
-
-            markerId = nodeData.Properties.Get<string>("area") ?? "";
-            return !string.IsNullOrEmpty(markerId);
-        }
+            => _previewScheduler?.MarkDirtyForNodes(nodeIds, reason);
 
         private void RemovePreviewMarkerNodeIndexForNode(string nodeId)
-        {
-            if (string.IsNullOrEmpty(nodeId))
-                return;
-
-            if (!_previewNodeToMarkerId.TryGetValue(nodeId, out string markerId))
-                return;
-
-            _previewNodeToMarkerId.Remove(nodeId);
-
-            if (_previewMarkerToNodeIds.TryGetValue(markerId, out var nodeSet))
-            {
-                nodeSet.Remove(nodeId);
-                if (nodeSet.Count == 0)
-                    _previewMarkerToNodeIds.Remove(markerId);
-            }
-        }
+            => _previewScheduler?.RemoveMarkerNodeIndex(nodeId);
 
         private void UpdatePreviewMarkerNodeIndexForNode(string nodeId, ActionNodeData? nodeData)
-        {
-            RemovePreviewMarkerNodeIndexForNode(nodeId);
-
-            if (string.IsNullOrEmpty(nodeId) || nodeData == null)
-                return;
-
-            if (!TryGetRandomAreaMarkerId(nodeData, out string markerId))
-                return;
-
-            if (!_previewMarkerToNodeIds.TryGetValue(markerId, out var nodeSet))
-            {
-                nodeSet = new HashSet<string>();
-                _previewMarkerToNodeIds[markerId] = nodeSet;
-            }
-
-            nodeSet.Add(nodeId);
-            _previewNodeToMarkerId[nodeId] = markerId;
-        }
+            => _previewScheduler?.UpdateMarkerNodeIndex(nodeId, nodeData);
 
         private void RebuildPreviewMarkerNodeIndex()
-        {
-            _previewMarkerToNodeIds.Clear();
-            _previewNodeToMarkerId.Clear();
-
-            if (_viewModel == null)
-                return;
-
-            foreach (var node in _viewModel.Graph.Nodes)
-            {
-                if (node.UserData is ActionNodeData nodeData)
-                    UpdatePreviewMarkerNodeIndexForNode(node.Id, nodeData);
-            }
-        }
+            => _previewScheduler?.RebuildMarkerNodeIndex();
 
         /// <summary>
         /// 根据 Area MarkerId 定位并标记相关随机区域节点。
         /// </summary>
         private int MarkPreviewDirtyForNodesByAreaMarkerIds(IEnumerable<string> markerIds, string reason)
-        {
-            if (_viewModel == null)
-                return 0;
+            => _previewScheduler?.MarkDirtyForNodesByAreaMarkerIds(markerIds, reason) ?? 0;
 
-            var markerIdSet = new HashSet<string>(
-                markerIds.Where(id => !string.IsNullOrEmpty(id)));
-
-            if (markerIdSet.Count == 0)
-                return 0;
-
-            var nodeIds = new HashSet<string>();
-            foreach (var markerId in markerIdSet)
-            {
-                if (_previewMarkerToNodeIds.TryGetValue(markerId, out var indexedNodeIds))
-                {
-                    foreach (var nodeId in indexedNodeIds)
-                        nodeIds.Add(nodeId);
-                }
-            }
-
-            // 索引可能在异常路径下不一致，命中为空时重建一次再查询。
-            if (nodeIds.Count == 0)
-            {
-                RebuildPreviewMarkerNodeIndex();
-                foreach (var markerId in markerIdSet)
-                {
-                    if (_previewMarkerToNodeIds.TryGetValue(markerId, out var indexedNodeIds))
-                    {
-                        foreach (var nodeId in indexedNodeIds)
-                            nodeIds.Add(nodeId);
-                    }
-                }
-            }
-
-            MarkPreviewDirtyForNodes(nodeIds, reason);
-            return nodeIds.Count;
-        }
-
-        /// <summary>
-        /// 标记所有 Location.RandomArea 节点（用于无法精准定位 marker 的兜底路径）。
-        /// </summary>
         private int MarkPreviewDirtyForAllRandomAreaNodes(string reason)
-        {
-            if (_viewModel == null)
-                return 0;
+            => _previewScheduler?.MarkDirtyForAllRandomAreaNodes(reason) ?? 0;
 
-            var nodeIds = new List<string>();
-            foreach (var node in _viewModel.Graph.Nodes)
-            {
-                if (node.UserData is ActionNodeData nodeData
-                    && nodeData.ActionTypeId == "Location.RandomArea")
-                {
-                    nodeIds.Add(node.Id);
-                }
-            }
-
-            MarkPreviewDirtyForNodes(nodeIds, reason);
-            return nodeIds.Count;
-        }
-
-        /// <summary>
-        /// 标记当前尚未生成预览缓存的 RandomArea 节点。
-        /// </summary>
         private int MarkPreviewDirtyForUncachedRandomAreaNodes(string reason)
-        {
-            if (_viewModel == null)
-                return 0;
+            => _previewScheduler?.MarkDirtyForUncachedRandomAreaNodes(reason) ?? 0;
 
-            var cachedNodeIdSet = new HashSet<string>(
-                BlueprintPreviewManager.Instance
-                    .GetCurrentBlueprintPreviews()
-                    .Select(p => p.NodeId));
-
-            var nodeIds = new List<string>();
-            foreach (var node in _viewModel.Graph.Nodes)
-            {
-                if (node.UserData is not ActionNodeData nodeData)
-                    continue;
-
-                if (nodeData.ActionTypeId != "Location.RandomArea")
-                    continue;
-
-                if (!cachedNodeIdSet.Contains(node.Id))
-                    nodeIds.Add(node.Id);
-            }
-
-            MarkPreviewDirtyForNodes(nodeIds, reason);
-            return nodeIds.Count;
-        }
-
-        private static Dictionary<string, SceneMarker> BuildMarkerLookupById()
-        {
-            var markerById = new Dictionary<string, SceneMarker>();
-            foreach (var marker in MarkerCache.GetAll())
-            {
-                if (marker == null || string.IsNullOrEmpty(marker.MarkerId))
-                    continue;
-
-                markerById[marker.MarkerId] = marker;
-            }
-
-            return markerById;
-        }
-
-        private static int QuantizeFloat(float value)
-        {
-            return Mathf.RoundToInt(value * 1000f);
-        }
-
-        private static int ComputeVector3Signature(Vector3 value)
-        {
-            unchecked
-            {
-                int hash = 17;
-                hash = hash * 31 + QuantizeFloat(value.x);
-                hash = hash * 31 + QuantizeFloat(value.y);
-                hash = hash * 31 + QuantizeFloat(value.z);
-                return hash;
-            }
-        }
-
-        private static int ComputeQuaternionSignature(Quaternion value)
-        {
-            unchecked
-            {
-                int hash = 17;
-                hash = hash * 31 + QuantizeFloat(value.x);
-                hash = hash * 31 + QuantizeFloat(value.y);
-                hash = hash * 31 + QuantizeFloat(value.z);
-                hash = hash * 31 + QuantizeFloat(value.w);
-                return hash;
-            }
-        }
-
-        private static int ComputeMarkerSignature(SceneMarker marker)
-        {
-            unchecked
-            {
-                int hash = 17;
-                hash = hash * 31 + (marker.MarkerTypeId?.GetHashCode() ?? 0);
-                hash = hash * 31 + ComputeVector3Signature(marker.transform.position);
-                hash = hash * 31 + ComputeQuaternionSignature(marker.transform.rotation);
-                hash = hash * 31 + ComputeVector3Signature(marker.transform.lossyScale);
-
-                if (marker is AreaMarker areaMarker)
-                {
-                    hash = hash * 31 + (int)areaMarker.Shape;
-                    hash = hash * 31 + ComputeVector3Signature(areaMarker.BoxSize);
-                    hash = hash * 31 + QuantizeFloat(areaMarker.Height);
-
-                    if (areaMarker.Vertices != null)
-                    {
-                        hash = hash * 31 + areaMarker.Vertices.Count;
-                        foreach (var vertex in areaMarker.Vertices)
-                            hash = hash * 31 + ComputeVector3Signature(vertex);
-                    }
-                    else
-                    {
-                        hash = hash * 31;
-                    }
-                }
-
-                return hash;
-            }
-        }
-
-        private List<string> CollectChangedPreviewMarkerIds(
-            IReadOnlyCollection<string> previewMarkerIds,
-            IReadOnlyDictionary<string, SceneMarker> markerById)
-        {
-            var changedMarkerIds = new List<string>();
-            foreach (var markerId in previewMarkerIds)
-            {
-                int currentSignature = markerById.TryGetValue(markerId, out var marker)
-                    ? ComputeMarkerSignature(marker)
-                    : int.MinValue;
-
-                if (!_previewObservedMarkerSignatures.TryGetValue(markerId, out int previousSignature)
-                    || previousSignature != currentSignature)
-                {
-                    changedMarkerIds.Add(markerId);
-                }
-            }
-
-            return changedMarkerIds;
-        }
+        private List<string> CollectChangedPreviewMarkerIds(IReadOnlyCollection<string> previewMarkerIds)
+            => _previewScheduler?.CollectChangedPreviewMarkerIds(previewMarkerIds)
+               ?? new List<string>();
 
         private void SyncPreviewMarkerSignatureSnapshot()
-        {
-            _previewObservedMarkerSignatures.Clear();
-
-            var previewMarkerIds = BlueprintPreviewManager.Instance.GetCurrentPreviewMarkerIds();
-            if (previewMarkerIds.Count == 0)
-                return;
-
-            var markerById = BuildMarkerLookupById();
-            foreach (var markerId in previewMarkerIds)
-            {
-                int signature = markerById.TryGetValue(markerId, out var marker)
-                    ? ComputeMarkerSignature(marker)
-                    : int.MinValue;
-
-                _previewObservedMarkerSignatures[markerId] = signature;
-            }
-        }
+            => _previewScheduler?.SyncMarkerSignatureSnapshot();
 
         private void MarkPreviewDirtyForHierarchyChange()
         {
@@ -720,8 +443,7 @@ namespace SceneBlueprint.Editor
             int markerMatchCount = 0;
             if (previewMarkerIds.Count > 0)
             {
-                var markerById = BuildMarkerLookupById();
-                var changedMarkerIds = CollectChangedPreviewMarkerIds(previewMarkerIds, markerById);
+                var changedMarkerIds = CollectChangedPreviewMarkerIds(previewMarkerIds);
 
                 if (changedMarkerIds.Count > 0)
                 {
@@ -748,100 +470,12 @@ namespace SceneBlueprint.Editor
         /// 标记当前图预览全量刷新。
         /// </summary>
         private void MarkPreviewDirtyAll(string reason)
-        {
-            _previewDirtyAll = true;
-            _dirtyPreviewNodeIds.Clear();
-            SBLog.Debug(SBLogTags.Pipeline, "MarkPreviewDirtyAll: reason={0}", reason);
-            SchedulePreviewFlush();
-        }
+            => _previewScheduler?.MarkDirtyAll(reason);
 
         private void SchedulePreviewFlush()
-        {
-            if (_previewFlushScheduled)
-                return;
+            => _previewScheduler?.ScheduleFlush();
 
-            _previewFlushScheduled = true;
-            EditorApplication.delayCall -= FlushDirtyPreviews;
-            EditorApplication.delayCall += FlushDirtyPreviews;
-        }
-
-        /// <summary>
-        /// 合并执行预览刷新（全量优先于单节点）。
-        /// </summary>
-        private void FlushDirtyPreviews()
-        {
-            EditorApplication.delayCall -= FlushDirtyPreviews;
-            _previewFlushScheduled = false;
-
-            if (_viewModel == null)
-            {
-                _previewDirtyAll = false;
-                _dirtyPreviewNodeIds.Clear();
-                return;
-            }
-
-            bool refreshAll = _previewDirtyAll;
-            var dirtyNodeIds = new List<string>(_dirtyPreviewNodeIds);
-            _previewDirtyAll = false;
-            _dirtyPreviewNodeIds.Clear();
-
-            if (!refreshAll && dirtyNodeIds.Count == 0)
-                return;
-
-            var graph = _viewModel.Graph;
-            string previewContextId = GetPreviewContextId();
-
-            // 刷新前让 Marker 缓存失效，避免使用同帧旧数据。
-            MarkerCache.SetDirty();
-
-            if (refreshAll)
-            {
-                Preview.BlueprintPreviewManager.Instance.RefreshAllPreviews(previewContextId, graph);
-                SyncPreviewMarkerSignatureSnapshot();
-                SBLog.Debug(
-                    SBLogTags.Pipeline,
-                    "FlushDirtyPreviews: 全量刷新完成, nodeCount={0}, context={1}",
-                    graph.Nodes.Count,
-                    previewContextId);
-                return;
-            }
-
-            int refreshedCount = 0;
-            var removedNodeIds = new List<string>();
-            foreach (var nodeId in dirtyNodeIds)
-            {
-                var node = graph.FindNode(nodeId);
-                if (node?.UserData is ActionNodeData nodeData)
-                {
-                    Preview.BlueprintPreviewManager.Instance.RefreshPreviewForNode(previewContextId, nodeId, nodeData);
-                    refreshedCount++;
-                }
-                else
-                {
-                    removedNodeIds.Add(nodeId);
-                }
-            }
-
-            int removedCount = removedNodeIds.Count > 0
-                ? Preview.BlueprintPreviewManager.Instance.RemovePreviews(removedNodeIds, repaint: false)
-                : 0;
-
-            if (refreshedCount > 0 || removedCount > 0)
-            {
-                SceneView.RepaintAll();
-                SyncPreviewMarkerSignatureSnapshot();
-            }
-
-            if (refreshedCount > 0 || removedCount > 0)
-            {
-                SBLog.Debug(
-                    SBLogTags.Pipeline,
-                    "FlushDirtyPreviews: 单节点刷新完成, refreshed={0}, removed={1}, context={2}",
-                    refreshedCount,
-                    removedCount,
-                    previewContextId);
-            }
-        }
+        private void FlushDirtyPreviews() { } // 已由 NodePreviewScheduler.FlushDirtyPreviews 接管
 
         private void OnUndoRedoPerformed()
         {
@@ -901,90 +535,13 @@ namespace SceneBlueprint.Editor
             }
         }
 
-        private void ResetPreviewGraphShapeSnapshot()
-        {
-            _previewObservedNodeIds.Clear();
-            _previewObservedMarkerSignatures.Clear();
-            _previewObservedSubGraphFrameCount = -1;
-        }
+        private void ResetPreviewGraphShapeSnapshot() => _previewScheduler?.ResetState();
 
         private void SyncPreviewGraphShapeSnapshot(Graph graph)
-        {
-            _previewObservedNodeIds.Clear();
-            foreach (var node in graph.Nodes)
-                _previewObservedNodeIds.Add(node.Id);
-
-            _previewObservedSubGraphFrameCount = graph.SubGraphFrames.Count;
-        }
+            => _previewScheduler?.SyncGraphShapeSnapshot(graph);
 
         private void DetectPreviewGraphShapeChange()
-        {
-            if (_viewModel == null)
-                return;
-
-            var graph = _viewModel.Graph;
-
-            if (_previewObservedSubGraphFrameCount < 0)
-            {
-                SyncPreviewGraphShapeSnapshot(graph);
-                return;
-            }
-
-            bool subGraphChanged = graph.SubGraphFrames.Count != _previewObservedSubGraphFrameCount;
-            int currentNodeCount = graph.Nodes.Count;
-            if (!subGraphChanged && currentNodeCount == _previewObservedNodeIds.Count)
-                return;
-
-            var currentNodeIds = new HashSet<string>(graph.Nodes.Select(n => n.Id));
-            var removedNodeIds = new List<string>();
-            foreach (var oldNodeId in _previewObservedNodeIds)
-            {
-                if (!currentNodeIds.Contains(oldNodeId))
-                    removedNodeIds.Add(oldNodeId);
-            }
-
-            var addedNodeIds = new List<string>();
-            foreach (var currentNodeId in currentNodeIds)
-            {
-                if (!_previewObservedNodeIds.Contains(currentNodeId))
-                    addedNodeIds.Add(currentNodeId);
-            }
-
-            bool changed = subGraphChanged || removedNodeIds.Count > 0 || addedNodeIds.Count > 0;
-
-            if (!changed)
-                return;
-
-            SBLog.Debug(
-                SBLogTags.Pipeline,
-                "DetectPreviewGraphShapeChange: added={0}, removed={1}, subGraphCount {2}->{3}",
-                addedNodeIds.Count,
-                removedNodeIds.Count,
-                _previewObservedSubGraphFrameCount,
-                graph.SubGraphFrames.Count);
-
-            if (addedNodeIds.Count > 0)
-            {
-                foreach (var addedNodeId in addedNodeIds)
-                {
-                    var addedNode = graph.FindNode(addedNodeId);
-                    if (addedNode?.UserData is ActionNodeData addedNodeData)
-                        UpdatePreviewMarkerNodeIndexForNode(addedNodeId, addedNodeData);
-                }
-
-                MarkPreviewDirtyForNodes(addedNodeIds, "GraphShapeChanged.NodeAdded");
-            }
-
-            if (removedNodeIds.Count > 0)
-            {
-                foreach (var removedNodeId in removedNodeIds)
-                    RemovePreviewMarkerNodeIndexForNode(removedNodeId);
-
-                MarkPreviewDirtyForNodes(removedNodeIds, "GraphShapeChanged.NodeRemoved");
-            }
-
-            SyncPreviewGraphShapeSnapshot(graph);
-        }
+            => _previewScheduler?.DetectGraphShapeChange();
 
         private void OnGUI()
         {
@@ -1362,6 +919,11 @@ namespace SceneBlueprint.Editor
             if (GUILayout.Button("导出", EditorStyles.toolbarButton, GUILayout.Width(40)))
             {
                 ExportBlueprint();
+            }
+
+            if (!string.IsNullOrEmpty(_lastExportTime))
+            {
+                GUILayout.Label($"↑{_lastExportTime}", EditorStyles.miniLabel, GUILayout.Width(58));
             }
 
             GUILayout.Space(6);
@@ -1856,15 +1418,7 @@ namespace SceneBlueprint.Editor
             }
         }
 
-        /// <summary>加载蓝图后运行标记绑定一致性验证</summary>
-        private void RunBindingValidation()
-        {
-            if (_viewModel == null) return;
-
-            var registry = GetActionRegistry();
-            var report = MarkerBindingValidator.Validate(_viewModel.Graph, registry);
-            MarkerBindingValidator.LogReport(report);
-        }
+        private void RunBindingValidation() => _bindingCoord?.RunBindingValidation();
 
         private void CenterView()
         {
@@ -1906,71 +1460,18 @@ namespace SceneBlueprint.Editor
         /// 调度一次 debounce 分析：每次调用都刷新截止时间；
         /// 用 EditorApplication.update 单次挂载代替 OnGUI 轮询，避免持续 Repaint 循环。
         /// </summary>
-        private void ScheduleAnalysis()
-        {
-            _analysisDebounceUntil = EditorApplication.timeSinceStartup + AnalysisDebounceSeconds;
-            EditorApplication.update -= PollAnalysisDebounce;
-            EditorApplication.update += PollAnalysisDebounce;
-        }
+        private void ScheduleAnalysis() => _analysisCtrl?.Schedule();
 
-        /// <summary>挂载在 EditorApplication.update 上，等待 debounce 到期后执行分析并自动反注册。</summary>
-        private void PollAnalysisDebounce()
-        {
-            if (EditorApplication.timeSinceStartup < _analysisDebounceUntil) return;
-            EditorApplication.update -= PollAnalysisDebounce;
-            RunAnalysis();
-        }
+        private void PollAnalysisDebounce() { } // 已由 BlueprintAnalysisController 接管
 
-        /// <summary>运行蓝图分析（T4 Analyze Phase），结果缓存到 _lastAnalysisReport。</summary>
         private AnalysisReport RunAnalysis()
         {
-            if (_viewModel == null || _profile == null)
-            {
-                _lastAnalysisReport = AnalysisReport.Empty;
-                Repaint();
-                return AnalysisReport.Empty;
-            }
-            var analyzer = SceneBlueprintProfile.CreateAnalyzer(
-                new ActionRegistryTypeProvider(_profile.NodeTypes), GetActionRegistry());
-            _lastAnalysisReport = analyzer.Analyze(_viewModel.Graph);
-            foreach (var d in _lastAnalysisReport.Diagnostics)
-            {
-                switch (d.Severity)
-                {
-                    case DiagnosticSeverity.Error:   SBLog.Error(SBLogTags.Export, d.ToString()); break;
-                    case DiagnosticSeverity.Warning: SBLog.Warn(SBLogTags.Export, d.ToString()); break;
-                    default:                         SBLog.Info(SBLogTags.Export, d.ToString()); break;
-                }
-            }
-            UpdateNodeOverlayColors(_lastAnalysisReport);
-            Repaint();
-            return _lastAnalysisReport;
+            var report = _analysisCtrl?.ForceRunNow() ?? AnalysisReport.Empty;
+            _lastAnalysisReport = report;
+            return report;
         }
 
-        /// <summary>将分析报告映射为节点覆盖颜色，写入 ViewModel。Error=红，Warning=黄，无问题=清空。</summary>
-        private void UpdateNodeOverlayColors(AnalysisReport report)
-        {
-            if (_viewModel == null) return;
-
-            if (report.Diagnostics.Count == 0)
-            {
-                _viewModel.NodeOverlayColors = null;
-                return;
-            }
-
-            var colors = new Dictionary<string, NodeGraph.Math.Color4>();
-            foreach (var d in report.Diagnostics)
-            {
-                if (d.NodeId == null) continue;
-                var color = d.Severity == DiagnosticSeverity.Error
-                    ? new NodeGraph.Math.Color4(0.95f, 0.2f, 0.2f, 1f)
-                    : new NodeGraph.Math.Color4(1f, 0.75f, 0.1f, 1f);
-                // Error 优先：若已有 Warning，Error 可覆盖它
-                if (!colors.ContainsKey(d.NodeId) || d.Severity == DiagnosticSeverity.Error)
-                    colors[d.NodeId] = color;
-            }
-            _viewModel.NodeOverlayColors = colors.Count > 0 ? colors : null;
-        }
+        private void UpdateNodeOverlayColors(AnalysisReport report) { } // 已由 BlueprintAnalysisController 接管
 
         private void ExportBlueprint()
         {
@@ -2012,14 +1513,24 @@ namespace SceneBlueprint.Editor
                 variables: _currentAsset?.Variables);
 
             // 转换时产生的消息（非校验，属于意外转换异常）
+            int exportErrorCount = 0;
             foreach (var msg in result.Messages)
             {
                 switch (msg.Level)
                 {
-                    case ValidationLevel.Error:   SBLog.Error(SBLogTags.Export, msg.Message); break;
+                    case ValidationLevel.Error:   SBLog.Error(SBLogTags.Export, msg.Message); exportErrorCount++; break;
                     case ValidationLevel.Warning: SBLog.Warn(SBLogTags.Export, msg.Message);  break;
                     default:                      SBLog.Info(SBLogTags.Export, msg.Message);  break;
                 }
+            }
+
+            // 编译阶段错误阻断导出
+            if (exportErrorCount > 0)
+            {
+                EditorUtility.DisplayDialog("编译失败，无法导出",
+                    $"导出器转换时产生 {exportErrorCount} 个错误，请查看 Console 日志。",
+                    "确定");
+                return;
             }
 
             // 序列化为 JSON
@@ -2050,6 +1561,7 @@ namespace SceneBlueprint.Editor
                     }
                 }
 
+                _lastExportTime = System.DateTime.Now.ToString("HH:mm:ss");
                 SBLog.Info(SBLogTags.Export, $"蓝图已导出到: {path} " +
                     $"(行动数: {result.Data.Actions.Length}, " +
                     $"过渡数: {result.Data.Transitions.Length}, " +
@@ -2101,59 +1613,7 @@ namespace SceneBlueprint.Editor
         /// 从场景绑定存储恢复绑定数据到 BindingContext。
         /// 在加载蓝图后调用。
         /// </summary>
-        private void RestoreBindingsFromScene()
-        {
-            if (_bindingContext == null || _currentAsset == null || _viewModel == null) return;
-
-            _bindingContext.Clear();
-
-            // 策略 1：从场景绑定存储恢复（正式流程）
-            if (_sceneBindingStore.TryLoadBindingGroups(_currentAsset, out var bindingGroups))
-            {
-                foreach (var group in bindingGroups)
-                {
-                    foreach (var binding in group.Bindings)
-                    {
-                        if (!string.IsNullOrEmpty(binding.BindingKey) && binding.BoundObject != null)
-                        {
-                            _bindingContext.Set(binding.BindingKey, binding.BoundObject);
-                        }
-                    }
-                }
-            }
-
-            // 策略 2：对于未恢复的绑定，用 PropertyBag 中的 MarkerId 回退查找
-            var registry = GetActionRegistry();
-            foreach (var node in _viewModel.Graph.Nodes)
-            {
-                if (node.UserData is not Core.ActionNodeData data) continue;
-                if (!registry.TryGet(data.ActionTypeId, out var actionDef)) continue;
-
-                foreach (var prop in actionDef.Properties)
-                {
-                    if (prop.SceneBindingType == null) continue;
-                    string scopedBindingKey = BindingScopeUtility.BuildScopedKey(node.Id, prop.Key);
-                    if (_bindingContext.Get(scopedBindingKey) != null) continue; // 已恢复，跳过
-
-                    var storedId = data.Properties.Get<string>(prop.Key);
-                    if (string.IsNullOrEmpty(storedId)) continue;
-
-                    // 通过 MarkerId 在场景中查找对应的 SceneMarker
-                    var marker = SceneMarkerSelectionBridge.FindMarkerInScene(storedId);
-                    if (marker != null)
-                    {
-                        _bindingContext.Set(scopedBindingKey, marker.gameObject);
-                    }
-                }
-            }
-
-            int restored = _bindingContext.BoundCount;
-            if (restored > 0)
-            {
-                SBLog.Info(SBLogTags.Binding, $"已从场景恢复 {restored} 个绑定");
-            }
-
-        }
+        private void RestoreBindingsFromScene() => _bindingCoord?.RestoreFromScene();
 
         private void CollapseAllSubGraphs(bool collapse)
         {
@@ -2176,297 +1636,32 @@ namespace SceneBlueprint.Editor
 
         private void SyncToScene()
         {
-            if (_viewModel == null || _bindingContext == null) return;
-
-            var currentAsset = _currentAsset;
-
-            // 1. 先保存蓝图（确保 SO 数据是最新的）
-            if (currentAsset == null)
+            if (_currentAsset == null)
             {
                 EditorUtility.DisplayDialog("同步失败", "请先保存蓝图资产后再同步到场景。", "确定");
                 return;
             }
-
             SaveBlueprint();
-            currentAsset = _currentAsset;
-            if (currentAsset == null)
+            if (_currentAsset == null)
             {
                 EditorUtility.DisplayDialog("同步失败", "蓝图资产保存失败，请重试。", "确定");
                 return;
             }
-
-            // 2. 按子蓝图分组构建绑定数据
-            var graph = _viewModel.Graph;
-            var registry = GetActionRegistry();
-            var bindingGroups = new List<SubGraphBindingGroup>();
-
-            foreach (var sgf in graph.SubGraphFrames)
-            {
-                var group = new SubGraphBindingGroup
-                {
-                    SubGraphFrameId = sgf.Id,
-                    SubGraphTitle = sgf.Title
-                };
-
-                // 收集该子蓝图内的所有 SceneBinding 属性
-                var seenKeys = new HashSet<string>();
-                foreach (var nodeId in sgf.ContainedNodeIds)
-                {
-                    var node = graph.FindNode(nodeId);
-                    if (node?.UserData is not Core.ActionNodeData actionData) continue;
-                    if (!registry.TryGet(actionData.ActionTypeId, out var actionDef)) continue;
-
-                    foreach (var prop in actionDef.Properties)
-                    {
-                        if (prop.Type != Core.PropertyType.SceneBinding) continue;
-                        string scopedBindingKey = BindingScopeUtility.BuildScopedKey(node.Id, prop.Key);
-                        if (seenKeys.Contains(scopedBindingKey)) continue;
-                        seenKeys.Add(scopedBindingKey);
-
-                        var slot = new SceneBindingSlot
-                        {
-                            BindingKey = scopedBindingKey,
-                            BindingType = prop.SceneBindingType ?? Contract.BindingType.Transform,
-                            DisplayName = prop.DisplayName,
-                            SourceActionTypeId = actionData.ActionTypeId,
-                            BoundObject = _bindingContext.Get(scopedBindingKey)
-                        };
-                        group.Bindings.Add(slot);
-                    }
-                }
-
-                if (group.Bindings.Count > 0)
-                    bindingGroups.Add(group);
-            }
-
-            // 3. 收集顶层（非子蓝图内）节点的绑定
-            var topLevelGroup = CollectTopLevelBindings(graph, registry);
-            if (topLevelGroup != null && topLevelGroup.Bindings.Count > 0)
-                bindingGroups.Add(topLevelGroup);
-
-            // 4. 持久化绑定分组
-            _sceneBindingStore.SaveBindingGroups(currentAsset, bindingGroups);
-
-            int totalBindings = 0;
-            int boundBindings = 0;
-            foreach (var g in bindingGroups)
-            {
-                foreach (var b in g.Bindings)
-                {
-                    totalBindings++;
-                    if (b.IsBound) boundBindings++;
-                }
-            }
-
-            SBLog.Info(SBLogTags.Binding, $"已同步到场景: " +
-                $"子蓝图分组: {bindingGroups.Count}, " +
-                $"绑定: {boundBindings}/{totalBindings}");
-
+            _bindingCoord?.SyncToScene();
         }
 
-        /// <summary>从场景绑定存储或 BindingContext 收集绑定数据供导出使用</summary>
         private List<BlueprintExporter.SceneBindingData>? CollectSceneBindingsForExport()
-        {
-            var registry = GetActionRegistry();
-            var currentAsset = _currentAsset;
-
-            // 优先从场景绑定存储读取（持久化数据）
-            if (currentAsset != null
-                && _sceneBindingStore.TryLoadBindingGroups(currentAsset, out var bindingGroups)
-                && bindingGroups.Count > 0)
-            {
-                var list = new List<BlueprintExporter.SceneBindingData>();
-                foreach (var group in bindingGroups)
-                {
-                    foreach (var binding in group.Bindings)
-                    {
-                        EncodeBindingForExport(
-                            binding.BoundObject,
-                            binding.BindingType,
-                            out var stableObjectId,
-                            out var adapterType,
-                            out var spatialPayloadJson);
-
-                        list.Add(new BlueprintExporter.SceneBindingData
-                        {
-                            BindingKey = binding.BindingKey,
-                            BindingType = binding.BindingType.ToString(),
-                            StableObjectId = stableObjectId,
-                            AdapterType = adapterType,
-                            SpatialPayloadJson = spatialPayloadJson,
-                            SourceSubGraph = group.SubGraphTitle,
-                            SourceActionTypeId = binding.SourceActionTypeId
-                        });
-                    }
-                }
-                return list.Count > 0 ? list : null;
-            }
-
-            // 降级：从 BindingContext 读取（编辑器内存数据）
-            if (_bindingContext != null && _bindingContext.Count > 0)
-            {
-                var bindingTypeMap = BuildBindingTypeMapFromGraph(registry);
-                var list = new List<BlueprintExporter.SceneBindingData>();
-                foreach (var kvp in _bindingContext.All)
-                {
-                    string resolvedBindingKey = ResolveBindingKeyForExport(kvp.Key, bindingTypeMap);
-                    var bindingType = bindingTypeMap.TryGetValue(resolvedBindingKey, out var resolvedType)
-                        ? resolvedType
-                        : Contract.BindingType.Transform;
-
-                    EncodeBindingForExport(
-                        kvp.Value,
-                        bindingType,
-                        out var stableObjectId,
-                        out var adapterType,
-                        out var spatialPayloadJson);
-
-                    list.Add(new BlueprintExporter.SceneBindingData
-                    {
-                        BindingKey = resolvedBindingKey,
-                        StableObjectId = stableObjectId,
-                        AdapterType = adapterType,
-                        SpatialPayloadJson = spatialPayloadJson
-                    });
-                }
-                return list.Count > 0 ? list : null;
-            }
-
-            return null;
-        }
-
-        private Dictionary<string, Contract.BindingType> BuildBindingTypeMapFromGraph(Core.ActionRegistry registry)
-        {
-            var map = new Dictionary<string, Contract.BindingType>();
-            if (_viewModel == null) return map;
-
-            foreach (var node in _viewModel.Graph.Nodes)
-            {
-                if (node.UserData is not Core.ActionNodeData actionData) continue;
-                if (!registry.TryGet(actionData.ActionTypeId, out var actionDef)) continue;
-
-                foreach (var prop in actionDef.Properties)
-                {
-                    if (prop.Type != Core.PropertyType.SceneBinding) continue;
-                    if (string.IsNullOrEmpty(prop.Key)) continue;
-                    string scopedBindingKey = BindingScopeUtility.BuildScopedKey(node.Id, prop.Key);
-                    map[scopedBindingKey] = prop.SceneBindingType ?? Contract.BindingType.Transform;
-                }
-            }
-
-            return map;
-        }
-
-        private static string ResolveBindingKeyForExport(
-            string contextBindingKey,
-            Dictionary<string, Contract.BindingType> bindingTypeMap)
-        {
-            if (string.IsNullOrEmpty(contextBindingKey))
-                return contextBindingKey;
-
-            if (BindingScopeUtility.IsScopedKey(contextBindingKey))
-                return contextBindingKey;
-
-            string? matchedScopedKey = null;
-            foreach (var scopedKey in bindingTypeMap.Keys)
-            {
-                if (BindingScopeUtility.ExtractRawBindingKey(scopedKey) != contextBindingKey)
-                    continue;
-
-                if (matchedScopedKey != null)
-                {
-                    // 同名 raw key 出现多个作用域时，不做猜测，保持原值并由上游提示修复。
-                    return contextBindingKey;
-                }
-
-                matchedScopedKey = scopedKey;
-            }
-
-            return matchedScopedKey ?? contextBindingKey;
-        }
+            => _bindingCoord?.CollectForExport();
 
         private string GetCurrentAdapterType()
         {
             return EnsureSpatialModeDescriptor().AdapterType;
         }
 
-        private void EncodeBindingForExport(
-            GameObject? sceneObject,
-            Contract.BindingType bindingType,
-            out string stableObjectId,
-            out string adapterType,
-            out string spatialPayloadJson)
-        {
-            var descriptor = EnsureSpatialModeDescriptor();
-
-            if (sceneObject == null)
-            {
-                stableObjectId = "";
-                adapterType = descriptor.AdapterType;
-                spatialPayloadJson = "{}";
-                return;
-            }
-
-            var payload = descriptor.BindingCodec.Encode(sceneObject, bindingType);
-            stableObjectId = payload.StableObjectId;
-            adapterType = string.IsNullOrEmpty(payload.AdapterType)
-                ? descriptor.AdapterType
-                : payload.AdapterType;
-            spatialPayloadJson = string.IsNullOrEmpty(payload.SerializedSpatialData)
-                ? "{}"
-                : payload.SerializedSpatialData;
-        }
-
         private IEditorSpatialModeDescriptor EnsureSpatialModeDescriptor()
         {
             _spatialModeDescriptor ??= SpatialModeRegistry.GetProjectModeDescriptor();
             return _spatialModeDescriptor;
-        }
-
-        /// <summary>收集顶层（不在任何子蓝图内）节点的 SceneBinding</summary>
-        private SubGraphBindingGroup? CollectTopLevelBindings(Graph graph, Core.ActionRegistry registry)
-        {
-            // 建立所有子蓝图内节点 ID 集合
-            var containedNodeIds = new HashSet<string>();
-            foreach (var sgf in graph.SubGraphFrames)
-            {
-                foreach (var nid in sgf.ContainedNodeIds)
-                    containedNodeIds.Add(nid);
-            }
-
-            var group = new SubGraphBindingGroup
-            {
-                SubGraphFrameId = "__toplevel__",
-                SubGraphTitle = "顶层节点"
-            };
-
-            var seenKeys = new HashSet<string>();
-            foreach (var node in graph.Nodes)
-            {
-                if (containedNodeIds.Contains(node.Id)) continue;
-                if (node.UserData is not Core.ActionNodeData actionData) continue;
-                if (!registry.TryGet(actionData.ActionTypeId, out var actionDef)) continue;
-
-                foreach (var prop in actionDef.Properties)
-                {
-                    if (prop.Type != Core.PropertyType.SceneBinding) continue;
-                    string scopedBindingKey = BindingScopeUtility.BuildScopedKey(node.Id, prop.Key);
-                    if (seenKeys.Contains(scopedBindingKey)) continue;
-                    seenKeys.Add(scopedBindingKey);
-
-                    var slot = new SceneBindingSlot
-                    {
-                        BindingKey = scopedBindingKey,
-                        BindingType = prop.SceneBindingType ?? Contract.BindingType.Transform,
-                        DisplayName = prop.DisplayName,
-                        SourceActionTypeId = actionData.ActionTypeId,
-                        BoundObject = _bindingContext?.Get(scopedBindingKey)
-                    };
-                    group.Bindings.Add(slot);
-                }
-            }
-
-            return group.Bindings.Count > 0 ? group : null;
         }
 
         // ── 上下文菜单回调（由框架层 ContextMenuHandler 触发）──

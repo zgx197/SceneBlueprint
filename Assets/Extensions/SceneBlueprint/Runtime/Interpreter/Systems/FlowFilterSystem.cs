@@ -2,7 +2,7 @@
 using System;
 using UnityEngine;
 using SceneBlueprint.Core;
-using SceneBlueprint.Actions.Flow;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -45,24 +45,24 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         private static void ProcessFilter(BlueprintFrame frame, int actionIndex, ref ActionRuntimeState state)
         {
-            var op         = frame.GetProperty(actionIndex, FlowFilterDef.Props.Op);
-            var constValue = frame.GetProperty(actionIndex, FlowFilterDef.Props.ConstValue);
+            var op         = frame.GetProperty(actionIndex, ActionPortIds.FlowFilter.Op);
+            var constValue = frame.GetProperty(actionIndex, ActionPortIds.FlowFilter.ConstValue);
 
             // 读取 compareValue DataIn 端口的值
-            string? compareValue = frame.GetDataPortValue(actionIndex, FlowFilterDef.Ports.CompareValue);
+            string? compareValue = frame.GetDataPortValue(actionIndex, ActionPortIds.FlowFilter.CompareValue);
 
             if (compareValue == null)
             {
                 // DataIn 端口无连线：无条件 pass（过滤功能关闭）
                 Debug.LogWarning($"[FlowFilterSystem] Flow.Filter (index={actionIndex}) compareValue 端口无连线，无条件 pass");
-                EmitPortEvents(frame, actionIndex, FlowFilterDef.Ports.Pass);
+                EmitPortEvents(frame, actionIndex, ActionPortIds.FlowFilter.Pass);
                 state.Phase = ActionPhase.Listening;
                 state.TransitionPropagated = true;
                 return;
             }
 
             bool conditionMet = EvaluateCondition(compareValue, op, constValue);
-            string portId = conditionMet ? FlowFilterDef.Ports.Pass : FlowFilterDef.Ports.Reject;
+            string portId = conditionMet ? ActionPortIds.FlowFilter.Pass : ActionPortIds.FlowFilter.Reject;
 
             Debug.Log($"[FlowFilterSystem] Flow.Filter (index={actionIndex}): " +
                       $"compareValue={compareValue} {op} constValue={constValue} → {conditionMet} → {portId}");

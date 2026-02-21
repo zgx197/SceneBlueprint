@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using SceneBlueprint.Contract;
 using UnityEngine;
 using SceneBlueprint.Core;
-using SceneBlueprint.Actions.Flow;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -100,7 +100,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                     targetState.CustomInt++;
 
                     // 读取需要的入边数量
-                    var inEdgeCountStr = frame.GetProperty(evt.ToActionIndex, FlowJoinDef.Props.InEdgeCount);
+                    var inEdgeCountStr = frame.GetProperty(evt.ToActionIndex, ActionPortIds.FlowJoin.InEdgeCount);
                     int requiredCount = int.TryParse(inEdgeCountStr, out var req) ? req : 1;
 
                     Debug.Log($"[TransitionSystem] Flow.Join 当前收到输入: {targetState.CustomInt}/{requiredCount}");

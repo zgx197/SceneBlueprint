@@ -33,6 +33,12 @@ namespace SceneBlueprint.Runtime.Interpreter.Diagnostics
         /// </summary>
         public int InspectIndex { get; private set; }
 
+        /// <summary>蓝图进入暂停时触发（场景侧 Handler 订阅以冻结场景效果）</summary>
+        public event Action? OnPaused;
+
+        /// <summary>蓝图恢复执行时触发</summary>
+        public event Action? OnResumed;
+
         // ── 构造 ──
 
         /// <param name="historyCapacity">保留的最大帧数（默认 300，约 5 秒 @ 60fps）</param>
@@ -48,6 +54,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Diagnostics
         {
             IsPaused     = true;
             InspectIndex = 0;
+            OnPaused?.Invoke();
         }
 
         /// <summary>恢复蓝图执行</summary>
@@ -55,6 +62,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Diagnostics
         {
             IsPaused     = false;
             InspectIndex = 0;
+            OnResumed?.Invoke();
         }
 
         /// <summary>向历史方向步进一帧（查看更旧的帧）</summary>

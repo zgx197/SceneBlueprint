@@ -1,7 +1,7 @@
 #nullable enable
 using UnityEngine;
 using SceneBlueprint.Core;
-using SceneBlueprint.Actions.VFX;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -44,10 +44,10 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.IsFirstEntry = false;
 
-                    var text        = frame.GetProperty(idx, ShowWarningDef.Props.Text);
-                    var durationStr = frame.GetProperty(idx, ShowWarningDef.Props.Duration);
-                    var style       = frame.GetProperty(idx, ShowWarningDef.Props.Style);
-                    var fontSizeStr = frame.GetProperty(idx, ShowWarningDef.Props.FontSize);
+                    var text        = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Text);
+                    var durationStr = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Duration);
+                    var style       = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Style);
+                    var fontSizeStr = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.FontSize);
 
                     if (string.IsNullOrEmpty(text)) text = "警告！";
                     if (string.IsNullOrEmpty(style)) style = "Warning";

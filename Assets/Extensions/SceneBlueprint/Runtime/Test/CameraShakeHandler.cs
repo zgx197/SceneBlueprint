@@ -35,6 +35,9 @@ namespace SceneBlueprint.Runtime.Test
         private float _seedX;
         private float _seedY;
 
+        // 蓝图调试暂停状态
+        private bool _pausedByBlueprint;
+
         private void Awake()
         {
             // Handler 被动态挂载到 Camera.main 所在的 GameObject 上，
@@ -83,9 +86,15 @@ namespace SceneBlueprint.Runtime.Test
             StopShake();
         }
 
+        public void OnBlueprintPaused()  => _pausedByBlueprint = true;
+        public void OnBlueprintResumed() => _pausedByBlueprint = false;
+
         private void LateUpdate()
         {
             if (!_shaking || _camera == null)
+                return;
+
+            if (_pausedByBlueprint)
                 return;
 
             _elapsed += Time.deltaTime;

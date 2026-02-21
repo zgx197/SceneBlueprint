@@ -1,7 +1,7 @@
 #nullable enable
 using UnityEngine;
 using SceneBlueprint.Core;
-using SceneBlueprint.Actions.Blackboard;
+using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -38,7 +38,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         private static void ProcessGet(BlueprintFrame frame, int actionIndex, ref ActionRuntimeState state)
         {
-            var varIdxStr = frame.GetProperty(actionIndex, BlackboardGetDef.Props.VariableIndex);
+            var varIdxStr = frame.GetProperty(actionIndex, ActionPortIds.BlackboardGet.VariableIndex);
 
             if (!int.TryParse(varIdxStr, out int varIdx) || varIdx < 0)
             {

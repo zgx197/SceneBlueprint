@@ -91,6 +91,9 @@ namespace SceneBlueprint.Core.Generated
             // 端口 ID
             public const string In = "in";
             public const string Out = "out";
+
+            // 属性 Key（由 BlueprintExporter 在编译阶段自动写入，不在 Inspector 显示）
+            public const string InEdgeCount = "inEdgeCount";
         }
 
         /// <summary>开始 (Flow.Start)</summary>
