@@ -6,7 +6,7 @@ namespace NodeGraph.Commands
     /// <summary>
     /// 添加动态端口命令。
     /// </summary>
-    public class AddPortCommand : ICommand
+    public class AddPortCommand : IStructuralCommand
     {
         private readonly string _nodeId;
         private readonly PortDefinition _definition;

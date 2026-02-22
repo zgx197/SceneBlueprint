@@ -24,10 +24,27 @@ namespace SceneBlueprint.Editor.Preview
     /// </summary>
     public class BlueprintPreviewManager
     {
-        private static BlueprintPreviewManager? _instance;
-        
-        /// <summary>获取全局单例实例</summary>
-        public static BlueprintPreviewManager Instance => _instance ??= new BlueprintPreviewManager();
+        // ── 多实例注册表（A3：按 sessionKey 独立注册，支持多窗口）──
+        private static readonly Dictionary<string, BlueprintPreviewManager> _registry = new();
+
+        /// <summary>供 Session 调用：注册实例。sessionKey 建议使用 BlueprintId 或 session.GetHashCode()。</summary>
+        internal static void Register(string sessionKey, BlueprintPreviewManager manager)
+            => _registry[sessionKey] = manager;
+
+        /// <summary>供 Session 调用：注销实例。</summary>
+        internal static void Unregister(string sessionKey) => _registry.Remove(sessionKey);
+
+        /// <summary>返回所有已注册实例的预览（多窗口联合输出）。场景渲染代码使用此方法。</summary>
+        public static IEnumerable<PreviewData> GetAllRegisteredPreviews()
+        {
+            foreach (var mgr in _registry.Values)
+                foreach (var p in mgr.GetCurrentBlueprintPreviews())
+                    yield return p;
+        }
+
+        /// <summary>尝试按 sessionKey 查找实例。</summary>
+        internal static bool TryGet(string sessionKey, out BlueprintPreviewManager? manager)
+            => _registry.TryGetValue(sessionKey, out manager);
 
         // 所有预览数据：nodeId -> PreviewData
         private readonly Dictionary<string, PreviewData> _allPreviews = new();

@@ -14,27 +14,24 @@ namespace NodeGraph.Core
     }
 
     /// <summary>
-    /// 图的全局配置。包含拓扑策略、连接策略、类型兼容性注册表和节点类型注册表。
+    /// 图的核心配置——拓扑策略与节点类型体系（「是什么」）。
+    /// 行为策略（连接规则、类型兼容性）由 <see cref="GraphBehavior"/> 单独承载（「怎么做」）。
     /// </summary>
     public class GraphSettings
     {
         /// <summary>图拓扑策略</summary>
         public GraphTopologyPolicy Topology { get; set; } = GraphTopologyPolicy.DAG;
 
-        /// <summary>连接策略（可替换，默认为 DefaultConnectionPolicy）</summary>
-        public IConnectionPolicy ConnectionPolicy { get; set; }
+        /// <summary>节点类型目录（可替换为任意 INodeTypeCatalog 实现）</summary>
+        public INodeTypeCatalog NodeTypes { get; set; }
 
-        /// <summary>类型兼容性注册表</summary>
-        public TypeCompatibilityRegistry TypeCompatibility { get; }
-
-        /// <summary>节点类型注册表</summary>
-        public NodeTypeRegistry NodeTypes { get; }
+        /// <summary>行为策略集合（连接规则、类型兼容性）</summary>
+        public GraphBehavior Behavior { get; set; }
 
         public GraphSettings()
         {
-            TypeCompatibility = new TypeCompatibilityRegistry();
             NodeTypes = new NodeTypeRegistry();
-            ConnectionPolicy = new DefaultConnectionPolicy();
+            Behavior  = new GraphBehavior();
         }
     }
 }

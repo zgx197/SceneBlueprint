@@ -8,7 +8,7 @@ namespace NodeGraph.Commands
     /// <summary>
     /// 移除动态端口命令。同时移除关联的连线。
     /// </summary>
-    public class RemovePortCommand : ICommand
+    public class RemovePortCommand : IStructuralCommand
     {
         private readonly string _nodeId;
         private readonly string _portId;

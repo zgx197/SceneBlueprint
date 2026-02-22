@@ -83,9 +83,9 @@ namespace NodeGraph.View
             if (_nodeSizeCache.TryGetValue(node.Id, out var cached))
                 return cached;
 
-            var t = viewModel.Theme;
-            var typeDef = viewModel.Graph.Settings.NodeTypes.GetDefinition(node.TypeId);
-            string displayName = typeDef?.DisplayName ?? node.TypeId;
+            var t = viewModel.RenderConfig.Theme;
+            var renderInfo = viewModel.GetNodeRenderInfo(node.TypeId);
+            string displayName = renderInfo.DisplayName;
             float titleWidth = TextMeasurer.MeasureText(displayName, t.TitleFontSize).X + t.TitlePaddingLeft * 2f;
 
             float maxInputWidth = 0f, maxOutputWidth = 0f;
@@ -234,7 +234,7 @@ namespace NodeGraph.View
             };
 
             var graph = viewModel.Graph;
-            var theme = viewModel.Theme;
+            var theme = viewModel.RenderConfig.Theme;
 
             Vec2 topLeft = (viewport.Position - viewModel.PanOffset) / viewModel.ZoomLevel;
             Vec2 bottomRight = (viewport.Position + viewport.Size - viewModel.PanOffset) / viewModel.ZoomLevel;
@@ -301,7 +301,7 @@ namespace NodeGraph.View
         {
             var map = new Dictionary<string, Vec2>();
             float titleBarHeight = 24f;
-            float portSpacing = viewModel.Theme.PortSpacing;
+            float portSpacing = viewModel.RenderConfig.Theme.PortSpacing;
 
             foreach (var sgf in graph.SubGraphFrames)
             {
@@ -388,7 +388,7 @@ namespace NodeGraph.View
         {
             var ports = new List<PortFrame>();
             float titleBarHeight = 24f;
-            float portSpacing = viewModel.Theme.PortSpacing;
+            float portSpacing = viewModel.RenderConfig.Theme.PortSpacing;
 
             // 获取拖拽源端口（用于判断兼容性高亮）
             var dragHandler = viewModel.GetHandler<ConnectionDragHandler>();
@@ -405,7 +405,7 @@ namespace NodeGraph.View
                 bool canConnect = false;
                 if (dragSourcePort != null && port.Id != dragSourcePort.Id)
                 {
-                    var policy = viewModel.Graph.Settings.ConnectionPolicy;
+                    var policy = viewModel.Graph.Settings.Behavior.ConnectionPolicy;
                     var result = policy.CanConnect(viewModel.Graph, dragSourcePort, port);
                     canConnect = result == ConnectionResult.Success;
                 }
@@ -437,7 +437,7 @@ namespace NodeGraph.View
             HashSet<string> hiddenNodeIds)
         {
             var graph = viewModel.Graph;
-            var theme = viewModel.Theme;
+            var theme = viewModel.RenderConfig.Theme;
 
             foreach (var node in graph.Nodes)
             {
@@ -449,9 +449,9 @@ namespace NodeGraph.View
                 bool selected = viewModel.Selection.IsSelected(node.Id);
                 bool isPrimary = viewModel.Selection.PrimarySelectedNodeId == node.Id;
 
-                var typeDef = graph.Settings.NodeTypes.GetDefinition(node.TypeId);
-                var titleColor = typeDef?.Color ?? new Color4(0.3f, 0.3f, 0.3f, 1f);
-                string displayName = typeDef?.DisplayName ?? node.TypeId;
+                var renderInfo = viewModel.GetNodeRenderInfo(node.TypeId);
+                var titleColor = renderInfo.TitleColor;
+                string displayName = renderInfo.DisplayName;
 
                 if (node.TypeId == SubGraphConstants.BoundaryNodeTypeId)
                 {
@@ -515,7 +515,7 @@ namespace NodeGraph.View
                 bool canConnect = false;
                 if (dragSourcePort != null && port.Id != dragSourcePort.Id)
                 {
-                    var policy = viewModel.Graph.Settings.ConnectionPolicy;
+                    var policy = viewModel.Graph.Settings.Behavior.ConnectionPolicy;
                     var result = policy.CanConnect(viewModel.Graph, dragSourcePort, port);
                     canConnect = result == ConnectionResult.Success;
                 }
@@ -545,7 +545,7 @@ namespace NodeGraph.View
         protected void BuildNodeContent(NodeFrame nodeFrame, Node node, Rect2 bounds,
             GraphViewModel viewModel, NodeVisualTheme theme, bool selected, bool isPrimary)
         {
-            if (!viewModel.ContentRenderers.TryGetValue(node.TypeId, out var renderer))
+            if (!viewModel.RenderConfig.ContentRenderers.TryGetValue(node.TypeId, out var renderer))
                 return;
 
             int inputSlots = 0, outputSlots = 0;
@@ -600,7 +600,7 @@ namespace NodeGraph.View
             HashSet<string> hiddenNodeIds, Dictionary<string, Vec2> boundaryPortPositions)
         {
             var graph = viewModel.Graph;
-            var theme = viewModel.Theme;
+            var theme = viewModel.RenderConfig.Theme;
 
             foreach (var edge in graph.Edges)
             {
@@ -674,10 +674,10 @@ namespace NodeGraph.View
                     Selected = selected
                 };
 
-                if (viewModel.EdgeLabelRenderer != null && edge.UserData != null)
+                if (viewModel.RenderConfig.EdgeLabelRenderer != null && edge.UserData != null)
                 {
                     Vec2 mid = BezierMath.Evaluate(start, start + tA, end + tB, end, 0.5f);
-                    edgeFrame.Label = viewModel.EdgeLabelRenderer.GetLabelInfo(edge, mid);
+                    edgeFrame.Label = viewModel.RenderConfig.EdgeLabelRenderer.GetLabelInfo(edge, mid);
                 }
 
                 frame.Edges.Add(edgeFrame);
@@ -690,7 +690,7 @@ namespace NodeGraph.View
 
         protected float GetContentHeight(Node node, GraphViewModel viewModel)
         {
-            if (!viewModel.ContentRenderers.TryGetValue(node.TypeId, out var renderer))
+            if (!viewModel.RenderConfig.ContentRenderers.TryGetValue(node.TypeId, out var renderer))
                 return 0f;
 
             // 选中节点处于编辑模式时，使用编辑器尺寸（包含所有可见属性）

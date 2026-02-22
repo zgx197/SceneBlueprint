@@ -10,7 +10,7 @@ namespace NodeGraph.Commands
     /// 解散子图框命令。将 SubGraphFrame 移除，释放内部节点回顶层，
     /// 删除 RepresentativeNode，并重连穿过边界的连线。支持 Undo/Redo。
     /// </summary>
-    public class UngroupSubGraphCommand : ICommand
+    public class UngroupSubGraphCommand : IStructuralCommand
     {
         private readonly string _frameId;
 

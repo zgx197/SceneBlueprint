@@ -100,8 +100,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                     targetState.CustomInt++;
 
                     // 读取需要的入边数量
-                    var inEdgeCountStr = frame.GetProperty(evt.ToActionIndex, ActionPortIds.FlowJoin.InEdgeCount);
-                    int requiredCount = int.TryParse(inEdgeCountStr, out var req) ? req : 1;
+                    int requiredCount = frame.GetProperty(evt.ToActionIndex, ActionPortIds.FlowJoin.InEdgeCount, 1);
 
                     Debug.Log($"[TransitionSystem] Flow.Join 当前收到输入: {targetState.CustomInt}/{requiredCount}");
 

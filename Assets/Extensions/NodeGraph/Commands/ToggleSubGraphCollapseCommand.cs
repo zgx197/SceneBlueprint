@@ -9,7 +9,7 @@ namespace NodeGraph.Commands
     /// 折叠时将 RepresentativeNode 移动到框左上角，展开时恢复原位。
     /// 支持 Undo/Redo。
     /// </summary>
-    public class ToggleSubGraphCollapseCommand : ICommand
+    public class ToggleSubGraphCollapseCommand : IStyleCommand
     {
         private readonly string _frameId;
         private bool _previousState;

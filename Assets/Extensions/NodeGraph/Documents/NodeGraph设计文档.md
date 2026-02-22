@@ -1,7 +1,7 @@
 # NodeGraph — 通用节点图编辑器框架设计文档
 
-> **版本**: v2.5  
-> **日期**: 2026-02-11  
+> **版本**: v2.6  
+> **日期**: 2026-02-22  
 > **目标**: 设计一个引擎无关、通用、健壮、灵活的节点图编辑器框架  
 > **.NET 目标**: .NET Standard 2.1  
 > **项目组织**: Unity asmdef（纯 C# 核心 + 引擎适配层）  
@@ -168,6 +168,19 @@ public class BlueprintProfile
     public IEdgeLabelRenderer? EdgeLabelRenderer { get; set; }
     public IConnectionPolicy? ConnectionPolicy { get; set; }
     public BlueprintFeatureFlags Features { get; set; }     // 功能开关
+
+    /// <summary>
+    /// 构建 GraphRenderConfig（v2.6）。
+    /// 收拢渲染配置构建逻辑，避免外部散落 new GraphRenderConfig{...}。
+    /// Session 初始化时统一调用：ViewModel = new GraphViewModel(graph, Profile.BuildRenderConfig())
+    /// </summary>
+    public GraphRenderConfig BuildRenderConfig() => new GraphRenderConfig
+    {
+        FrameBuilder      = FrameBuilder,
+        Theme             = Theme,
+        EdgeLabelRenderer = EdgeLabelRenderer,
+        ContentRenderers  = new Dictionary<string, INodeContentRenderer>(ContentRenderers)
+    };
 }
 
 public enum LayoutDirection { Horizontal, Vertical }
@@ -1430,6 +1443,41 @@ public class CommandHistory
 }
 ```
 
+#### 命令合并语义（v2.6 新增）
+
+`ICommand` 新增默认方法 `TryMergeWith`，支持连续操作（如拖拽移动）合并为一次 Undo 记录：
+
+```csharp
+public interface ICommand
+{
+    string Description { get; }
+    void Execute(Graph graph);
+    void Undo(Graph graph);
+
+    /// <summary>
+    /// 尝试与撤销栈顶的 prev 命令合并。
+    /// 合并成功时 prev 的状态已被修改（纳入本命令的增量），调用方丢弃 this 不入栈。
+    /// 默认返回 false（不合并）。
+    /// </summary>
+    bool TryMergeWith(ICommand previous) => false;
+}
+```
+
+`CommandHistory.PushUndo()` 在入栈前自动检查：
+
+```csharp
+// 实现示例：MoveNodeCommand 覆写 TryMergeWith 合并连续拖拽
+public sealed class MoveNodeCommand : ICommand
+{
+    public override bool TryMergeWith(ICommand prev)
+    {
+        if (prev is not MoveNodeCommand other || other.NodeId != NodeId) return false;
+        other._newPosition = _newPosition; // 更新终点，丢弃本条记录
+        return true;
+    }
+}
+```
+
 ### 10.3 内置命令
 
 | 命令 | 说明 |
@@ -2094,6 +2142,32 @@ public interface IUserDataSerializer
 }
 ```
 
+### 18.7 DefaultGraphPersister 与带诊断的反序列化（v2.6 新增）
+
+`DefaultGraphPersister` 是模型层的 Graph↔GraphDto 双向转换器，与具体存储格式（JSON / SO）解耦。
+
+```csharp
+// 静默跳过（导致连线被忽略）—— 默认 Restore() 保持不变
+public Graph Restore(GraphDto dto, ...);
+
+// 带诊断的反序列化，收集被跳过的元素
+public RestoreResult RestoreWithDiagnostics(GraphDto dto, ...);
+```
+
+`RestoreResult` 封装还原结果 + 诊断信息：
+
+```csharp
+public sealed class RestoreResult
+{
+    public Graph Graph { get; }                       // 还原后的图对象
+    public IReadOnlyList<string> SkippedEdgeIds { get; } // 因端口未找到而跳过的连线
+    public IReadOnlyList<string> Warnings { get; }    // 人类可读的警告信息
+    public bool HasWarnings { get; }                  // 是否存在警告
+}
+```
+
+**使用场景**：调试 / 导入时展示请求诊断日志。正常保存 / 加载流程仍使用静默的 `Restore()`。
+
 ---
 
 ## 19. 自动布局
@@ -2267,7 +2341,7 @@ Assets/Extensions/NodeGraph/
 │   ├── NodeSearchModel.cs
 │   ├── MiniMapRenderer.cs
 │   ├── KeyBindingManager.cs
-│   ├── NodeVisualTheme.cs                 ← 视觉主题配置（v1.1+）
+│   ├── NodeVisualTheme.cs                 ← 视觉主题配置（v2.6: sealed class, Dark/Light 静态实例）
 │   ├── GraphFrame/                        ← 渲染描述数据类型（v2.0）
 │   │   ├── GraphFrame.cs
 │   │   ├── NodeFrame.cs

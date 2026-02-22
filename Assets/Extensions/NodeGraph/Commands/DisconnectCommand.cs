@@ -7,7 +7,7 @@ namespace NodeGraph.Commands
     /// <summary>
     /// 断线命令。
     /// </summary>
-    public class DisconnectCommand : ICommand
+    public class DisconnectCommand : IStructuralCommand
     {
         private readonly string _edgeId;
 

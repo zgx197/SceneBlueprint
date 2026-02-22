@@ -53,7 +53,7 @@ namespace NodeGraph.View
                     return true;
 
                 // 按类型显示名搜索
-                var typeDef = graph.Settings.NodeTypes.GetDefinition(node.TypeId);
+                var typeDef = graph.Settings.NodeTypes.GetNodeType(node.TypeId);
                 if (typeDef != null &&
                     typeDef.DisplayName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
                     return true;

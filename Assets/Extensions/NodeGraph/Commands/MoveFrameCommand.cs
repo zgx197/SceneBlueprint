@@ -8,7 +8,7 @@ namespace NodeGraph.Commands
     /// <summary>
     /// 移动子图框命令。同时移动框的 Bounds 和所有内部节点（含 Rep 节点）。
     /// </summary>
-    public class MoveFrameCommand : ICommand
+    public class MoveFrameCommand : IStyleCommand
     {
         private readonly string _frameId;
         private readonly Vec2 _oldFramePos;

@@ -10,7 +10,7 @@ namespace NodeGraph.Commands
     /// 创建子图框命令。将源 Graph 的内容拷贝到目标 Graph，
     /// 创建 RepresentativeNode + SubGraphFrame。支持完整 Undo。
     /// </summary>
-    public class CreateSubGraphCommand : ICommand
+    public class CreateSubGraphCommand : IStructuralCommand
     {
         private readonly Graph _sourceGraph;
         private readonly string _title;

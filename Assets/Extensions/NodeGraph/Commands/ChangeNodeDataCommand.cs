@@ -6,7 +6,7 @@ namespace NodeGraph.Commands
     /// <summary>
     /// 修改节点业务数据命令。
     /// </summary>
-    public class ChangeNodeDataCommand : ICommand
+    public class ChangeNodeDataCommand : IStructuralCommand
     {
         private readonly string _nodeId;
         private readonly INodeData? _newData;

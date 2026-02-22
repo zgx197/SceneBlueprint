@@ -1,12 +1,12 @@
 # SceneBlueprint 核心设计原则
 
-> **文档版本**：v1.3  
+> **文档版本**：v1.4  
 > **创建日期**：2026-02-16  
-> **最后更新**：2026-02-19  
+> **最后更新**：2026-02-22  
 > **状态**：✅ active  
 > **重要性**：🔴 核心原则 - 所有功能设计必须遵循
 > **doc_status**: active  
-> **last_reviewed**: 2026-02-19
+> **last_reviewed**: 2026-02-22
 
 ---
 
@@ -1408,6 +1408,113 @@ Idle → (收到 in 端口事件) → Running → (条件满足) → Completed �
 
 ---
 
+## 十一、编辑器 Session 架构与服务分层
+
+### 11.1 整体分层
+
+```
+SceneBlueprintWindow (窗口层)
+│  负责 IMGUI 渲染、事件调度、用户交互入口
+│  partial 分割：Callbacks / ContextMenu / Toolbar / Panels / Operations
+│
+├─ BlueprintEditorSession (会话层)
+│  负责生命周期管理、服务组装、公开 API 汇聚
+│  核心属性：ViewModel / Profile / ActionRegistry / CurrentAsset
+│
+└─ WindowServices (服务层)
+   每个服务封装一个关注点，实现 ISessionService 接口
+   • NodePreviewScheduler  — 预览调度
+   • BlueprintAnalysisController — 分析管道
+   • SubGraphController    — 子蓝图操作
+   • EditorDirtyScheduler  — 脏标记合并
+   • ExportService / BindingCollector / BindingValidator / ...
+```
+
+### 11.2 Session 服务注册表（v1.4 新增）
+
+`BlueprintEditorSession` 内置显式服务字典，就除了每加一个服务都要暴露一个 public 属性的问题：
+
+```csharp
+// 调用方按类型获取服务
+_session.GetService<NodePreviewScheduler>()
+_session.TryGetService<SubGraphController>(out var ctrl)
+
+// 核心属性保留为 public 属性
+_session.ViewModel          // 图视图模型
+_session.ActionRegistry     // 行动注册表
+_session.CurrentAsset       // 当前资产
+_session.Profile            // 蓝图配置
+```
+
+`Track<T>()` 内部同时写入 `_managedServices`（生命周期）和 `_services`（类型查找字典），新增服务不需要再添加 public 属性。
+
+### 11.3 IBlueprintReadContext 接口
+
+服务层通过接口访问 Session，不直接依赖具体实现：
+
+```csharp
+public interface IBlueprintReadContext
+{
+    GraphViewModel? ViewModel { get; }
+    ActionRegistry  ActionRegistry { get; }   // 原 GetActionRegistry() 方法，v1.4 改为属性
+    INodeTypeCatalog NodeCatalog { get; }
+    IEditorSpatialModeDescriptor SpatialDescriptor { get; }
+    SceneBlueprintToolContext ToolContext { get; }
+    ISceneBindingStore BindingStore { get; }
+}
+```
+
+**v1.4 变更**：`GetActionRegistry()` 方法升格为 `ActionRegistry` 属性，消除散落调用。
+
+### 11.4 SubGraphController 服务
+
+子蓝图相关操作集中到 `SubGraphController`，不再散落在 Window 的各个 partial 文件：
+
+```csharp
+internal sealed class SubGraphController : ISessionService
+{
+    void CollapseAll(bool collapse);   // 折叠展开全部子蓝图
+    void Toggle(string frameId);       // 切换单个子蓝图状态
+    void CreateEmpty(string title);    // 新建空子蓝图
+    void GroupSelected(string title, IEnumerable<string> nodeIds); // 分组
+    void Ungroup(string frameId);      // 解散
+}
+```
+
+边界端口默认定义收拢到 `SceneBlueprintProfile.DefaultSubGraphBoundaryPorts`，消除硬编码。
+
+### 11.5 PreviewStateTracker 去 Unity 依赖
+
+`PreviewStateTracker` 是纯数据层，不引入 `UnityEngine` 或 `SceneBlueprint.Runtime.Markers`：
+
+| 责任 | 层级 |
+|------|------|
+| 脏标记队列 / MarkerId↔NodeId 索引 / 图形状快照 | `PreviewStateTracker`（纯 C#） |
+| `ComputeMarkerSignature`（展开 Vector3/Quaternion） | `NodePreviewScheduler`（有 Unity 依赖） |
+
+`PreviewStateTracker.QuantizeComponents(float x, float y, float z)` 提供纯 C# 量化辅助方法，由 `NodePreviewScheduler` 展开 `Vector3` 后传入。
+
+### 11.6 ActionRegistry.AutoDiscover TypeCache 优化
+
+在 Unity Editor 側使用 `TypeCache` 替代 `AppDomain.GetAssemblies()` 全反射扫描：
+
+```csharp
+// SceneBlueprintProfile.BuildRegistry()——Editor 层入口
+private static ActionRegistry BuildRegistry()
+{
+    var registry = new ActionRegistry();
+    // TypeCache 是编译时缓存，比 Assembly.GetTypes() 快 10-100 倍
+    registry.AutoDiscover(TypeCache.GetTypesDerivedFrom<IActionDefinitionProvider>());
+    RegisterTemplates(registry);
+    ApplyCategoryThemeColors(registry);
+    return registry;
+}
+```
+
+`ActionRegistry.AutoDiscover(IEnumerable<Type> types)` 重载支持接受外部类型集合，不改变原有无参数形式（非 Editor 环境仍可用）。
+
+---
+
 ## 附录
 
 ### 术语表
@@ -1469,6 +1576,15 @@ Idle → (收到 in 端口事件) → Running → (条件满足) → Completed �
 ---
 
 **版本历史**：
+
+- **v1.4** (2026-02-22)
+  - 新增“编辑器 Session 架构与服务分层”章节（第十一章）
+  - Session 服务注册表：`GetService<T>()` / `TryGetService<T>()`，新增服务不需暴露 public 属性
+  - `IBlueprintReadContext.GetActionRegistry()` 升格为 `ActionRegistry` 属性
+  - `SubGraphController` 服务收拢子蓝图操作；默认边界端口定义移至 `SceneBlueprintProfile.DefaultSubGraphBoundaryPorts`
+  - `PreviewStateTracker` 去 Unity 依赖：签名计算移至 `NodePreviewScheduler`，纯 C# `QuantizeComponents` 方法
+  - `ActionRegistry.AutoDiscover` 增加 `IEnumerable<Type>` 重载；Editor 层改用 `TypeCache` 优化反射扫描
+  - `BlueprintProfile.BuildRenderConfig()` 收拢渲染配置构建逻辑
 
 - **v1.3** (2026-02-19)
   - 新增"PropertyType 扩展：StructList 结构化列表"章节（第九章）

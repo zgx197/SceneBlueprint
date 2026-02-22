@@ -50,7 +50,7 @@ namespace NodeGraph.View
             var graphBounds = GetGraphBounds(viewModel.Graph);
             if (graphBounds.Width <= 0 || graphBounds.Height <= 0) return null;
 
-            var theme = viewModel.Theme;
+            var theme = viewModel.RenderConfig.Theme;
 
             float padding = 10f;
             var innerRect = miniMapRect.Expand(-padding);
@@ -79,8 +79,7 @@ namespace NodeGraph.View
                     MathF.Max(bounds.Width * scale, 2f),
                     MathF.Max(bounds.Height * scale, 2f));
 
-                var typeDef = viewModel.Graph.Settings.NodeTypes.GetDefinition(node.TypeId);
-                var color = typeDef?.Color ?? new Color4(0.4f, 0.4f, 0.4f, 1f);
+                var color = viewModel.GetNodeRenderInfo(node.TypeId).TitleColor;
                 color = color.WithAlpha(Opacity);
 
                 frame.Nodes.Add(new MiniMapNodeInfo { Rect = miniRect, Color = color });

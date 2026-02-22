@@ -44,23 +44,15 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.IsFirstEntry = false;
 
-                    var text        = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Text);
-                    var durationStr = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Duration);
-                    var style       = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Style);
-                    var fontSizeStr = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.FontSize);
+                    string text      = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Text,     "");
+                    float durationSec = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Duration, 2f);
+                    string style      = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Style,    "");
+                    int fontSizeInt   = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.FontSize,  0);
 
-                    if (string.IsNullOrEmpty(text)) text = "警告！";
+                    if (string.IsNullOrEmpty(text))  text  = "警告！";
                     if (string.IsNullOrEmpty(style)) style = "Warning";
-
-                    float durationSec = 2f;
-                    float.TryParse(durationStr, System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out durationSec);
                     if (durationSec <= 0f) durationSec = 2f;
-
-                    float fontSize = 48f;
-                    float.TryParse(fontSizeStr, System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out fontSize);
-                    if (fontSize <= 0f) fontSize = 48f;
+                    float fontSize = fontSizeInt > 0 ? (float)fontSizeInt : 48f;
 
                     // 1 秒 ≈ 60 Tick
                     state.CustomInt = Mathf.Max(1, Mathf.RoundToInt(durationSec * 60f));

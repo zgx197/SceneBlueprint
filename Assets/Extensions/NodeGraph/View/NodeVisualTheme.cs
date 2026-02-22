@@ -7,7 +7,7 @@ namespace NodeGraph.View
     /// 节点图视觉主题配置。纯 C#，跨引擎通用。
     /// 集中管理所有视觉参数，方便统一调整和引擎适配。
     /// </summary>
-    public class NodeVisualTheme
+    public sealed class NodeVisualTheme
     {
         // ── 节点整体 ──
 
@@ -171,9 +171,25 @@ namespace NodeGraph.View
         /// <summary>内容区与端口区之间的分隔线颜色</summary>
         public Color4 ContentSeparatorColor { get; set; } = new Color4(1f, 1f, 1f, 0.06f);
 
-        // ── 默认主题实例 ──
+        // ── 预设主题实例 ──
 
-        /// <summary>默认暗色主题</summary>
-        public static NodeVisualTheme Dark => new NodeVisualTheme();
+        /// <summary>默认暗色主题（单例，创建一次后缓存）</summary>
+        public static readonly NodeVisualTheme Dark = new NodeVisualTheme();
+
+        /// <summary>浅色主题（适合亮色 IDE 环境）</summary>
+        public static readonly NodeVisualTheme Light = new NodeVisualTheme
+        {
+            NodeBodyColor        = new Color4(0.92f, 0.92f, 0.92f, 0.97f),
+            NodeBorderColor      = new Color4(0.70f, 0.70f, 0.70f, 1f),
+            TitleTextColor       = new Color4(0.10f, 0.10f, 0.10f, 1f),
+            TitleSeparatorColor  = new Color4(0f,    0f,    0f,    0.15f),
+            PortTextColor        = new Color4(0.18f, 0.18f, 0.18f, 1f),
+            GridBackgroundColor  = new Color4(0.85f, 0.85f, 0.85f, 1f),
+            GridSmallLineColor   = new Color4(0f,    0f,    0f,    0.06f),
+            GridLargeLineColor   = new Color4(0f,    0f,    0f,    0.12f),
+            MiniMapBgColor       = new Color4(0.80f, 0.80f, 0.80f, 0.90f),
+            MiniMapBorderColor   = new Color4(0.50f, 0.50f, 0.50f, 0.80f),
+            ShadowColor          = new Color4(0.50f, 0.50f, 0.50f, 1f),
+        };
     }
 }

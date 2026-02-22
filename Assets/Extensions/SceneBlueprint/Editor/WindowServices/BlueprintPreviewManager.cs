@@ -6,7 +6,8 @@ using NodeGraph.Core;
 using SceneBlueprint.Core;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers.Pipeline;
-using SceneBlueprint.Editor.Preview;
+using PreviewEngine = SceneBlueprint.Editor.Preview.BlueprintPreviewManager;
+using SceneBlueprint.Editor.Session;
 using SceneBlueprint.Runtime.Markers;
 using UnityEditor;
 
@@ -18,56 +19,66 @@ namespace SceneBlueprint.Editor.WindowServices
     /// EditorApplication.delayCall 调度合批刷新，实际渲染委托给
     /// <see cref="Preview.BlueprintPreviewManager"/>（预览计算引擎单例）。
     /// </summary>
-    public class NodePreviewScheduler
+    public class NodePreviewScheduler : ISessionService
     {
         // ── 依赖 ──
-        private readonly IBlueprintEditorContext _ctx;
-        private readonly Func<string>            _getPreviewContextId;
+        private readonly IBlueprintReadContext _read;
+        private readonly IBlueprintUIContext   _ui;
+        private readonly Func<string>          _getPreviewContextId;
+        private readonly PreviewEngine         _previewEngine;
 
-        // ── 脏标记状态 ──
-        private readonly HashSet<string>                      _dirtyNodeIds    = new();
-        private bool                                          _dirtyAll;
-        private bool                                          _flushScheduled;
-
-        // ── MarkerId ↔ NodeId 双向索引（Location.RandomArea） ──
-        private readonly Dictionary<string, HashSet<string>> _markerToNodeIds = new();
-        private readonly Dictionary<string, string>          _nodeToMarkerId  = new();
-
-        // ── 图形状快照 ──
-        private readonly HashSet<string>         _observedNodeIds            = new();
-        private readonly Dictionary<string, int> _observedMarkerSignatures   = new();
-        private int                              _observedSubGraphFrameCount = -1;
+        // ── 状态跟踪器（脏队列 + 索引 + 快照） ──
+        private readonly PreviewStateTracker _tracker = new PreviewStateTracker();
+        private bool _flushScheduled;
 
         // ── 构造 ──
 
-        public NodePreviewScheduler(IBlueprintEditorContext ctx, Func<string> getPreviewContextId)
+        public NodePreviewScheduler(
+            IBlueprintReadContext read,
+            IBlueprintUIContext   ui,
+            Func<string>          getPreviewContextId,
+            PreviewEngine         previewEngine)
         {
-            _ctx                 = ctx;
+            _read                = read;
+            _ui                  = ui;
             _getPreviewContextId = getPreviewContextId;
+            _previewEngine       = previewEngine;
+            // D-Preview: 自订阅命令历史变化，任何指令执行后自动完成结构快照同步
+            var vm0 = read.ViewModel;
+            if (vm0 != null) vm0.Commands.OnHistoryChanged += OnCommandHistoryChanged;
+        }
+
+        void ISessionService.OnSessionDisposed()
+        {
+            var vm = _read.ViewModel;
+            if (vm != null) vm.Commands.OnHistoryChanged -= OnCommandHistoryChanged;
+            ResetState();
+        }
+
+        private void OnCommandHistoryChanged()
+        {
+            DetectGraphShapeChange();
         }
 
         // ── 脏标记 API ──
 
         public void MarkDirtyAll(string reason)
         {
-            _dirtyAll = true;
-            _dirtyNodeIds.Clear();
-            SBLog.Debug(SBLogTags.Pipeline, "NodePreviewScheduler.MarkDirtyAll: {0}", reason);
-            ScheduleFlush();
+            if (_tracker.MarkAll())
+            {
+                SBLog.Debug(SBLogTags.Pipeline, "NodePreviewScheduler.MarkDirtyAll: {0}", reason);
+                ScheduleFlush();
+            }
         }
 
         public void MarkDirtyForNode(string nodeId, string reason)
         {
-            if (!string.IsNullOrEmpty(nodeId))
-                MarkDirtyForNodes(new[] { nodeId }, reason);
+            if (!string.IsNullOrEmpty(nodeId)) MarkDirtyForNodes(new[] { nodeId }, reason);
         }
 
         public void MarkDirtyForNodes(IEnumerable<string> nodeIds, string reason)
         {
-            if (_dirtyAll) return;
-            int added = 0;
-            foreach (var id in nodeIds)
-                if (!string.IsNullOrEmpty(id) && _dirtyNodeIds.Add(id)) added++;
+            int added = _tracker.MarkNodes(nodeIds);
             if (added > 0)
             {
                 SBLog.Debug(SBLogTags.Pipeline,
@@ -78,23 +89,18 @@ namespace SceneBlueprint.Editor.WindowServices
 
         public int MarkDirtyForNodesByAreaMarkerIds(IEnumerable<string> markerIds, string reason)
         {
-            if (_ctx.ViewModel == null) return 0;
-            var mids = new HashSet<string>(markerIds.Where(id => !string.IsNullOrEmpty(id)));
+            if (_read.ViewModel == null) return 0;
+            var mids = markerIds.Where(id => !string.IsNullOrEmpty(id)).ToList();
             if (mids.Count == 0) return 0;
-
-            var nids = CollectNodeIdsByMarkerIds(mids);
-            if (nids.Count == 0)
-            {
-                RebuildMarkerNodeIndex();
-                nids = CollectNodeIdsByMarkerIds(mids);
-            }
+            var nids = _tracker.GetNodesByMarkerIds(mids);
+            if (nids.Count == 0) { RebuildMarkerNodeIndex(); nids = _tracker.GetNodesByMarkerIds(mids); }
             MarkDirtyForNodes(nids, reason);
             return nids.Count;
         }
 
         public int MarkDirtyForAllRandomAreaNodes(string reason)
         {
-            var vm = _ctx.ViewModel;
+            var vm = _read.ViewModel;
             if (vm == null) return 0;
             var ids = vm.Graph.Nodes
                 .Where(n => (n.UserData as ActionNodeData)?.ActionTypeId == "Location.RandomArea")
@@ -105,10 +111,10 @@ namespace SceneBlueprint.Editor.WindowServices
 
         public int MarkDirtyForUncachedRandomAreaNodes(string reason)
         {
-            var vm = _ctx.ViewModel;
+            var vm = _read.ViewModel;
             if (vm == null) return 0;
             var cached = new HashSet<string>(
-                Preview.BlueprintPreviewManager.Instance
+                _previewEngine
                     .GetCurrentBlueprintPreviews().Select(p => p.NodeId));
             var ids = vm.Graph.Nodes
                 .Where(n => (n.UserData as ActionNodeData)?.ActionTypeId == "Location.RandomArea"
@@ -118,16 +124,19 @@ namespace SceneBlueprint.Editor.WindowServices
             return ids.Count;
         }
 
-        private HashSet<string> CollectNodeIdsByMarkerIds(HashSet<string> mids)
-        {
-            var result = new HashSet<string>();
-            foreach (var mid in mids)
-                if (_markerToNodeIds.TryGetValue(mid, out var set))
-                    foreach (var nid in set) result.Add(nid);
-            return result;
-        }
+        // ══ 调度 & 刷新 ══
 
-        // ── 调度 & 刷新 ──
+        /// <summary>刷新计划：封装一次 flush 的意图，隔离脏状态消费与引擎调用。</summary>
+        private sealed class FlushPlan
+        {
+            public readonly bool   DoAll;
+            public readonly IReadOnlyList<string> DirtyNodeIds;
+            public readonly string ContextId;
+            public bool IsEmpty => !DoAll && DirtyNodeIds.Count == 0;
+
+            public FlushPlan(bool doAll, IReadOnlyList<string> dirtyNodeIds, string contextId)
+            { DoAll = doAll; DirtyNodeIds = dirtyNodeIds; ContextId = contextId; }
+        }
 
         public void ScheduleFlush()
         {
@@ -142,90 +151,84 @@ namespace SceneBlueprint.Editor.WindowServices
             EditorApplication.delayCall -= FlushDirtyPreviews;
             _flushScheduled = false;
 
-            var vm = _ctx.ViewModel;
-            if (vm == null) { _dirtyAll = false; _dirtyNodeIds.Clear(); return; }
+            var vm = _read.ViewModel;
+            if (vm == null) { _tracker.ConsumeDirty(); return; }
 
-            bool doAll        = _dirtyAll;
-            var  snapshot     = new List<string>(_dirtyNodeIds);
-            _dirtyAll = false;
-            _dirtyNodeIds.Clear();
-            if (!doAll && snapshot.Count == 0) return;
+            // 阶段1: 消费脏状态 → 构建刷新计划
+            var plan = BuildFlushPlan();
+            if (plan.IsEmpty) return;
 
-            var graph     = vm.Graph;
-            var contextId = _getPreviewContextId();
+            // 阶段2: 执行刷新（调用预览引擎）
+            bool anyFlushed = ExecuteFlush(vm.Graph, plan);
+
+            // 阶段3: 后置状态同步（签名快照 + SceneView 重绘）
+            if (anyFlushed) PostFlushSync(plan.DoAll);
+        }
+
+        /// <summary>阶段1: 消费脏标记，返回刷新计划。</summary>
+        private FlushPlan BuildFlushPlan()
+        {
+            var (doAll, snapshot) = _tracker.ConsumeDirty();
+            return new FlushPlan(doAll, snapshot, _getPreviewContextId());
+        }
+
+        /// <summary>阶段2: 根据计划调用预览引擎。返回是否实际触发了刺激。</summary>
+        private bool ExecuteFlush(Graph graph, FlushPlan plan)
+        {
             MarkerCache.SetDirty();
 
-            if (doAll)
+            if (plan.DoAll)
             {
-                Preview.BlueprintPreviewManager.Instance.RefreshAllPreviews(contextId, graph);
-                SyncMarkerSignatureSnapshot();
+                _previewEngine.RefreshAllPreviews(plan.ContextId, graph);
                 SBLog.Debug(SBLogTags.Pipeline,
                     "NodePreviewScheduler.Flush: 全量, nodeCount={0}", graph.Nodes.Count);
-                return;
+                return true;
             }
 
             int refreshed = 0;
-            var removed   = new List<string>();
-            foreach (var nid in snapshot)
+            var toRemove  = new List<string>();
+            foreach (var nid in plan.DirtyNodeIds)
             {
                 var node = graph.FindNode(nid);
                 if (node?.UserData is ActionNodeData nd)
                 {
-                    Preview.BlueprintPreviewManager.Instance.RefreshPreviewForNode(contextId, nid, nd);
+                    _previewEngine.RefreshPreviewForNode(plan.ContextId, nid, nd);
                     refreshed++;
                 }
-                else { removed.Add(nid); }
+                else { toRemove.Add(nid); }
             }
 
-            int removedCnt = removed.Count > 0
-                ? Preview.BlueprintPreviewManager.Instance.RemovePreviews(removed, repaint: false)
+            int removedCnt = toRemove.Count > 0
+                ? _previewEngine.RemovePreviews(toRemove, repaint: false)
                 : 0;
 
-            if (refreshed > 0 || removedCnt > 0)
-            {
-                UnityEditor.SceneView.RepaintAll();
-                SyncMarkerSignatureSnapshot();
-                SBLog.Debug(SBLogTags.Pipeline,
-                    "NodePreviewScheduler.Flush: 局部, refreshed={0}, removed={1}", refreshed, removedCnt);
-            }
+            SBLog.Debug(SBLogTags.Pipeline,
+                "NodePreviewScheduler.Flush: 局部, refreshed={0}, removed={1}", refreshed, removedCnt);
+            return refreshed > 0 || removedCnt > 0;
+        }
+
+        /// <summary>阶段3: 同步签名快照（局部刷新时额外触发 SceneView 重绘）。</summary>
+        private void PostFlushSync(bool wasFullRefresh)
+        {
+            SyncMarkerSignatureSnapshot();
+            if (!wasFullRefresh) UnityEditor.SceneView.RepaintAll();
         }
 
         // ── 标记签名快照 ──
 
         public void SyncMarkerSignatureSnapshot()
         {
-            _observedMarkerSignatures.Clear();
-            var mids = Preview.BlueprintPreviewManager.Instance.GetCurrentPreviewMarkerIds();
+            var mids = _previewEngine.GetCurrentPreviewMarkerIds();
             if (mids.Count == 0) return;
-            var lookup = BuildMarkerLookup();
-            foreach (var mid in mids)
-            {
-                int sig = lookup.TryGetValue(mid, out var m) ? ComputeMarkerSignature(m) : int.MinValue;
-                _observedMarkerSignatures[mid] = sig;
-            }
+            _tracker.SyncMarkerSignatureSnapshot(ComputeSignatures(mids));
         }
 
         public List<string> CollectChangedPreviewMarkerIds(IReadOnlyCollection<string> previewMarkerIds)
-        {
-            var lookup  = BuildMarkerLookup();
-            var changed = new List<string>();
-            foreach (var mid in previewMarkerIds)
-            {
-                int cur = lookup.TryGetValue(mid, out var m) ? ComputeMarkerSignature(m) : int.MinValue;
-                if (!_observedMarkerSignatures.TryGetValue(mid, out int prev) || prev != cur)
-                    changed.Add(mid);
-            }
-            return changed;
-        }
+            => _tracker.CollectChangedMarkerIds(ComputeSignatures(previewMarkerIds));
 
         // ── 图形状快照 ──
 
-        public void SyncGraphShapeSnapshot(Graph graph)
-        {
-            _observedNodeIds.Clear();
-            foreach (var n in graph.Nodes) _observedNodeIds.Add(n.Id);
-            _observedSubGraphFrameCount = graph.SubGraphFrames.Count;
-        }
+        public void SyncGraphShapeSnapshot(Graph graph) => _tracker.SyncShapeSnapshot(graph);
 
         /// <summary>
         /// 检测图结构变化（节点增删、子图数量变化）。
@@ -234,112 +237,67 @@ namespace SceneBlueprint.Editor.WindowServices
         /// </summary>
         public void DetectGraphShapeChange()
         {
-            var vm = _ctx.ViewModel;
+            var vm = _read.ViewModel;
             if (vm == null) return;
-
             var graph = vm.Graph;
 
-            if (_observedSubGraphFrameCount < 0)
-            {
-                SyncGraphShapeSnapshot(graph);
-                return;
-            }
-
-            bool subGraphChanged = graph.SubGraphFrames.Count != _observedSubGraphFrameCount;
-            if (!subGraphChanged && graph.Nodes.Count == _observedNodeIds.Count) return;
-
-            var currentIds = new HashSet<string>(graph.Nodes.Select(n => n.Id));
-            var removed    = _observedNodeIds.Where(id => !currentIds.Contains(id)).ToList();
-            var added      = currentIds.Where(id => !_observedNodeIds.Contains(id)).ToList();
-
-            bool changed = subGraphChanged || removed.Count > 0 || added.Count > 0;
+            var (changed, added, removed) = _tracker.DetectShapeChange(graph);
             if (!changed) return;
 
             SBLog.Debug(SBLogTags.Pipeline,
-                "NodePreviewScheduler.DetectGraphShapeChange: added={0}, removed={1}, subGraph {2}->{3}",
-                added.Count, removed.Count, _observedSubGraphFrameCount, graph.SubGraphFrames.Count);
+                "NodePreviewScheduler.DetectGraphShapeChange: added={0}, removed={1}",
+                added.Count, removed.Count);
 
             if (added.Count > 0)
             {
                 foreach (var nid in added)
-                {
-                    var node = graph.FindNode(nid);
-                    UpdateMarkerNodeIndex(nid, node?.UserData as ActionNodeData);
-                }
+                    _tracker.UpdateIndex(nid, graph.FindNode(nid)?.UserData as ActionNodeData);
                 MarkDirtyForNodes(added, "GraphShapeChanged.NodeAdded");
             }
-
             if (removed.Count > 0)
             {
-                foreach (var nid in removed)
-                    RemoveMarkerNodeIndex(nid);
+                foreach (var nid in removed) _tracker.RemoveFromIndex(nid);
                 MarkDirtyForNodes(removed, "GraphShapeChanged.NodeRemoved");
             }
-
-            SyncGraphShapeSnapshot(graph);
+            _tracker.SyncShapeSnapshot(graph);
         }
 
         // ── MarkerId ↔ NodeId 索引管理 ──
 
-        public void UpdateMarkerNodeIndex(string nodeId, ActionNodeData? data)
-        {
-            RemoveMarkerNodeIndex(nodeId);
-            if (string.IsNullOrEmpty(nodeId) || data == null) return;
-            if (!TryGetRandomAreaMarkerId(data, out var mid)) return;
-
-            if (!_markerToNodeIds.TryGetValue(mid, out var set))
-            {
-                set = new HashSet<string>();
-                _markerToNodeIds[mid] = set;
-            }
-            set.Add(nodeId);
-            _nodeToMarkerId[nodeId] = mid;
-        }
-
-        public void RemoveMarkerNodeIndex(string nodeId)
-        {
-            if (string.IsNullOrEmpty(nodeId)) return;
-            if (!_nodeToMarkerId.TryGetValue(nodeId, out var mid)) return;
-            _nodeToMarkerId.Remove(nodeId);
-            if (_markerToNodeIds.TryGetValue(mid, out var set))
-            {
-                set.Remove(nodeId);
-                if (set.Count == 0) _markerToNodeIds.Remove(mid);
-            }
-        }
+        /// <summary>数据变更通知（非命令路径的属性修改，如 Inspector 编辑）。</summary>
+        public void NotifyNodeDataChanged(string nodeId, ActionNodeData? data)
+            => _tracker.UpdateIndex(nodeId, data);
 
         public void RebuildMarkerNodeIndex()
         {
-            _markerToNodeIds.Clear();
-            _nodeToMarkerId.Clear();
-            var vm = _ctx.ViewModel;
-            if (vm == null) return;
-            foreach (var node in vm.Graph.Nodes)
-                UpdateMarkerNodeIndex(node.Id, node.UserData as ActionNodeData);
+            var vm = _read.ViewModel;
+            if (vm == null) { _tracker.Reset(); return; }
+            _tracker.RebuildIndex(vm.Graph.Nodes);
         }
 
         // ── 重置 ──
 
         public void ResetState()
         {
-            _dirtyAll    = false;
             _flushScheduled = false;
-            _dirtyNodeIds.Clear();
-            _markerToNodeIds.Clear();
-            _nodeToMarkerId.Clear();
-            _observedNodeIds.Clear();
-            _observedMarkerSignatures.Clear();
-            _observedSubGraphFrameCount = -1;
+            _tracker.Reset();
         }
 
         // ── 静态辅助 ──
 
-        private static bool TryGetRandomAreaMarkerId(ActionNodeData data, out string markerId)
+        // ── 标记签名计算（有 Unity 依赖，不进入 PreviewStateTracker）──
+
+        private static Dictionary<string, int> ComputeSignatures(IEnumerable<string> markerIds)
         {
-            markerId = "";
-            if (data.ActionTypeId != "Location.RandomArea") return false;
-            markerId = data.Properties.Get<string>("area") ?? "";
-            return !string.IsNullOrEmpty(markerId);
+            var lookup = BuildMarkerLookup();
+            var result = new Dictionary<string, int>();
+            foreach (var mid in markerIds)
+            {
+                result[mid] = lookup.TryGetValue(mid, out var m)
+                    ? ComputeMarkerSignature(m)
+                    : int.MinValue;
+            }
+            return result;
         }
 
         private static Dictionary<string, SceneMarker> BuildMarkerLookup()
@@ -356,27 +314,25 @@ namespace SceneBlueprint.Editor.WindowServices
             {
                 int h = 17;
                 h = h * 31 + (marker.MarkerTypeId?.GetHashCode() ?? 0);
-                h = h * 31 + QuantizeVec3(marker.transform.position);
-                h = h * 31 + QuantizeQuat(marker.transform.rotation);
+                var pos = marker.transform.position;
+                var rot = marker.transform.rotation;
+                h = h * 31 + PreviewStateTracker.QuantizeComponents(pos.x, pos.y, pos.z);
+                h = h * 31 + PreviewStateTracker.QuantizeComponents(rot.x, rot.y, rot.z);
+                h = h * 31 + (int)(rot.w * 1000f);
                 if (marker is AreaMarker am)
                 {
                     h = h * 31 + (int)am.Shape;
-                    h = h * 31 + QuantizeVec3(am.BoxSize);
-                    h = h * 31 + UnityEngine.Mathf.RoundToInt(am.Height * 1000f);
-                    if (am.Vertices != null) { h = h * 31 + am.Vertices.Count; foreach (var v in am.Vertices) h = h * 31 + QuantizeVec3(v); }
+                    h = h * 31 + PreviewStateTracker.QuantizeComponents(am.BoxSize.x, am.BoxSize.y, am.BoxSize.z);
+                    h = h * 31 + (int)(am.Height * 1000f);
+                    if (am.Vertices != null)
+                    {
+                        h = h * 31 + am.Vertices.Count;
+                        foreach (var v in am.Vertices)
+                            h = h * 31 + PreviewStateTracker.QuantizeComponents(v.x, v.y, v.z);
+                    }
                 }
                 return h;
             }
-        }
-
-        private static int QuantizeVec3(UnityEngine.Vector3 v)
-        {
-            unchecked { return (UnityEngine.Mathf.RoundToInt(v.x * 1000) * 31 + UnityEngine.Mathf.RoundToInt(v.y * 1000)) * 31 + UnityEngine.Mathf.RoundToInt(v.z * 1000); }
-        }
-
-        private static int QuantizeQuat(UnityEngine.Quaternion q)
-        {
-            unchecked { return ((UnityEngine.Mathf.RoundToInt(q.x * 1000) * 31 + UnityEngine.Mathf.RoundToInt(q.y * 1000)) * 31 + UnityEngine.Mathf.RoundToInt(q.z * 1000)) * 31 + UnityEngine.Mathf.RoundToInt(q.w * 1000); }
         }
     }
 }

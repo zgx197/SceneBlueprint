@@ -110,6 +110,12 @@ namespace NodeGraph.Commands
 
         private void PushUndo(ICommand command)
         {
+            // 尝试与栈顶合并（连续拖拽等场景下合并为一次 Undo 记录）
+            if (_undoStack.Count > 0)
+            {
+                var top = _undoStack[_undoStack.Count - 1];
+                if (command.TryMergeWith(top)) return;
+            }
             _undoStack.Add(command);
             // 限制历史大小
             while (_undoStack.Count > MaxHistorySize)

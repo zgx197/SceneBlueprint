@@ -15,7 +15,7 @@ namespace NodeGraph.Core
         private readonly List<Node> _nodes = new List<Node>();
         private readonly List<Edge> _edges = new List<Edge>();
         private readonly List<NodeGroup> _groups = new List<NodeGroup>();
-        private readonly List<SubGraphFrame> _subGraphFrames = new List<SubGraphFrame>();
+        private readonly SubGraphIndex _subGraphIndex = new SubGraphIndex();
         private readonly List<GraphComment> _comments = new List<GraphComment>();
 
         // 快速查找表
@@ -38,12 +38,15 @@ namespace NodeGraph.Core
         public IReadOnlyList<Node> Nodes => _nodes;
         public IReadOnlyList<Edge> Edges => _edges;
         public IReadOnlyList<NodeGroup> Groups => _groups;
-        public IReadOnlyList<SubGraphFrame> SubGraphFrames => _subGraphFrames;
+        public IReadOnlyList<SubGraphFrame> SubGraphFrames => _subGraphIndex.All;
+
+        /// <summary>子图框索引（供需要直接访问索引能力的调用方使用）</summary>
+        public SubGraphIndex SubGraphIndex => _subGraphIndex;
         public IReadOnlyList<GraphComment> Comments => _comments;
 
         /// <summary>统一的容器迭代（FrameBuilder 用于生成 DecorationFrame）</summary>
         public IEnumerable<GraphContainer> AllContainers =>
-            _groups.Cast<GraphContainer>().Concat(_subGraphFrames);
+            _groups.Cast<GraphContainer>().Concat(_subGraphIndex.All);
 
         // ── 构造 ──
 
@@ -76,7 +79,7 @@ namespace NodeGraph.Core
         {
             if (typeId == null) throw new ArgumentNullException(nameof(typeId));
 
-            var typeDef = Settings.NodeTypes.GetDefinition(typeId);
+            var typeDef = Settings.NodeTypes.GetNodeType(typeId);
 
             // 生成唯一 ID（兜底重复检测）
             string id;
@@ -150,8 +153,7 @@ namespace NodeGraph.Core
             // 从所有容器中移除
             foreach (var group in _groups)
                 group.ContainedNodeIds.Remove(nodeId);
-            foreach (var sgf in _subGraphFrames)
-                sgf.ContainedNodeIds.Remove(nodeId);
+            _subGraphIndex.OnNodeRemoved(nodeId);
 
             UnregisterNodePorts(node);
             _nodes.Remove(node);
@@ -193,7 +195,7 @@ namespace NodeGraph.Core
             {
                 var boundaryNode = sBoundary ? sNode! : tNode!;
                 var otherNode = sBoundary ? tNode! : sNode!;
-                var frame = FindContainerSubGraphFrame(boundaryNode.Id);
+                var frame = _subGraphIndex.FindContainer(boundaryNode.Id);
                 isInternalBoundary = frame != null && frame.ContainedNodeIds.Contains(otherNode.Id);
             }
 
@@ -209,7 +211,7 @@ namespace NodeGraph.Core
             }
 
             // 连接验证
-            var validationResult = Settings.ConnectionPolicy.CanConnect(this, sourcePort, targetPort);
+            var validationResult = Settings.Behavior.ConnectionPolicy.CanConnect(this, sourcePort, targetPort);
             if (validationResult != ConnectionResult.Success) return ConnectResult.Rejected;
 
             // 如果目标端口是 Single 容量且已有连接，先断开旧连接并记录（供调用方 Undo 使用）
@@ -459,35 +461,16 @@ namespace NodeGraph.Core
         // ═══════════════════════════════════════
 
         /// <summary>添加子图框（低层 API，供 Command/反序列化使用）</summary>
-        public void AddSubGraphFrameDirect(SubGraphFrame frame)
-        {
-            if (frame == null) throw new ArgumentNullException(nameof(frame));
-            _subGraphFrames.Add(frame);
-        }
+        public void AddSubGraphFrameDirect(SubGraphFrame frame) => _subGraphIndex.Add(frame);
 
         /// <summary>移除子图框（不移除框内的节点和代表节点）</summary>
-        public void RemoveSubGraphFrame(string frameId)
-        {
-            if (frameId == null) throw new ArgumentNullException(nameof(frameId));
-            var frame = _subGraphFrames.FirstOrDefault(f => f.Id == frameId);
-            if (frame == null) return;
-            _subGraphFrames.Remove(frame);
-        }
+        public void RemoveSubGraphFrame(string frameId) => _subGraphIndex.Remove(frameId);
 
         /// <summary>根据 ID 查找子图框</summary>
-        public SubGraphFrame? FindSubGraphFrame(string frameId)
-        {
-            if (frameId == null) return null;
-            return _subGraphFrames.FirstOrDefault(f => f.Id == frameId);
-        }
+        public SubGraphFrame? FindSubGraphFrame(string frameId) => _subGraphIndex.FindById(frameId);
 
         /// <summary>查找包含指定节点的子图框</summary>
-        public SubGraphFrame? FindContainerSubGraphFrame(string nodeId)
-        {
-            if (nodeId == null) return null;
-            return _subGraphFrames.FirstOrDefault(f => f.ContainedNodeIds.Contains(nodeId)
-                                                       || f.RepresentativeNodeId == nodeId);
-        }
+        public SubGraphFrame? FindContainerSubGraphFrame(string nodeId) => _subGraphIndex.FindContainer(nodeId);
 
         // ═══════════════════════════════════════
         //  内部辅助

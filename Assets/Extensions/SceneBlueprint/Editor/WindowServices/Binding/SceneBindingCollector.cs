@@ -4,102 +4,45 @@ using System.Linq;
 using NodeGraph.Core;
 using SceneBlueprint.Contract;
 using SceneBlueprint.Core;
-using SceneBlueprint.Editor;
 using SceneBlueprint.Editor.Export;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers;
 using SceneBlueprint.Editor.SpatialModes;
+using SceneBlueprint.Editor.WindowServices;
 using SceneBlueprint.Runtime;
 using UnityEngine;
 
-namespace SceneBlueprint.Editor.WindowServices
+namespace SceneBlueprint.Editor.WindowServices.Binding
 {
     /// <summary>
-    /// 场景绑定协调器（从 SceneBlueprintWindow 提取）。
-    /// 持有 BindingContext 和 ISceneBindingStore，负责绑定的恢复、同步、导出收集和一致性验证。
-    /// <para>
-    /// 注意：SaveBlueprint() 不在本类职责范围，窗口应在调用 SyncToScene() 前自行确保资产已保存。
-    /// </para>
+    /// 场景绑定收集器——负责"图 → 外部"方向：
+    /// <list type="bullet">
+    /// <item><see cref="SyncToScene"/>：将 BindingContext 持久化到场景 SceneBlueprintManager</item>
+    /// <item><see cref="CollectForExport"/>：收集导出用的 SceneBindingData 列表</item>
+    /// </list>
     /// </summary>
-    public class SceneBindingCoordinator
+    public class SceneBindingCollector : ISceneBindingCollector
     {
-        // ── 依赖 ──
-        private readonly IBlueprintEditorContext _ctx;
-        private readonly ISceneBindingStore      _store;
+        private readonly IBlueprintReadContext _ctx;
+        private readonly BindingContext        _bindingContext;
+        private readonly ISceneBindingStore    _store;
+        private IEditorSpatialModeDescriptor?  _spatialDescriptor;
 
-        // ── 延迟加载 ──
-        private IEditorSpatialModeDescriptor? _spatialDescriptor;
-
-        /// <summary>运行时内存绑定映射（nodeId/bindingKey → GameObject）。Inspector UI 仍需直接访问。</summary>
-        public BindingContext BindingContext { get; }
-
-        // ── 构造 ──
-
-        public SceneBindingCoordinator(
-            IBlueprintEditorContext ctx,
-            BindingContext          bindingContext,
-            ISceneBindingStore      store)
+        public SceneBindingCollector(
+            IBlueprintReadContext ctx,
+            BindingContext        bindingContext,
+            ISceneBindingStore    store)
         {
-            _ctx           = ctx;
-            BindingContext = bindingContext;
-            _store         = store;
+            _ctx            = ctx;
+            _bindingContext = bindingContext;
+            _store          = store;
         }
 
-        // ══════════════════════════════════════════════
+        // ══════════════════════════════════════════
         //  公开 API
-        // ══════════════════════════════════════════════
+        // ══════════════════════════════════════════
 
-        /// <summary>
-        /// 蓝图加载后从场景恢复绑定到 BindingContext。
-        /// 策略1：SceneBindingStore → 策略2：PropertyBag MarkerId 反查。
-        /// </summary>
-        public void RestoreFromScene()
-        {
-            var vm    = _ctx.ViewModel;
-            var asset = _ctx.CurrentAsset;
-            if (vm == null || asset == null) return;
-
-            BindingContext.Clear();
-
-            // 策略1：从持久化存储恢复
-            if (_store.TryLoadBindingGroups(asset, out var groups))
-            {
-                foreach (var g in groups)
-                    foreach (var b in g.Bindings)
-                        if (!string.IsNullOrEmpty(b.BindingKey) && b.BoundObject != null)
-                            BindingContext.Set(b.BindingKey, b.BoundObject);
-            }
-
-            // 策略2：对未恢复的绑定用 MarkerId 在场景中回退查找
-            var registry = _ctx.GetActionRegistry();
-            foreach (var node in vm.Graph.Nodes)
-            {
-                if (node.UserData is not ActionNodeData data) continue;
-                if (!registry.TryGet(data.ActionTypeId, out var actionDef)) continue;
-
-                foreach (var prop in actionDef.Properties)
-                {
-                    if (prop.SceneBindingType == null) continue;
-                    string scopedKey = BindingScopeUtility.BuildScopedKey(node.Id, prop.Key);
-                    if (BindingContext.Get(scopedKey) != null) continue;
-
-                    var storedId = data.Properties.Get<string>(prop.Key);
-                    if (string.IsNullOrEmpty(storedId)) continue;
-
-                    var marker = SceneMarkerSelectionBridge.FindMarkerInScene(storedId);
-                    if (marker != null) BindingContext.Set(scopedKey, marker.gameObject);
-                }
-            }
-
-            int restored = BindingContext.BoundCount;
-            if (restored > 0)
-                SBLog.Info(SBLogTags.Binding, $"已从场景恢复 {restored} 个绑定");
-        }
-
-        /// <summary>
-        /// 将当前绑定同步持久化到场景的 SceneBlueprintManager。
-        /// 调用方需确保 CurrentAsset 已保存（非 null）。
-        /// </summary>
+        /// <summary>将当前绑定同步持久化到场景的 SceneBlueprintManager。</summary>
         public void SyncToScene()
         {
             var vm    = _ctx.ViewModel;
@@ -107,10 +50,9 @@ namespace SceneBlueprint.Editor.WindowServices
             if (vm == null || asset == null) return;
 
             var graph    = vm.Graph;
-            var registry = _ctx.GetActionRegistry();
+            var registry = _ctx.ActionRegistry;
             var groups   = new List<SubGraphBindingGroup>();
 
-            // 按子蓝图分组构建绑定数据
             foreach (var sgf in graph.SubGraphFrames)
             {
                 var group = new SubGraphBindingGroup
@@ -136,14 +78,13 @@ namespace SceneBlueprint.Editor.WindowServices
                             BindingType        = prop.SceneBindingType ?? BindingType.Transform,
                             DisplayName        = prop.DisplayName,
                             SourceActionTypeId = ad.ActionTypeId,
-                            BoundObject        = BindingContext.Get(sk)
+                            BoundObject        = _bindingContext.Get(sk)
                         });
                     }
                 }
                 if (group.Bindings.Count > 0) groups.Add(group);
             }
 
-            // 收集顶层节点绑定
             var topLevel = CollectTopLevelBindings(graph, registry);
             if (topLevel?.Bindings.Count > 0) groups.Add(topLevel);
 
@@ -155,15 +96,12 @@ namespace SceneBlueprint.Editor.WindowServices
                 $"已同步到场景: 分组={groups.Count}, 绑定={bound}/{total}");
         }
 
-        /// <summary>
-        /// 为导出收集绑定数据。优先读持久化存储，降级读 BindingContext 内存数据。
-        /// </summary>
+        /// <summary>为导出收集绑定数据。优先读持久化存储，降级读 BindingContext 内存数据。</summary>
         public List<BlueprintExporter.SceneBindingData>? CollectForExport()
         {
             var asset    = _ctx.CurrentAsset;
-            var registry = _ctx.GetActionRegistry();
+            var registry = _ctx.ActionRegistry;
 
-            // 优先从持久化存储读取
             if (asset != null
                 && _store.TryLoadBindingGroups(asset, out var groups)
                 && groups.Count > 0)
@@ -176,24 +114,23 @@ namespace SceneBlueprint.Editor.WindowServices
                             out var sid, out var at, out var spj);
                         list.Add(new BlueprintExporter.SceneBindingData
                         {
-                            BindingKey          = b.BindingKey,
-                            BindingType         = b.BindingType.ToString(),
-                            StableObjectId      = sid,
-                            AdapterType         = at,
-                            SpatialPayloadJson  = spj,
-                            SourceSubGraph      = g.SubGraphTitle,
-                            SourceActionTypeId  = b.SourceActionTypeId
+                            BindingKey         = b.BindingKey,
+                            BindingType        = b.BindingType.ToString(),
+                            StableObjectId     = sid,
+                            AdapterType        = at,
+                            SpatialPayloadJson = spj,
+                            SourceSubGraph     = g.SubGraphTitle,
+                            SourceActionTypeId = b.SourceActionTypeId
                         });
                     }
                 return list.Count > 0 ? list : null;
             }
 
-            // 降级：从 BindingContext 读取
-            if (BindingContext.Count > 0)
+            if (_bindingContext.Count > 0)
             {
                 var typeMap = BuildBindingTypeMap(registry);
                 var list    = new List<BlueprintExporter.SceneBindingData>();
-                foreach (var kvp in BindingContext.All)
+                foreach (var kvp in _bindingContext.All)
                 {
                     string resolvedKey = ResolveBindingKey(kvp.Key, typeMap);
                     var    bindingType = typeMap.TryGetValue(resolvedKey, out var bt)
@@ -214,19 +151,9 @@ namespace SceneBlueprint.Editor.WindowServices
             return null;
         }
 
-        /// <summary>执行标记绑定一致性验证（缺失/孤立/类型不匹配），结果输出到 Console。</summary>
-        public ValidationReport RunBindingValidation()
-        {
-            var vm = _ctx.ViewModel;
-            if (vm == null) return new ValidationReport();
-            var report = MarkerBindingValidator.Validate(vm.Graph, _ctx.GetActionRegistry());
-            MarkerBindingValidator.LogReport(report);
-            return report;
-        }
-
-        // ══════════════════════════════════════════════
+        // ══════════════════════════════════════════
         //  私有辅助
-        // ══════════════════════════════════════════════
+        // ══════════════════════════════════════════
 
         private SubGraphBindingGroup? CollectTopLevelBindings(Graph graph, ActionRegistry registry)
         {
@@ -256,7 +183,7 @@ namespace SceneBlueprint.Editor.WindowServices
                         BindingType        = prop.SceneBindingType ?? BindingType.Transform,
                         DisplayName        = prop.DisplayName,
                         SourceActionTypeId = ad.ActionTypeId,
-                        BoundObject        = BindingContext.Get(sk)
+                        BoundObject        = _bindingContext.Get(sk)
                     });
                 }
             }
@@ -290,7 +217,7 @@ namespace SceneBlueprint.Editor.WindowServices
             foreach (var sk in typeMap.Keys)
             {
                 if (BindingScopeUtility.ExtractRawBindingKey(sk) != key) continue;
-                if (matched != null) return key; // 多个作用域同名，不猜测
+                if (matched != null) return key;
                 matched = sk;
             }
             return matched ?? key;
@@ -307,19 +234,18 @@ namespace SceneBlueprint.Editor.WindowServices
 
             if (obj == null)
             {
-                stableObjectId    = "";
-                adapterType       = _spatialDescriptor.AdapterType;
+                stableObjectId     = "";
+                adapterType        = _spatialDescriptor.AdapterType;
                 spatialPayloadJson = "{}";
                 return;
             }
 
             var payload        = _spatialDescriptor.BindingCodec.Encode(obj, type);
-            stableObjectId    = payload.StableObjectId;
-            adapterType       = string.IsNullOrEmpty(payload.AdapterType)
+            stableObjectId     = payload.StableObjectId;
+            adapterType        = string.IsNullOrEmpty(payload.AdapterType)
                 ? _spatialDescriptor.AdapterType : payload.AdapterType;
             spatialPayloadJson = string.IsNullOrEmpty(payload.SerializedSpatialData)
                 ? "{}" : payload.SerializedSpatialData;
         }
     }
 }
-

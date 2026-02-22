@@ -34,11 +34,11 @@ namespace SceneBlueprint.Runtime
         [Tooltip("数据版本号")]
         public int Version = 1;
 
-        // ── 图数据 ──
+        // ── 图数据（独立 .blueprint.json 文件引用）──
 
-        [Tooltip("序列化的图数据（JSON 格式，由编辑器自动管理）")]
+        [Tooltip("图数据文件引用（.blueprint.json，由编辑器自动管理）")]
         [HideInInspector]
-        public string GraphJson = "";
+        public UnityEngine.TextAsset? GraphData;
 
         // ── Blackboard 变量声明 ──
 
@@ -47,7 +47,7 @@ namespace SceneBlueprint.Runtime
         public VariableDeclaration[] Variables = System.Array.Empty<VariableDeclaration>();
 
         /// <summary>图数据是否为空</summary>
-        public bool IsEmpty => string.IsNullOrEmpty(GraphJson);
+        public bool IsEmpty => GraphData == null || string.IsNullOrEmpty(GraphData.text);
 
         /// <summary>初始化新蓝图（生成唯一 ID）</summary>
         public void InitializeNew(string name = "")

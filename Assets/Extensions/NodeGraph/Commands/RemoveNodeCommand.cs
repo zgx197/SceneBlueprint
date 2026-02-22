@@ -9,7 +9,7 @@ namespace NodeGraph.Commands
     /// <summary>
     /// 删除节点命令。自动保存被删除节点的信息和关联连线，支持完整 Undo。
     /// </summary>
-    public class RemoveNodeCommand : ICommand
+    public class RemoveNodeCommand : IStructuralCommand
     {
         private readonly string _nodeId;
 

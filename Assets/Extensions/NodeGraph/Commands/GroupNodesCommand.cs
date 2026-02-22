@@ -16,7 +16,7 @@ namespace NodeGraph.Commands
     /// 4. 重连跨边界连线：外部↔内部 → 外部↔Rep端口 + Rep端口↔内部
     /// 支持 Undo/Redo。
     /// </summary>
-    public class GroupNodesCommand : ICommand
+    public class GroupNodesCommand : IStructuralCommand
     {
         private readonly string _title;
         private readonly List<string> _nodeIds;

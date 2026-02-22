@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using SceneBlueprint.Contract;
+using SceneBlueprint.Core;
 
 namespace SceneBlueprint.Runtime.Interpreter
 {
@@ -150,7 +151,7 @@ namespace SceneBlueprint.Runtime.Interpreter
         public string GetTypeId(int actionIndex)
             => (actionIndex >= 0 && actionIndex < Actions.Length) ? Actions[actionIndex].TypeId : "";
 
-        /// <summary>根据 ActionIndex 获取 Action 的属性值</summary>
+        /// <summary>根据 ActionIndex 获取 Action 的属性值（原始字符串）</summary>
         public string GetProperty(int actionIndex, string key)
         {
             if (actionIndex < 0 || actionIndex >= Actions.Length) return "";
@@ -160,6 +161,28 @@ namespace SceneBlueprint.Runtime.Interpreter
                 if (props[i].Key == key) return props[i].Value;
             }
             return "";
+        }
+
+        /// <summary>
+        /// 根据 ActionIndex 和类型化属性键获取已解析的值。
+        /// <para>
+        /// 相比字符串重载的优势：键名与目标类型在声明侧（ActionPortIds）一次绑定，
+        /// 调用侧无需手动 Parse，解析失败返回 default(T) 而非抛出异常。
+        /// </para>
+        /// </summary>
+        public T GetProperty<T>(int actionIndex, PropertyKey<T> key)
+        {
+            var raw = GetProperty(actionIndex, key.Key);
+            return PropertyKeyParser.Parse<T>(raw);
+        }
+
+        /// <summary>
+        /// 类型化属性获取，支持自定义默认值（无属性或解析失败时返回 defaultValue）。
+        /// </summary>
+        public T GetProperty<T>(int actionIndex, PropertyKey<T> key, T defaultValue)
+        {
+            var raw = GetProperty(actionIndex, key.Key);
+            return string.IsNullOrEmpty(raw) ? defaultValue : PropertyKeyParser.Parse<T>(raw);
         }
 
         /// <summary>根据 ActionIndex 获取 SceneBindings</summary>

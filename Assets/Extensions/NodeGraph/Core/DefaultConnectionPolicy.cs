@@ -54,7 +54,7 @@ namespace NodeGraph.Core
                     // 桥接模式：豁免方向和容量，仅校验兼容性
                     if (source.Kind != target.Kind)
                         return ConnectionResult.KindMismatch;
-                    if (!graph.Settings.TypeCompatibility.IsCompatible(source.DataType, target.DataType))
+                    if (!graph.Settings.Behavior.TypeCompatibility.IsCompatible(source.DataType, target.DataType))
                         return ConnectionResult.DataTypeMismatch;
                     if (graph.Edges.Any(e =>
                         (e.SourcePortId == source.Id && e.TargetPortId == target.Id) ||
@@ -93,7 +93,7 @@ namespace NodeGraph.Core
                 return ConnectionResult.KindMismatch;
 
             // 3. DataType 兼容
-            if (!graph.Settings.TypeCompatibility.IsCompatible(outPort.DataType, inPort.DataType))
+            if (!graph.Settings.Behavior.TypeCompatibility.IsCompatible(outPort.DataType, inPort.DataType))
                 return ConnectionResult.DataTypeMismatch;
 
             // 4. 重复连接

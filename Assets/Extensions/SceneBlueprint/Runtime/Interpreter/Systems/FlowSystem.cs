@@ -87,16 +87,11 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.IsFirstEntry = false;
 
-                    var delayStr = frame.GetProperty(idx, ActionPortIds.FlowDelay.Duration);
-                    if (float.TryParse(delayStr, out var delaySec))
-                    {
-                        // 简单映射：1 秒 ≈ 60 Tick（假设 60fps，后续迁移时使用确定性时间）
-                        state.CustomInt = Mathf.Max(1, Mathf.RoundToInt(delaySec * 60f));
-                    }
-                    else
-                    {
-                        state.CustomInt = 60; // 默认 1 秒
-                    }
+                    float delaySec = frame.GetProperty(idx, ActionPortIds.FlowDelay.Duration, 1f);
+                    // 简单映射：1 秒 ≈ 60 Tick（假设 60fps，后续迁移时使用确定性时间）
+                    state.CustomInt = delaySec > 0f
+                        ? Mathf.Max(1, Mathf.RoundToInt(delaySec * 60f))
+                        : 60; // 无配置时默认 1 秒
                     Debug.Log($"[FlowSystem] Flow.Delay (index={idx}) 开始等待 {state.CustomInt} Ticks");
                 }
 

@@ -11,6 +11,8 @@ namespace NodeGraph.Unity.Persistence
     {
         public string id = "";
         public string name = "";
+        /// <summary>稳定语义 ID（v2 写入）。空时以 name 作为 fallback。</summary>
+        public string semanticId = "";
         public int direction;       // PortDirection 枚举值
         public int kind;            // PortKind 枚举值
         public string dataType = "";

@@ -7,7 +7,7 @@ namespace NodeGraph.Commands
     /// <summary>
     /// 修改连线业务数据命令。
     /// </summary>
-    public class ChangeEdgeDataCommand : ICommand
+    public class ChangeEdgeDataCommand : IStructuralCommand
     {
         private readonly string _edgeId;
         private readonly IEdgeData? _newData;

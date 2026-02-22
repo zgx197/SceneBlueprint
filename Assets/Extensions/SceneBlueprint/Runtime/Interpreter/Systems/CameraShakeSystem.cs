@@ -45,22 +45,11 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.IsFirstEntry = false;
 
-                    var durationStr = frame.GetProperty(idx, ActionPortIds.VFXCameraShake.Duration);
-                    var intensityStr = frame.GetProperty(idx, ActionPortIds.VFXCameraShake.Intensity);
-                    var frequencyStr = frame.GetProperty(idx, ActionPortIds.VFXCameraShake.Frequency);
+                    float durationSec = frame.GetProperty(idx, ActionPortIds.VFXCameraShake.Duration,  0.5f);
+                    float intensity   = frame.GetProperty(idx, ActionPortIds.VFXCameraShake.Intensity,  1f);
+                    float frequency   = frame.GetProperty(idx, ActionPortIds.VFXCameraShake.Frequency, 20f);
 
-                    float durationSec = 0.5f;
-                    float.TryParse(durationStr, System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out durationSec);
                     if (durationSec <= 0f) durationSec = 0.5f;
-
-                    float intensity = 1f;
-                    float.TryParse(intensityStr, System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out intensity);
-
-                    float frequency = 20f;
-                    float.TryParse(frequencyStr, System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out frequency);
 
                     // 1 秒 ≈ 60 Tick（与 FlowSystem.Flow.Delay 保持一致的换算规则）
                     state.CustomInt = Mathf.Max(1, Mathf.RoundToInt(durationSec * 60f));

@@ -38,10 +38,11 @@ namespace SceneBlueprint.Editor
             else
             {
                 // 检测 GraphJson 是否变化，需要重新解析
-                if (_summaryDirty || _cachedGraphJson != asset.GraphJson)
+                string graphJson = asset.GraphData?.text ?? "";
+                if (_summaryDirty || _cachedGraphJson != graphJson)
                 {
-                    ParseSummary(asset.GraphJson);
-                    _cachedGraphJson = asset.GraphJson;
+                    ParseSummary(graphJson);
+                    _cachedGraphJson = graphJson;
                     _summaryDirty = false;
                 }
 
@@ -63,7 +64,7 @@ namespace SceneBlueprint.Editor
                 EditorGUILayout.Space(4);
 
                 // 显示 JSON 数据大小
-                int jsonSize = System.Text.Encoding.UTF8.GetByteCount(asset.GraphJson);
+                int jsonSize = System.Text.Encoding.UTF8.GetByteCount(asset.GraphData?.text ?? "");
                 string sizeText = jsonSize < 1024
                     ? $"{jsonSize} B"
                     : $"{jsonSize / 1024f:F1} KB";

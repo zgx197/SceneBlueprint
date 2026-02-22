@@ -42,7 +42,7 @@ namespace NodeGraph.View
         }
 
         /// <summary>根据搜索文本过滤可用节点类型</summary>
-        public IEnumerable<NodeTypeDefinition> GetFilteredTypes(NodeTypeRegistry registry)
+        public IEnumerable<NodeTypeDefinition> GetFilteredTypes(INodeTypeCatalog registry)
         {
             var all = registry.GetAll();
 
@@ -57,7 +57,7 @@ namespace NodeGraph.View
         }
 
         /// <summary>按分类分组</summary>
-        public IEnumerable<(string Category, IEnumerable<NodeTypeDefinition> Types)> GetGroupedTypes(NodeTypeRegistry registry)
+        public IEnumerable<(string Category, IEnumerable<NodeTypeDefinition> Types)> GetGroupedTypes(INodeTypeCatalog registry)
         {
             return GetFilteredTypes(registry)
                 .GroupBy(def => def.Category ?? "未分类")

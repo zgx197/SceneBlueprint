@@ -6,7 +6,7 @@ namespace NodeGraph.Commands
     /// <summary>
     /// 连线命令。连接两个端口。
     /// </summary>
-    public class ConnectCommand : ICommand
+    public class ConnectCommand : IStructuralCommand
     {
         private readonly string _sourcePortId;
         private readonly string _targetPortId;

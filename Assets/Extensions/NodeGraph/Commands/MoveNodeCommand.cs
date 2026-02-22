@@ -8,7 +8,7 @@ namespace NodeGraph.Commands
     /// <summary>
     /// 移动节点命令。支持同时移动多个节点（批量拖拽）。
     /// </summary>
-    public class MoveNodeCommand : ICommand
+    public class MoveNodeCommand : IStyleCommand
     {
         private readonly List<(string nodeId, Vec2 oldPos, Vec2 newPos)> _moves;
 

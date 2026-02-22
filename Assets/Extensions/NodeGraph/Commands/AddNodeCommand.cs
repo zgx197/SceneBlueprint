@@ -7,7 +7,7 @@ namespace NodeGraph.Commands
     /// <summary>
     /// 添加节点命令。
     /// </summary>
-    public class AddNodeCommand : ICommand
+    public class AddNodeCommand : IStructuralCommand
     {
         private readonly string _typeId;
         private readonly Vec2 _position;

@@ -41,8 +41,8 @@ namespace NodeGraph.View
         /// <summary>默认布局方向</summary>
         public LayoutDirection DefaultLayoutDirection { get; set; } = LayoutDirection.LeftToRight;
 
-        /// <summary>节点类型注册表</summary>
-        public NodeTypeRegistry NodeTypes { get; set; } = new NodeTypeRegistry();
+        /// <summary>节点类型目录</summary>
+        public INodeTypeCatalog NodeTypes { get; set; } = new NodeTypeRegistry();
 
         /// <summary>节点内容渲染器（TypeId → Renderer）</summary>
         public Dictionary<string, INodeContentRenderer> ContentRenderers { get; } = new Dictionary<string, INodeContentRenderer>();
@@ -58,5 +58,22 @@ namespace NodeGraph.View
 
         /// <summary>检查功能是否启用</summary>
         public bool HasFeature(BlueprintFeatureFlags flag) => (Features & flag) != 0;
+
+        /// <summary>
+        /// 将 Profile 的渲染相关字段组装成 <see cref="GraphRenderConfig"/>。
+        /// 调用方无需了解 Profile 内部字段结构，始终通过此方法获取渲染配置。
+        /// </summary>
+        public GraphRenderConfig BuildRenderConfig()
+        {
+            var config = new GraphRenderConfig
+            {
+                FrameBuilder      = FrameBuilder,
+                Theme             = Theme,
+                EdgeLabelRenderer = EdgeLabelRenderer
+            };
+            foreach (var kvp in ContentRenderers)
+                config.ContentRenderers[kvp.Key] = kvp.Value;
+            return config;
+        }
     }
 }

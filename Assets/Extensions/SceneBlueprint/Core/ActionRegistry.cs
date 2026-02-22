@@ -197,46 +197,45 @@ namespace SceneBlueprint.Core
 
                 // 安全获取类型列表（某些程序集可能无法完全加载）
                 Type[] types;
+                try { types = assembly.GetTypes(); }
+                catch (ReflectionTypeLoadException ex)
+                { types = ex.Types.Where(t => t != null).ToArray()!; }
+
+                AutoDiscoverFromTypes(types);
+            }
+        }
+
+        /// <summary>
+        /// 从预先提供的类型集合中自动发现并注册 <see cref="IActionDefinitionProvider"/>。
+        /// <para>
+        /// 在 Unity Editor 中推荐改由调用方传入
+        /// <c>TypeCache.GetTypesDerivedFrom&lt;IActionDefinitionProvider&gt;()</c>
+        /// 以替代全反射扫描，性能提升 10–100 倍。
+        /// </para>
+        /// <para>此方法是幂等的——已注册的 TypeId 会被跳过。</para>
+        /// </summary>
+        public void AutoDiscover(IEnumerable<Type> types)
+            => AutoDiscoverFromTypes(types);
+
+        private void AutoDiscoverFromTypes(IEnumerable<Type> types)
+        {
+            foreach (var type in types)
+            {
+                if (type == null || type.IsAbstract || type.IsInterface) continue;
+                if (!typeof(IActionDefinitionProvider).IsAssignableFrom(type)) continue;
+
+                var attr = type.GetCustomAttribute<ActionTypeAttribute>();
+                if (attr == null) continue;
+                if (_definitions.ContainsKey(attr.TypeId)) continue;
+
                 try
                 {
-                    types = assembly.GetTypes();
+                    var provider = (IActionDefinitionProvider)Activator.CreateInstance(type)!;
+                    Register(provider.Define());
                 }
-                catch (ReflectionTypeLoadException ex)
+                catch (Exception ex)
                 {
-                    // 部分类型加载失败时，只处理成功加载的类型
-                    types = ex.Types.Where(t => t != null).ToArray()!;
-                }
-
-                foreach (var type in types)
-                {
-                    // 跳过抽象类、接口、null
-                    if (type == null || type.IsAbstract || type.IsInterface)
-                        continue;
-
-                    // 必须实现 IActionDefinitionProvider
-                    if (!providerType.IsAssignableFrom(type))
-                        continue;
-
-                    // 必须标注 [ActionType]
-                    var attr = type.GetCustomAttribute<ActionTypeAttribute>();
-                    if (attr == null)
-                        continue;
-
-                    // 幂等性保证：已注册的跳过
-                    if (_definitions.ContainsKey(attr.TypeId))
-                        continue;
-
-                    try
-                    {
-                        // 实例化 Provider 并注册其定义
-                        var provider = (IActionDefinitionProvider)Activator.CreateInstance(type)!;
-                        Register(provider.Define());
-                    }
-                    catch (Exception ex)
-                    {
-                        // 静默跳过，避免单个 Provider 的错误导致整个发现流程失败
-                        System.Diagnostics.Debug.WriteLine($"AutoDiscover 跳过 {type.Name}: {ex.Message}");
-                    }
+                    System.Diagnostics.Debug.WriteLine($"AutoDiscover 跳过 {type.Name}: {ex.Message}");
                 }
             }
         }

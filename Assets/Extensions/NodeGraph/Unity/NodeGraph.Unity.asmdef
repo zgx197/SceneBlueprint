@@ -6,6 +6,7 @@
         "NodeGraph.Core",
         "NodeGraph.Commands",
         "NodeGraph.Abstraction",
+        "NodeGraph.Serialization",
         "NodeGraph.View"
     ],
     "includePlatforms": [

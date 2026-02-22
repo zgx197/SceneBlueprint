@@ -36,12 +36,12 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         private static void ProcessSet(BlueprintFrame frame, int actionIndex, ref ActionRuntimeState state)
         {
-            var varIdxStr = frame.GetProperty(actionIndex, ActionPortIds.BlackboardSet.VariableIndex);
-            var valueStr  = frame.GetProperty(actionIndex, ActionPortIds.BlackboardSet.Value);
+            int varIdx   = frame.GetProperty(actionIndex, ActionPortIds.BlackboardSet.VariableIndex, -1);
+            string valueStr = frame.GetProperty(actionIndex, ActionPortIds.BlackboardSet.Value, "");
 
-            if (!int.TryParse(varIdxStr, out int varIdx) || varIdx < 0)
+            if (varIdx < 0)
             {
-                Debug.LogWarning($"[BlackboardSetSystem] Blackboard.Set (index={actionIndex}) variableIndex 未配置（値={varIdxStr}），跳过");
+                Debug.LogWarning($"[BlackboardSetSystem] Blackboard.Set (index={actionIndex}) variableIndex 未配置，跳过");
                 state.Phase = ActionPhase.Completed;
                 return;
             }

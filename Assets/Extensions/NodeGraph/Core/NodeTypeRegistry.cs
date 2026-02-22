@@ -8,7 +8,7 @@ namespace NodeGraph.Core
     /// <summary>
     /// 节点类型注册表。管理所有已注册的节点类型定义。
     /// </summary>
-    public class NodeTypeRegistry
+    public class NodeTypeRegistry : INodeTypeCatalog
     {
         private readonly Dictionary<string, NodeTypeDefinition> _definitions = new Dictionary<string, NodeTypeDefinition>();
 
@@ -32,7 +32,7 @@ namespace NodeGraph.Core
         }
 
         /// <summary>根据 TypeId 获取定义</summary>
-        public NodeTypeDefinition? GetDefinition(string typeId)
+        public NodeTypeDefinition? GetNodeType(string typeId)
         {
             if (typeId == null) return null;
             _definitions.TryGetValue(typeId, out var def);
@@ -40,6 +40,9 @@ namespace NodeGraph.Core
         }
 
         /// <summary>获取所有已注册的节点类型</summary>
+        /// <summary>向后兼容别名</summary>
+        public NodeTypeDefinition? GetDefinition(string typeId) => GetNodeType(typeId);
+
         public IEnumerable<NodeTypeDefinition> GetAll() => _definitions.Values;
 
         /// <summary>按关键字搜索节点类型（匹配 TypeId、DisplayName 或 Category）</summary>

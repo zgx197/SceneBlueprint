@@ -5,6 +5,7 @@ using NodeGraph.Math;
 using NodeGraph.View;
 using SceneBlueprint.Core;
 using SceneBlueprint.Editor;
+using SceneBlueprint.Editor.Session;
 using SceneBlueprint.Editor.Analysis;
 using SceneBlueprint.Editor.Logging;
 using SceneBlueprint.Editor.Markers;
@@ -22,14 +23,15 @@ namespace SceneBlueprint.Editor.WindowServices
     /// - 执行标记绑定一致性验证（RunBindingValidation）
     /// </para>
     /// </summary>
-    public class BlueprintAnalysisController : IDisposable
+    public class BlueprintAnalysisController : IDisposable, ISessionService
     {
         // ── 常量 ──
         private const double DebounceSeconds = 0.6;
 
         // ── 依赖 ──
-        private readonly IBlueprintEditorContext        _ctx;
-        private readonly Func<BlueprintProfile?>        _getProfile;
+        private readonly IBlueprintReadContext   _read;
+        private readonly IBlueprintUIContext     _ui;
+        private readonly Func<BlueprintProfile?> _getProfile;
 
         // ── 状态 ──
         private double _debounceUntil;
@@ -47,10 +49,12 @@ namespace SceneBlueprint.Editor.WindowServices
         /// 获取 BlueprintProfile 的委托（Profile 在 InitializeWithGraph 后才存在，需延迟求值）
         /// </param>
         public BlueprintAnalysisController(
-            IBlueprintEditorContext  ctx,
-            Func<BlueprintProfile?>  getProfile)
+            IBlueprintReadContext  read,
+            IBlueprintUIContext    ui,
+            Func<BlueprintProfile?> getProfile)
         {
-            _ctx        = ctx;
+            _read       = read;
+            _ui         = ui;
             _getProfile = getProfile;
         }
 
@@ -91,15 +95,17 @@ namespace SceneBlueprint.Editor.WindowServices
         /// </summary>
         public ValidationReport RunBindingValidation()
         {
-            var vm = _ctx.ViewModel;
+            var vm = _read.ViewModel;
             if (vm == null) return new ValidationReport();
 
-            var report = MarkerBindingValidator.Validate(vm.Graph, _ctx.GetActionRegistry());
+            var report = MarkerBindingValidator.Validate(vm.Graph, _read.ActionRegistry);
             MarkerBindingValidator.LogReport(report);
             return report;
         }
 
         // ── IDisposable ──
+
+        void ISessionService.OnSessionDisposed() => Dispose();
 
         /// <summary>反注册 EditorApplication.update，防止窗口关闭后野指针回调</summary>
         public void Dispose()
@@ -125,20 +131,20 @@ namespace SceneBlueprint.Editor.WindowServices
         /// <summary>执行分析、更新 LastReport、应用节点覆盖色、触发重绘</summary>
         private AnalysisReport RunAnalysis()
         {
-            var vm      = _ctx.ViewModel;
+            var vm      = _read.ViewModel;
             var profile = _getProfile();
 
             if (vm == null || profile == null)
             {
                 LastReport = AnalysisReport.Empty;
                 ApplyOverlayColors(LastReport);
-                _ctx.RequestRepaint();
+                _ui.RequestRepaint();
                 return LastReport;
             }
 
             var analyzer = SceneBlueprintProfile.CreateAnalyzer(
-                new ActionRegistryTypeProvider(profile.NodeTypes),
-                _ctx.GetActionRegistry());
+                profile.NodeTypes,
+                _read.ActionRegistry);
 
             LastReport = analyzer.Analyze(vm.Graph);
 
@@ -153,14 +159,14 @@ namespace SceneBlueprint.Editor.WindowServices
             }
 
             ApplyOverlayColors(LastReport);
-            _ctx.RequestRepaint();
+            _ui.RequestRepaint();
             return LastReport;
         }
 
         /// <summary>将分析报告映射为节点覆盖颜色写入 ViewModel（Error=红，Warning=黄，无问题=清空）</summary>
         private void ApplyOverlayColors(AnalysisReport report)
         {
-            var vm = _ctx.ViewModel;
+            var vm = _read.ViewModel;
             if (vm == null) return;
 
             if (report.Diagnostics.Count == 0)

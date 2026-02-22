@@ -359,8 +359,8 @@ namespace SceneBlueprint.Editor.Markers.Renderers
             if (!MarkerLayerSystem.IsPreviewVisible())
                 return;
 
-            // 获取当前 Blueprint 的所有预览
-            var previews = BlueprintPreviewManager.Instance.GetCurrentBlueprintPreviews();
+            // 聚合所有已注册 PreviewManager 的预览（支持多窗口，A3）
+            var previews = BlueprintPreviewManager.GetAllRegisteredPreviews();
             int previewCount = previews.Count();
             SBLog.Debug(
                 SBLogTags.Pipeline,

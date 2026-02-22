@@ -17,5 +17,14 @@ namespace NodeGraph.Commands
 
         /// <summary>撤销命令</summary>
         void Undo(Graph graph);
+
+        /// <summary>
+        /// 尝试与撤销栈顶的 <paramref name="previous"/> 命令合并。
+        /// <para>
+        /// 合并成功时 <paramref name="previous"/> 的状态已被修改（纳入了本命令的增量），
+        /// 调用方丢弃 <c>this</c> 不入栈。默认返回 <c>false</c>（不合并）。
+        /// </para>
+        /// </summary>
+        bool TryMergeWith(ICommand previous) => false;
     }
 }

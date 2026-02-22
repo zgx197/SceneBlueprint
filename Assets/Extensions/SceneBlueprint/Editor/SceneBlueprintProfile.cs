@@ -24,25 +24,18 @@ namespace SceneBlueprint.Editor
         /// 创建 SceneBlueprint 专用的 BlueprintProfile。
         /// </summary>
         /// <param name="textMeasurer">文字测量器（由引擎层提供）</param>
-        /// <param name="nodeTypeRegistry">
-        /// 节点类型注册表（通常传入 GraphSettings.NodeTypes，
-        /// 确保 Graph 和 Profile 共享同一份注册表）
-        /// </param>
-        /// <returns>配置完成的 BlueprintProfile 以及构建期间创建的 ActionRegistry（供调用方复用，避免二次构造）</returns>
-        public static (BlueprintProfile Profile, ActionRegistry ActionRegistry) Create(ITextMeasurer textMeasurer, NodeTypeRegistry nodeTypeRegistry)
+        /// <returns>
+        /// Profile、ActionRegistry（供调用方复用）、
+        /// ActionRegistryNodeTypeCatalog（同时作为 GraphSettings.NodeTypes 注入 Graph）
+        /// </returns>
+        public static (BlueprintProfile Profile, ActionRegistry ActionRegistry, ActionRegistryNodeTypeCatalog Catalog)
+            Create(ITextMeasurer textMeasurer)
         {
-            // 1. 创建并填充 ActionRegistry（自动发现所有 [ActionType] 标注的 Provider）
-            var actionRegistry = new ActionRegistry();
-            actionRegistry.AutoDiscover();
+            // 1. 创建并填充 ActionRegistry
+            var actionRegistry = BuildRegistry();
 
-            // 1b. 从 ActionTemplateSO 加载策划配置的模板（补充，不覆盖 C#）
-            RegisterTemplates(actionRegistry);
-
-            // 1c. ThemeColor 继承：Action 未指定主题色时从 CategorySO 继承
-            ApplyCategoryThemeColors(actionRegistry);
-
-            // 2. 将所有 ActionDefinition 桥接注册到传入的 NodeTypeRegistry
-            ActionNodeTypeAdapter.RegisterAll(actionRegistry, nodeTypeRegistry);
+            // 2. P1-B: 直接用 ActionRegistryNodeTypeCatalog 适配，不再走 NodeTypeRegistry + Adapter
+            var catalog = new ActionRegistryNodeTypeCatalog(actionRegistry);
 
             // 3. 创建通用内容渲染器
             var contentRenderer = new ActionContentRenderer(actionRegistry);
@@ -54,17 +47,14 @@ namespace SceneBlueprint.Editor
                 FrameBuilder = new DefaultFrameBuilder(textMeasurer),
                 Theme = NodeVisualTheme.Dark,
                 Topology = GraphTopologyPolicy.DAG,
-                NodeTypes = nodeTypeRegistry,
+                NodeTypes = catalog,
                 Features = BlueprintFeatureFlags.MiniMap | BlueprintFeatureFlags.Search
             };
 
-            // 5. 为每种注册的 Action 类型绑定同一个 ContentRenderer
             foreach (var actionDef in actionRegistry.GetAll())
-            {
                 profile.ContentRenderers[actionDef.TypeId] = contentRenderer;
-            }
 
-            return (profile, actionRegistry);
+            return (profile, actionRegistry, catalog);
         }
 
         /// <summary>
@@ -86,11 +76,14 @@ namespace SceneBlueprint.Editor
         /// 获取 ActionRegistry 实例（用于外部查询已注册的 Action 类型）。
         /// 每次调用都会重新发现，适合在编辑器初始化时使用。
         /// </summary>
-        public static ActionRegistry CreateActionRegistry()
+        public static ActionRegistry CreateActionRegistry() => BuildRegistry();
+
+        private static ActionRegistry BuildRegistry()
         {
             var registry = new ActionRegistry();
-            registry.AutoDiscover();
+            registry.AutoDiscover(UnityEditor.TypeCache.GetTypesDerivedFrom<Core.IActionDefinitionProvider>());
             RegisterTemplates(registry);
+            ApplyCategoryThemeColors(registry);
             return registry;
         }
 
@@ -167,6 +160,18 @@ namespace SceneBlueprint.Editor
                     $"ThemeColor 继承：{inherited} 个 Action 从 CategorySO 继承了主题色");
             }
         }
+
+        /// <summary>
+        /// SceneBlueprint 子蓝图的默认边界端口：Input 激活 / Output 完成。
+        /// <para>
+        /// 收拢端口语义定义，避免在 Session 或窗口层硬编码端口名称和方向。
+        /// </para>
+        /// </summary>
+        public static NodeGraph.Core.PortDefinition[] DefaultSubGraphBoundaryPorts { get; } =
+        {
+            new NodeGraph.Core.PortDefinition("激活", NodeGraph.Core.PortDirection.Input,  NodeGraph.Core.PortKind.Control, "exec", NodeGraph.Core.PortCapacity.Single, 0),
+            new NodeGraph.Core.PortDefinition("完成", NodeGraph.Core.PortDirection.Output, NodeGraph.Core.PortKind.Control, "exec", NodeGraph.Core.PortCapacity.Single, 0),
+        };
 
         /// <summary>判断 Color4 是否为默认灰色 (0.5, 0.5, 0.5, 1.0)</summary>
         private static bool IsDefaultGray(Color4 c)

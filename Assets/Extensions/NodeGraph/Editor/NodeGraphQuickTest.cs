@@ -30,7 +30,8 @@ public static class NodeGraphQuickTest
         var graph = new Graph(settings);
         Debug.Assert(graph.Nodes.Count == 0, "初始节点数应为0");
 
-        var registry = settings.NodeTypes;
+        var registry = new NodeTypeRegistry();
+        settings.NodeTypes = registry;
         registry.Register(new NodeTypeDefinition("Test", "测试节点", "测试",
             new[] {
                 new PortDefinition("In", PortDirection.Input),
@@ -214,9 +215,11 @@ public static class NodeGraphQuickTest
         Debug.Assert(defaultBuilder is BaseFrameBuilder, "DefaultFrameBuilder 应继承 BaseFrameBuilder");
 
         // 创建 ViewModel 用于 BuildFrame
-        var vm = new GraphViewModel(graph);
-        vm.FrameBuilder = defaultBuilder;
-        vm.Theme = theme;
+        var vm = new GraphViewModel(graph, new NodeGraph.View.GraphRenderConfig
+        {
+            FrameBuilder = defaultBuilder,
+            Theme        = theme
+        });
         var viewport = new Rect2(0, 0, 800, 600);
         var frame = vm.BuildFrame(viewport);
         Debug.Assert(frame != null, "BuildFrame 不应为 null");
@@ -238,9 +241,11 @@ public static class NodeGraphQuickTest
 
         // 8.2 BehaviorTreeFrameBuilder 垂直布局测试
         var btBuilder = new BehaviorTreeFrameBuilder(measurer);
-        var btVm = new GraphViewModel(graph);
-        btVm.FrameBuilder = btBuilder;
-        btVm.Theme = theme;
+        var btVm = new GraphViewModel(graph, new NodeGraph.View.GraphRenderConfig
+        {
+            FrameBuilder = btBuilder,
+            Theme        = theme
+        });
         var btFrame = btVm.BuildFrame(viewport);
         Debug.Assert(btFrame != null, "BT BuildFrame 不应为 null");
         Debug.Assert(btFrame.Nodes.Count == 2, "BT 应有2个节点帧");
@@ -271,9 +276,11 @@ public static class NodeGraphQuickTest
 
         // 8.3 StateMachineFrameBuilder 测试
         var smBuilder = new StateMachineFrameBuilder(measurer);
-        var smVm = new GraphViewModel(graph);
-        smVm.FrameBuilder = smBuilder;
-        smVm.Theme = theme;
+        var smVm = new GraphViewModel(graph, new NodeGraph.View.GraphRenderConfig
+        {
+            FrameBuilder = smBuilder,
+            Theme        = theme
+        });
         var smFrame = smVm.BuildFrame(viewport);
         Debug.Assert(smFrame != null, "SM BuildFrame 不应为 null");
 

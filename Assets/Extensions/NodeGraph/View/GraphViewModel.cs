@@ -59,14 +59,8 @@ namespace NodeGraph.View
         /// <summary>是否需要重绘（由交互处理器设置）</summary>
         public bool NeedsRepaint { get; private set; }
 
-        /// <summary>节点内容渲染器注册表（TypeId → Renderer）</summary>
-        public Dictionary<string, INodeContentRenderer> ContentRenderers { get; } = new Dictionary<string, INodeContentRenderer>();
-
-        /// <summary>连线标签渲染器（可为 null）</summary>
-        public IEdgeLabelRenderer? EdgeLabelRenderer { get; set; }
-
-        /// <summary>视觉主题</summary>
-        public NodeVisualTheme Theme { get; set; } = NodeVisualTheme.Dark;
+        /// <summary>渲染配置（帧构建器、主题、标签渲染器、内容渲染器）</summary>
+        public GraphRenderConfig RenderConfig { get; }
 
         /// <summary>当前悬停的端口 ID（用于渲染高亮效果，每帧更新）</summary>
         public string? HoveredPortId { get; set; }
@@ -77,8 +71,28 @@ namespace NodeGraph.View
         /// <summary>当前悬停的槽位索引（Multiple 端口用，-1 表示非 Multiple 或无悬停）</summary>
         public int HoveredPortSlotIndex { get; set; } = -1;
 
-        /// <summary>渲染帧构建器（由 BlueprintProfile 提供，或手动设置）</summary>
-        public IGraphFrameBuilder FrameBuilder { get; set; } = null!;
+        /// <summary>
+        /// 节点类型目录（由宿主在创建 Profile 后注入）。
+        /// View 层通过 <see cref="GetNodeRenderInfo"/> 读取，不直接访问 Graph.Settings.NodeTypes。
+        /// </summary>
+        public INodeTypeCatalog? NodeTypeCatalog
+        {
+            get => _nodeTypeCatalog;
+            set { _nodeTypeCatalog = value; _renderInfoCache.Clear(); }
+        }
+        private INodeTypeCatalog? _nodeTypeCatalog;
+        private readonly Dictionary<string, NodeRenderInfo> _renderInfoCache = new();
+
+        /// <summary>获取节点渲染信息（带缓存）。无类型定义时返回默认值。</summary>
+        public NodeRenderInfo GetNodeRenderInfo(string typeId)
+        {
+            if (_renderInfoCache.TryGetValue(typeId, out var cached)) return cached;
+            var info = _nodeTypeCatalog != null
+                ? NodeRenderInfo.FromDefinition(_nodeTypeCatalog.GetNodeType(typeId), typeId)
+                : new NodeRenderInfo(typeId, new Color4(0.35f, 0.35f, 0.35f, 1f));
+            _renderInfoCache[typeId] = info;
+            return info;
+        }
 
         // ── 上下文菜单事件（宿主窗口订阅，框架层 Handler 触发）──
 
@@ -104,9 +118,10 @@ namespace NodeGraph.View
         //  构造
         // ══════════════════════════════════════
 
-        public GraphViewModel(Graph graph)
+        public GraphViewModel(Graph graph, GraphRenderConfig? renderConfig = null)
         {
             Graph = graph ?? throw new ArgumentNullException(nameof(graph));
+            RenderConfig = renderConfig ?? new GraphRenderConfig();
             Selection = new SelectionManager();
             Commands = new CommandHistory(graph);
             KeyBindings = new KeyBindingManager();
@@ -208,7 +223,7 @@ namespace NodeGraph.View
         public void PreUpdateNodeSizes()
         {
             foreach (var node in Graph.Nodes)
-                node.Size = FrameBuilder.ComputeNodeSize(node, this);
+                node.Size = RenderConfig.FrameBuilder.ComputeNodeSize(node, this);
         }
 
         /// <summary>更新状态（动画等，每帧由引擎宿主调用）</summary>
@@ -228,7 +243,7 @@ namespace NodeGraph.View
             // 确保处理器的重绘请求能存活到窗口代码检查
 
             // 委托给 FrameBuilder 构建核心内容
-            var frame = FrameBuilder.BuildFrame(this, viewport);
+            var frame = RenderConfig.FrameBuilder.BuildFrame(this, viewport);
 
             // 收集交互覆盖层
             foreach (var handler in _handlers)
@@ -382,7 +397,7 @@ namespace NodeGraph.View
         private List<Vec2> GetMultiplePortSlotPositions(Port port, Node node)
         {
             var bounds = node.GetBounds();
-            var t = Theme;
+            var theme  = RenderConfig.Theme;
 
             // 计算当前端口之前的累积槽位偏移
             float slotOffsetBefore = 0f;
@@ -390,7 +405,7 @@ namespace NodeGraph.View
             foreach (var p in node.Ports)
             {
                 if (p.Direction != port.Direction) continue;
-                int slots = FrameBuilder.GetPortSlotCount(p, this);
+                int slots = RenderConfig.FrameBuilder.GetPortSlotCount(p, this);
                 if (p.Id == port.Id)
                 {
                     totalSlots = slots;
@@ -399,13 +414,11 @@ namespace NodeGraph.View
                 slotOffsetBefore += slots;
             }
 
-            float circleSpacing = t.PortSpacing;
             var positions = new List<Vec2>(totalSlots);
             for (int i = 0; i < totalSlots; i++)
             {
-                float y = bounds.Y + t.TitleBarHeight + circleSpacing * (slotOffsetBefore + i + 0.5f);
-                // 端口圆心向内缩进 PortInset，与 DefaultFrameBuilder.GetPortPosition 一致
-                positions.Add(new Vec2(bounds.X + t.PortInset, y));
+                float y = bounds.Y + theme.TitleBarHeight + theme.PortSpacing * (slotOffsetBefore + i + 0.5f);
+                positions.Add(new Vec2(bounds.X + theme.PortInset, y));
             }
             return positions;
         }
@@ -429,8 +442,8 @@ namespace NodeGraph.View
 
                 Vec2 start = GetPortPosition(sourcePort);
                 // Multiple Input 端口：使用每条边各自的槽位位置
-                Vec2 end = FrameBuilder.GetEdgeTargetPosition(edge, targetPort, targetNode,
-                    targetNode.GetBounds(), Theme, this);
+                Vec2 end = RenderConfig.FrameBuilder.GetEdgeTargetPosition(edge, targetPort, targetNode,
+                    targetNode.GetBounds(), RenderConfig.Theme, this);
                 var (tA, tB) = BezierMath.ComputePortTangents(start, end, true);
 
                 float dist = BezierMath.DistanceToPoint(
@@ -499,14 +512,14 @@ namespace NodeGraph.View
                     return GetBoundaryPortEdgePosition(port, node, frame);
             }
 
-            return FrameBuilder.GetPortPosition(port, node, node.GetBounds(), Theme, this);
+            return RenderConfig.FrameBuilder.GetPortPosition(port, node, node.GetBounds(), RenderConfig.Theme, this);
         }
 
         /// <summary>计算边界端口在框边缘的位置（与 BaseFrameBuilder 一致）</summary>
         private Vec2 GetBoundaryPortEdgePosition(Port port, Node repNode, SubGraphFrame frame)
         {
             float titleBarHeight = 24f;
-            float portSpacing = Theme.PortSpacing;
+            float portSpacing = RenderConfig.Theme.PortSpacing;
 
             // 计算该端口在同方向端口中的索引
             int index = 0;
@@ -518,7 +531,7 @@ namespace NodeGraph.View
 
             float offset = titleBarHeight + portSpacing * (index + 0.5f);
             return port.Direction == PortDirection.Input
-                ? new Vec2(frame.Bounds.X, frame.Bounds.Y + offset)
+                ? new Vec2(frame.Bounds.X,    frame.Bounds.Y + offset)
                 : new Vec2(frame.Bounds.Right, frame.Bounds.Y + offset);
         }
 
