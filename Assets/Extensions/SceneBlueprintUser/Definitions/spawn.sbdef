@@ -1,13 +1,27 @@
 // 游戏特定 Spawn 类 Action 定义
-// 由 SbdefCodegen 自动生成 Core/Generated/AT.Spawn.g.cs
+// 由 SbdefCodegen 生成到 Generated/UAT.Spawn.g.cs / UActionPortIds.Spawn.g.cs / ActionDefs.Spawn.g.cs
 
 action Spawn.Preset {
-    port string SpawnArea
+    displayName "预设刷怪"
+    category    "Spawn"
+    description "在预设位置生成怪物（绑定 PointMarker）"
+    themeColor  0.2 0.7 0.3
+    duration    instant
+
+    port string SpawnArea  label "刷怪区域"
 }
 
 action Spawn.Wave {
-    port string SpawnArea
-    port string Waves
-    port int    WaveIndex
-    port int    TotalWaves
+    displayName "波次刷怪"
+    category    "Spawn"
+    description "在区域内按波次随机生成怪物"
+    themeColor  0.2 0.7 0.3
+    duration    duration
+
+    port string SpawnArea  label "刷怪区域"
+    port string Waves      label "波次配置"
+    port int    WaveIndex  label "当前波次"
+    port int    TotalWaves label "总波次"
+
+    flow OnWaveStart label "波次开始"
 }

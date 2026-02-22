@@ -2,7 +2,6 @@
 using UnityEngine;
 using SceneBlueprint.Core;
 using SceneBlueprintUser.Generated;
-using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -45,15 +44,15 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.IsFirstEntry = false;
 
-                    string text      = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Text,     "");
-                    float durationSec = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Duration, 2f);
-                    string style      = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.Style,    "");
-                    int fontSizeInt   = frame.GetProperty(idx, ActionPortIds.VFXShowWarning.FontSize,  0);
+                    string text      = frame.GetProperty(idx, UActionPortIds.VFXShowWarning.Text,     "");
+                    float durationSec = frame.GetProperty(idx, UActionPortIds.VFXShowWarning.Duration, 2f);
+                    string style      = frame.GetProperty(idx, UActionPortIds.VFXShowWarning.Style,    "");
+                    float fontSize    = frame.GetProperty(idx, UActionPortIds.VFXShowWarning.FontSize, 48f);
 
                     if (string.IsNullOrEmpty(text))  text  = "警告！";
                     if (string.IsNullOrEmpty(style)) style = "Warning";
                     if (durationSec <= 0f) durationSec = 2f;
-                    float fontSize = fontSizeInt > 0 ? (float)fontSizeInt : 48f;
+                    if (fontSize <= 0f)   fontSize = 48f;
 
                     // 1 秒 ≈ 60 Tick
                     state.CustomInt = Mathf.Max(1, Mathf.RoundToInt(durationSec * 60f));

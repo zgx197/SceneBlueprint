@@ -2,7 +2,6 @@
 using UnityEngine;
 using SceneBlueprint.Core;
 using SceneBlueprintUser.Generated;
-using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -74,7 +73,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
             var bindings = frame.GetSceneBindings(actionIndex);
             for (int i = 0; i < bindings.Length; i++)
             {
-                if (bindings[i].BindingKey.Contains(ActionPortIds.TriggerEnterArea.TriggerArea))
+                if (bindings[i].BindingKey.Contains(UActionPortIds.TriggerEnterArea.TriggerArea))
                 {
                     var playerPos = PlayerPosition.GetPosition();
                     // 简单的 AABB 检测（后续可替换为多边形检测）

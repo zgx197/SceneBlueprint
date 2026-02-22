@@ -1,21 +1,37 @@
 // 游戏特定 VFX 类 Action 定义
-// 由 SbdefCodegen 自动生成 Core/Generated/AT.Vfx.g.cs
+// 由 SbdefCodegen 生成到 Generated/UAT.Vfx.g.cs / UActionPortIds.Vfx.g.cs / ActionDefs.Vfx.g.cs
 
 action VFX.CameraShake {
-    port float Duration  = 0.5
-    port float Intensity = 1.0
-    port float Frequency = 20.0
+    displayName "摄像机震动"
+    category    "VFX"
+    description "产生屏幕震动效果"
+    themeColor  0.8 0.4 0.9
+    duration    duration
+
+    port float Duration  = 0.5   label "时长(秒)"  min 0.1  max 5.0
+    port float Intensity = 1.0   label "强度"      min 0.1  max 10.0
+    port float Frequency = 20.0  label "频率"      min 1.0  max 100.0
 }
 
 action VFX.ScreenFlash {
-    port float  Duration  = 0.3
-    port float  Intensity = 1.0
-    port string FlashColor
+    displayName "屏幕闪光"
+    category    "VFX"
+    duration    instant
+
+    port float  Duration  = 0.3  label "时长(秒)"  min 0.05 max 2.0
+    port float  Intensity = 1.0  label "强度"      min 0.0  max 1.0
+    port string FlashColor       label "颜色"
 }
 
 action VFX.ShowWarning {
-    port string Text
-    port float  Duration = 3.0
-    port string Style    = "default"
-    port int    FontSize = 24
+    displayName "屏幕警告"
+    category    "VFX"
+    description "在屏幕中央显示警告文字"
+    themeColor  0.9 0.3 0.3
+    duration    duration
+
+    port string Text     = "警告！" label "显示文字"
+    port float  Duration = 2.0      label "时长(秒)"  min 0.5  max 10.0
+    port string Style    = "Warning" label "样式"
+    port float  FontSize = 48.0     label "字号"      min 16.0 max 128.0
 }

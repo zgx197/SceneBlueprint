@@ -3,7 +3,6 @@ using System;
 using UnityEngine;
 using SceneBlueprint.Core;
 using SceneBlueprintUser.Generated;
-using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -46,9 +45,9 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
                 {
                     state.IsFirstEntry = false;
 
-                    float durationSec = frame.GetProperty(idx, ActionPortIds.VFXCameraShake.Duration,  0.5f);
-                    float intensity   = frame.GetProperty(idx, ActionPortIds.VFXCameraShake.Intensity,  1f);
-                    float frequency   = frame.GetProperty(idx, ActionPortIds.VFXCameraShake.Frequency, 20f);
+                    float durationSec = frame.GetProperty(idx, UActionPortIds.VFXCameraShake.Duration,  0.5f);
+                    float intensity   = frame.GetProperty(idx, UActionPortIds.VFXCameraShake.Intensity,  1f);
+                    float frequency   = frame.GetProperty(idx, UActionPortIds.VFXCameraShake.Frequency, 20f);
 
                     if (durationSec <= 0f) durationSec = 0.5f;
 

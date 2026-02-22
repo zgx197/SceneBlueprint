@@ -1,12 +1,14 @@
 {
-  "name": "SceneBlueprintUser.Generated",
-  "rootNamespace": "SceneBlueprintUser.Generated",
+  "name": "SceneBlueprintUser.Generated.Editor",
+  "rootNamespace": "SceneBlueprintUser.Generated.Editor",
   "references": [
-    "SceneBlueprint.Core",
+    "SceneBlueprint.Editor",
     "SceneBlueprint.Runtime",
-    "com.zgx197.nodegraph.math"
+    "SceneBlueprintUser.Generated"
   ],
-  "includePlatforms": [],
+  "includePlatforms": [
+    "Editor"
+  ],
   "excludePlatforms": [],
   "allowUnsafeCode": false,
   "overrideReferences": false,
