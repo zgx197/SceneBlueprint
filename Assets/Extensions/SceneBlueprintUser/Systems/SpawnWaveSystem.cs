@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using SceneBlueprint.Contract;
 using UnityEngine;
 using SceneBlueprint.Core;
+using SceneBlueprintUser.Generated;
 using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
@@ -45,7 +46,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices(AT.Spawn.Wave);
+            var indices = frame.GetActionIndices(UAT.Spawn.Wave);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];

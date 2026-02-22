@@ -1,0 +1,13 @@
+// 游戏特定 Spawn 类 Action 定义
+// 由 SbdefCodegen 自动生成 Core/Generated/AT.Spawn.g.cs
+
+action Spawn.Preset {
+    port string SpawnArea
+}
+
+action Spawn.Wave {
+    port string SpawnArea
+    port string Waves
+    port int    WaveIndex
+    port int    TotalWaves
+}

@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprintUser.Generated;
 using SceneBlueprint.Core.Generated;
 using SceneBlueprint.Contract;
 
@@ -21,12 +22,12 @@ namespace SceneBlueprint.Actions.Trigger
     /// </code>
     /// </para>
     /// </summary>
-    [ActionType(AT.Trigger.EnterArea)]
+    [ActionType(UAT.Trigger.EnterArea)]
     public class TriggerEnterAreaDef : IActionDefinitionProvider
     {
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId = AT.Trigger.EnterArea,
+            TypeId = UAT.Trigger.EnterArea,
             DisplayName = "进入区域",
             Category = "Trigger",
             Description = "等待玩家进入指定区域后继续",

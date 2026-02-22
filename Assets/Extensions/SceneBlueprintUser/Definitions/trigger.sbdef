@@ -1,0 +1,7 @@
+// 游戏特定 Trigger 类 Action 定义
+// 由 SbdefCodegen 自动生成 Core/Generated/AT.Trigger.g.cs
+
+action Trigger.EnterArea {
+    port string TriggerArea
+    port bool   RequireFullyInside = false
+}

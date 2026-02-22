@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprintUser.Generated;
 using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Actions.VFX
@@ -12,12 +13,12 @@ namespace SceneBlueprint.Actions.VFX
     /// 通过 Flow.Filter 控制触发时机，文字内容由策划在属性中配置。
     /// </para>
     /// </summary>
-    [ActionType(AT.Vfx.ShowWarning)]
+    [ActionType(UAT.Vfx.ShowWarning)]
     public class ShowWarningDef : IActionDefinitionProvider
     {
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId = AT.Vfx.ShowWarning,
+            TypeId = UAT.Vfx.ShowWarning,
             DisplayName = "屏幕警告",
             Category = "VFX",
             Description = "在屏幕中央显示警告文字",

@@ -2,6 +2,7 @@
 using System;
 using UnityEngine;
 using SceneBlueprint.Core;
+using SceneBlueprintUser.Generated;
 using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
@@ -31,7 +32,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices(AT.Vfx.CameraShake);
+            var indices = frame.GetActionIndices(UAT.Vfx.CameraShake);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];

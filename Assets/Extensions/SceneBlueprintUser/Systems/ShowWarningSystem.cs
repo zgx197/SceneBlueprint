@@ -1,6 +1,7 @@
 #nullable enable
 using UnityEngine;
 using SceneBlueprint.Core;
+using SceneBlueprintUser.Generated;
 using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
@@ -30,7 +31,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices(AT.Vfx.ShowWarning);
+            var indices = frame.GetActionIndices(UAT.Vfx.ShowWarning);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];

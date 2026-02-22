@@ -2,6 +2,7 @@
 using SceneBlueprint.Contract;
 using UnityEngine;
 using SceneBlueprint.Core;
+using SceneBlueprintUser.Generated;
 
 namespace SceneBlueprint.Runtime.Interpreter.Systems
 {
@@ -29,7 +30,7 @@ namespace SceneBlueprint.Runtime.Interpreter.Systems
 
         public override void Update(BlueprintFrame frame)
         {
-            var indices = frame.GetActionIndices(AT.Spawn.Preset);
+            var indices = frame.GetActionIndices(UAT.Spawn.Preset);
             for (int i = 0; i < indices.Count; i++)
             {
                 var idx = indices[i];

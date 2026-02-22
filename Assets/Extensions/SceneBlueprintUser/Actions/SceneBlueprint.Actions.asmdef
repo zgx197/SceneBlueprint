@@ -4,6 +4,7 @@
     "references": [
         "SceneBlueprint.Core",
         "SceneBlueprint.Contract",
+        "SceneBlueprintUser.Generated",
         "com.zgx197.nodegraph.core",
         "com.zgx197.nodegraph.math"
     ],

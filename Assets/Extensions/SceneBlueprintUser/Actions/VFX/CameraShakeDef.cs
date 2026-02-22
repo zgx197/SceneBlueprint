@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprintUser.Generated;
 using SceneBlueprint.Core.Generated;
 
 namespace SceneBlueprint.Actions.VFX
@@ -11,12 +12,12 @@ namespace SceneBlueprint.Actions.VFX
     /// 职责：视觉表现，通常用于Boss登场、爆炸等场景。
     /// </para>
     /// </summary>
-    [ActionType(AT.Vfx.CameraShake)]
+    [ActionType(UAT.Vfx.CameraShake)]
     public class CameraShakeDef : IActionDefinitionProvider
     {
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId = AT.Vfx.CameraShake,
+            TypeId = UAT.Vfx.CameraShake,
             DisplayName = "摄像机震动",
             Category = "VFX",
             Description = "产生屏幕震动效果",

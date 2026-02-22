@@ -4,7 +4,8 @@
     "references": [
         "SceneBlueprint.Contract",
         "SceneBlueprint.Core",
-        "SceneBlueprint.Runtime"
+        "SceneBlueprint.Runtime",
+        "SceneBlueprintUser.Generated"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

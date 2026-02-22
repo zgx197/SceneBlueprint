@@ -1,0 +1,14 @@
+{
+  "name": "SceneBlueprintUser.Generated",
+  "rootNamespace": "SceneBlueprintUser.Generated",
+  "references": [],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": true
+}

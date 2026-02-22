@@ -1,6 +1,7 @@
 #nullable enable
 using NodeGraph.Math;
 using SceneBlueprint.Core;
+using SceneBlueprintUser.Generated;
 using SceneBlueprint.Core.Generated;
 using SceneBlueprint.Contract;
 
@@ -28,12 +29,12 @@ namespace SceneBlueprint.Actions.Spawn
     /// - onWaveStart：每波开始生成前触发（不阻塞刷怪），可连接事件节点（屏幕震动等）
     /// </para>
     /// </summary>
-    [ActionType(AT.Spawn.Wave)]
+    [ActionType(UAT.Spawn.Wave)]
     public class SpawnWaveActionDef : IActionDefinitionProvider
     {
         public ActionDefinition Define() => new ActionDefinition
         {
-            TypeId = AT.Spawn.Wave,
+            TypeId = UAT.Spawn.Wave,
             DisplayName = "波次刷怪",
             Category = "Spawn",
             Description = "在区域内按波次随机生成怪物（绑定带 WaveSpawnConfig 的 AreaMarker）",
