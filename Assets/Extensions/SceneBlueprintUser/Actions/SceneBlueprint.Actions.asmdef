@@ -1,0 +1,19 @@
+{
+    "name": "SceneBlueprint.Actions",
+    "rootNamespace": "SceneBlueprint.Actions",
+    "references": [
+        "SceneBlueprint.Core",
+        "SceneBlueprint.Contract",
+        "com.zgx197.nodegraph.core",
+        "com.zgx197.nodegraph.math"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

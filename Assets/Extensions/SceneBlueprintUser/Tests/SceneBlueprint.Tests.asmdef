@@ -1,0 +1,27 @@
+{
+    "name": "SceneBlueprint.Tests",
+    "rootNamespace": "SceneBlueprint.Tests",
+    "references": [
+        "SceneBlueprint.Core",
+        "SceneBlueprint.Contract",
+        "SceneBlueprint.Actions",
+        "SceneBlueprint.Runtime",
+        "com.zgx197.nodegraph.core",
+        "com.zgx197.nodegraph.math"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,18 @@
+﻿{
+    "name": "SceneBlueprintUser.Systems",
+    "rootNamespace": "SceneBlueprint.Runtime.Interpreter.Systems",
+    "references": [
+        "SceneBlueprint.Contract",
+        "SceneBlueprint.Core",
+        "SceneBlueprint.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

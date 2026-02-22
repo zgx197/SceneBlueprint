@@ -1,0 +1,21 @@
+﻿{
+    "name": "SceneBlueprintUser.RuntimeTest",
+    "rootNamespace": "SceneBlueprint.Runtime.Test",
+    "references": [
+        "SceneBlueprint.Contract",
+        "SceneBlueprint.Core",
+        "SceneBlueprint.Runtime",
+        "SceneBlueprintUser.Systems"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
