@@ -1,0 +1,16 @@
+:root {
+  color-scheme: dark;
+  --sb-bg: #0d1117;
+  --sb-surface: rgba(20, 28, 39, 0.9);
+  --sb-surface-2: rgba(13, 19, 28, 0.9);
+  --sb-border: rgba(158, 185, 211, 0.16);
+  --sb-text: #edf2f7;
+  --sb-text-dim: #9cb0c3;
+  --sb-accent: #ff9e59;
+  --sb-accent-2: #65d6ff;
+  --sb-radius-xl: 24px;
+  --sb-radius-lg: 18px;
+  --sb-radius-md: 14px;
+  --sb-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+  font-family: "Segoe UI Variable", "Aptos", sans-serif;
+}

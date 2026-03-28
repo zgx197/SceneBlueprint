@@ -1,33 +1,51 @@
 # SceneBlueprint
 
-SceneBlueprint 是一个引擎无关的场景蓝图编辑与运行框架，采用外部编辑器优先的架构，面向 Unity、Godot 等多引擎集成。
+SceneBlueprint 是一个面向游戏开发的引擎无关外部场景蓝图编辑器，目标是成为 Unity、Godot 等多引擎共享的 Authoring Source、导出链与运行时契约上游。
 
-当前仓库处于重构起点阶段，重点是重新建立清晰的设计边界、实现节奏和后续项目骨架。
+当前仓库已经完成第一阶段 Tauri 桌面盒子搭建，具备基础桌面宿主、前端工作台骨架与最小前后端通信能力。后续迭代将在这个盒子里继续填充 Authoring、Toolchain、Runtime Contract 与多引擎 Integration。
 
-## 项目方向
+## 项目定位
 
-- 外部编辑器优先，而不是以任一引擎内置编辑器为中心
-- Authoring、Export、Runtime Contract、Engine Integration 明确分层
-- TypeScript、Rust、C# 按模块职责分工
-- 通过最小可运行闭环快速迭代，并同步补充自测与性能基线
+- 外部编辑器优先，不把任一引擎插件作为主工作流入口
+- Authoring Source、Runtime Contract、Engine Integration 分层演进
+- `TypeScript + React` 负责 Authoring/UI，`Rust + Tauri` 负责桌面宿主与基础设施，`C#` 负责 Toolchain / Runtime / Integration
+- 先建立可运行闭环，再持续补充自测、性能观测和多引擎适配
 
-## 当前文档
+## 当前阶段
+
+- 第一阶段目标是先搭出 Tauri 桌面盒子，而不是一次性实现完整编辑器
+- 当前已具备 Web 工作台骨架、Rust 宿主工程、基础命令通路与桌面窗口启动链路
+- 当前目录结构以可扩展为目标，后续会随着 Authoring、Contract、Toolchain 的稳定程度继续演进
+
+## 仓库文档
 
 - [架构设计文档](./SceneBlueprint-%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3.md)
 - [实现与迭代文档](./SceneBlueprint-%E5%AE%9E%E7%8E%B0%E4%B8%8E%E8%BF%AD%E4%BB%A3%E6%96%87%E6%A1%A3.md)
 
-## 当前状态
+## 本地运行
 
-- 仓库已完成历史 Unity package 内容清理
-- 已建立新的设计文档与实现迭代文档基线
-- 下一阶段将优先搭建可视化界面、最小数据闭环、自测与性能观测
+1. 安装 Node.js、Rust、Visual Studio C++ Build Tools 与 WebView2 Runtime
+2. 在仓库根目录执行 `npm install`
+3. 执行 `npm run dev`
 
-## 仓库约定
+如果只需要验证前端工作台，可执行 `npm run dev:web`。
 
-- 优先保持目录清晰、职责单一
-- 先验证边界与闭环，再逐步补全功能
-- 架构文档与实现文档分离维护
+## 当前仓库结构
+
+- `src/`：前端工作台与 Authoring 壳层
+- `src-tauri/`：Tauri/Rust 桌面宿主
+- `schemas/`：Schema 与后续契约定义位置
+- `examples/`：样例工程与验证数据
+- `toolchain/`：后续 C# 工具链入口
+- `integrations/`：后续 Unity / Godot 等引擎集成
+- `docs/`：补充设计、记录与后续专题文档
+
+## 开发约定
+
+- 先稳定边界，再补复杂功能
+- 架构文档描述长期设计边界，实现文档描述当前阶段落地顺序
+- 尽量让文件格式、样例与自动化验证先于宿主细节固化
 
 ## License
 
-本项目使用 [MIT License](./LICENSE)。
+本项目使用 [Apache License 2.0](./LICENSE)。
