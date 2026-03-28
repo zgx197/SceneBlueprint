@@ -4,6 +4,7 @@
 
 当前建议从以下入口开始：
 
+- [项目主页（GitHub Pages）](https://zgx197.github.io/SceneBlueprint/)
 - [项目首页 README](../../README.md)
 
 后续可在本目录逐步补充：
