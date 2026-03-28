@@ -50,5 +50,4 @@ temp/
 !.gitignore
 !LICENSE
 !README.md
-!SceneBlueprint-架构设计文档.md
-!SceneBlueprint-实现与迭代文档.md
+!docs/
