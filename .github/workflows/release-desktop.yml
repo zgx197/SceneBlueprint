@@ -1,6 +1,9 @@
 name: Desktop Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
@@ -22,7 +25,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: desktop-release
+  group: desktop-release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -37,13 +40,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Resolve release metadata
         id: release_meta
         shell: pwsh
         run: |
+          $eventName = "${{ github.event_name }}"
+          $refName = "${{ github.ref_name }}"
           $manualVersion = "${{ inputs.version }}".Trim()
           if ($manualVersion.StartsWith("v")) {
             $manualVersion = $manualVersion.Substring(1)
@@ -75,7 +80,15 @@ jobs:
             throw "Could not read version from src-tauri/Cargo.toml."
           }
 
-          if ([string]::IsNullOrWhiteSpace($manualVersion)) {
+          if ($eventName -eq 'push') {
+            $version = $refName
+            if ($version.StartsWith('v')) {
+              $version = $version.Substring(1)
+            }
+            $versionSource = 'tag'
+            $releaseDraft = 'false'
+            $prerelease = if ($version.Contains('-')) { 'true' } else { 'false' }
+          } elseif ([string]::IsNullOrWhiteSpace($manualVersion)) {
             $version = $packageVersion
 
             if ($packageVersion -ne $tauriVersion -or $packageVersion -ne $cargoVersion) {
@@ -83,25 +96,28 @@ jobs:
             }
 
             $versionSource = 'repository'
+            $releaseDraft = if ("${{ inputs.publish_release }}" -eq 'true') { 'false' } else { 'true' }
+            $prerelease = if ("${{ inputs.prerelease }}" -eq 'true') { 'true' } else { 'false' }
           } else {
             $version = $manualVersion
             $versionSource = 'manual-input'
+            $releaseDraft = if ("${{ inputs.publish_release }}" -eq 'true') { 'false' } else { 'true' }
+            $prerelease = if ("${{ inputs.prerelease }}" -eq 'true') { 'true' } else { 'false' }
           }
 
           if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
             throw "Invalid version '$version'. Expected semver like 0.1.0 or 0.1.0-beta.1."
           }
 
-          $releaseDraft = if ("${{ inputs.publish_release }}" -eq "true") { "false" } else { "true" }
-
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT
           "release_name=SceneBlueprint v$version" >> $env:GITHUB_OUTPUT
           "release_draft=$releaseDraft" >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
           "version_source=$versionSource" >> $env:GITHUB_OUTPUT
 
       - name: Sync version files for this build
-        if: ${{ steps.release_meta.outputs.version_source == 'manual-input' }}
+        if: ${{ steps.release_meta.outputs.version_source != 'repository' }}
         shell: pwsh
         run: |
           $version = "${{ steps.release_meta.outputs.version }}"
@@ -149,13 +165,13 @@ jobs:
       - name: Write release summary
         shell: pwsh
         run: |
-          $publishMode = if ("${{ inputs.publish_release }}" -eq "true") { "formal" } else { "draft" }
+          $publishMode = if ("${{ steps.release_meta.outputs.release_draft }}" -eq 'true') { 'draft' } else { 'formal' }
           @"
           ## Desktop Release
           - Version: `${{ steps.release_meta.outputs.version }}`
           - Tag: `${{ steps.release_meta.outputs.tag }}`
           - Publish mode: $publishMode
-          - Prerelease: `${{ inputs.prerelease }}`
+          - Prerelease: `${{ steps.release_meta.outputs.prerelease }}`
           - Version source: `${{ steps.release_meta.outputs.version_source }}`
           "@ >> $env:GITHUB_STEP_SUMMARY
 
@@ -182,12 +198,12 @@ jobs:
           releaseBody: |
             SceneBlueprint Windows desktop build.
 
-            - Triggered by: workflow_dispatch
+            - Triggered by: ${{ github.event_name }}
             - Platform: windows-latest
             - Source commit: ${{ github.sha }}
             - Version source: ${{ steps.release_meta.outputs.version_source }}
           releaseDraft: ${{ steps.release_meta.outputs.release_draft }}
-          prerelease: ${{ inputs.prerelease }}
+          prerelease: ${{ steps.release_meta.outputs.prerelease }}
           generateReleaseNotes: true
 
       - name: Upload workflow artifact
