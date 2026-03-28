@@ -237,14 +237,14 @@ jobs:
           New-Item -ItemType Directory -Force -Path $portableRoot | Out-Null
           Copy-Item $exeSource $exeTarget -Force
 
-          @"
-SceneBlueprint Portable
-
-- 运行方式：双击 SceneBlueprint.exe
-- 当前版本：$version
-- 说明：这是免安装绿色版，适合快速验证与测试。
-- 注意：如果 Windows 提示安全警告，请根据本机策略选择继续运行。
-"@ | Set-Content -LiteralPath $readmePath -Encoding UTF8
+          @(
+            'SceneBlueprint Portable',
+            '',
+            '- 运行方式：双击 SceneBlueprint.exe',
+            "- 当前版本：$version",
+            '- 说明：这是免安装绿色版，适合快速验证与测试。',
+            '- 注意：如果 Windows 提示安全警告，请根据本机策略选择继续运行。'
+          ) | Set-Content -LiteralPath $readmePath -Encoding UTF8
 
           if (Test-Path $zipPath) {
             Remove-Item -LiteralPath $zipPath -Force
