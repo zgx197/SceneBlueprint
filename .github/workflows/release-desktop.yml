@@ -112,12 +112,15 @@ jobs:
             throw "Invalid version '$version'. Expected semver like 0.1.0 or 0.1.0-beta.1."
           }
 
+          $includeMsi = if ($version.Contains('-')) { 'false' } else { 'true' }
+
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=v$version" >> $env:GITHUB_OUTPUT
           "release_name=SceneBlueprint v$version" >> $env:GITHUB_OUTPUT
           "release_draft=$releaseDraft" >> $env:GITHUB_OUTPUT
           "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
           "version_source=$versionSource" >> $env:GITHUB_OUTPUT
+          "include_msi=$includeMsi" >> $env:GITHUB_OUTPUT
           "portable_asset_name=SceneBlueprint_${version}_x64_portable.zip" >> $env:GITHUB_OUTPUT
 
       - name: Sync version files for this build
@@ -135,6 +138,7 @@ jobs:
           $tauriPath = 'src-tauri/tauri.conf.json'
           $tauri = Get-Content $tauriPath -Raw | ConvertFrom-Json
           $tauri.version = $version
+          $tauri.bundle.targets = if ("${{ steps.release_meta.outputs.include_msi }}" -eq 'true') { @('msi', 'nsis') } else { @('nsis') }
           $tauriJson = $tauri | ConvertTo-Json -Depth 100
           [System.IO.File]::WriteAllText((Resolve-Path $tauriPath), $tauriJson + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 
@@ -170,6 +174,7 @@ jobs:
         shell: pwsh
         run: |
           $publishMode = if ("${{ steps.release_meta.outputs.release_draft }}" -eq 'true') { 'draft' } else { 'formal' }
+          $bundleMode = if ("${{ steps.release_meta.outputs.include_msi }}" -eq 'true') { 'nsis + msi + portable' } else { 'nsis + portable' }
           @"
           ## Desktop Release
           - Version: `${{ steps.release_meta.outputs.version }}`
@@ -177,8 +182,40 @@ jobs:
           - Publish mode: $publishMode
           - Prerelease: `${{ steps.release_meta.outputs.prerelease }}`
           - Version source: `${{ steps.release_meta.outputs.version_source }}`
+          - Bundle mode: $bundleMode
           - Portable asset: `${{ steps.release_meta.outputs.portable_asset_name }}`
           "@ >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Compose release notes
+        id: release_notes
+        shell: pwsh
+        run: |
+          $version = "${{ steps.release_meta.outputs.version }}"
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $lines.Add("SceneBlueprint v$version 发布说明")
+          $lines.Add("")
+          $lines.Add("## 下载文件说明")
+          $lines.Add("- `SceneBlueprint_${version}_x64-setup.exe`：Windows NSIS 安装版，适合大多数 Windows 用户直接安装使用。")
+          if ("${{ steps.release_meta.outputs.include_msi }}" -eq 'true') {
+            $lines.Add("- `SceneBlueprint_${version}_x64_en-US.msi`：Windows MSI 安装包，适合企业环境、静默安装或统一部署。")
+          } else {
+            $lines.Add("- 当前版本为预发布语义化版本，MSI 安装包因 Windows Installer 版本号限制而跳过，仅提供 NSIS 安装版与绿色版。")
+          }
+          $lines.Add("- `${{ steps.release_meta.outputs.portable_asset_name }}`：Windows 免安装绿色版压缩包，解压后可直接运行，适合快速测试。")
+          $lines.Add("")
+          $lines.Add("## 构建信息")
+          $lines.Add("- 触发方式：${{ github.event_name }}")
+          $lines.Add("- 构建平台：windows-latest")
+          $lines.Add("- 对应提交：${{ github.sha }}")
+          $lines.Add("- 版本来源：${{ steps.release_meta.outputs.version_source }}")
+          $lines.Add("")
+          $lines.Add("更多背景说明可查看：")
+          $lines.Add("- 仓库首页：https://github.com/zgx197/SceneBlueprint")
+          $lines.Add("- 发布文档：https://zgx197.github.io/SceneBlueprint/")
+
+          "body<<EOF" >> $env:GITHUB_OUTPUT
+          $lines | ForEach-Object { $_ >> $env:GITHUB_OUTPUT }
+          "EOF" >> $env:GITHUB_OUTPUT
 
       - name: Install frontend dependencies
         run: npm ci
@@ -200,23 +237,7 @@ jobs:
           projectPath: ./
           tagName: ${{ steps.release_meta.outputs.tag }}
           releaseName: ${{ steps.release_meta.outputs.release_name }}
-          releaseBody: |
-            SceneBlueprint v${{ steps.release_meta.outputs.version }} 发布说明
-
-            ## 下载文件说明
-            - `SceneBlueprint_${{ steps.release_meta.outputs.version }}_x64-setup.exe`：Windows NSIS 安装版，适合大多数 Windows 用户直接安装使用。
-            - `SceneBlueprint_${{ steps.release_meta.outputs.version }}_x64_en-US.msi`：Windows MSI 安装包，适合企业环境、静默安装或统一部署。
-            - `${{ steps.release_meta.outputs.portable_asset_name }}`：Windows 免安装绿色版压缩包，解压后可直接运行，适合快速测试。
-
-            ## 构建信息
-            - 触发方式：${{ github.event_name }}
-            - 构建平台：windows-latest
-            - 对应提交：${{ github.sha }}
-            - 版本来源：${{ steps.release_meta.outputs.version_source }}
-
-            更多背景说明可查看：
-            - 仓库首页：https://github.com/zgx197/SceneBlueprint
-            - 发布文档：https://zgx197.github.io/SceneBlueprint/
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: ${{ steps.release_meta.outputs.release_draft }}
           prerelease: ${{ steps.release_meta.outputs.prerelease }}
           generateReleaseNotes: false
