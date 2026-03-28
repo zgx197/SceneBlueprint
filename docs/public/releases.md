@@ -9,8 +9,14 @@ SceneBlueprint 当前通过 GitHub Releases 提供公开下载入口。
 ## 自动发布方式
 
 - 推送符合 `v*` 规则的 Git tag 后，会自动触发桌面发布流程
-- Release 会自动生成说明内容，并附加对应构建产物
+- Release 说明会自动使用中文生成，并附带下载文件说明
 - 当前正式发布以 Windows 桌面安装包为主
+
+## 当前文件说明
+
+- `SceneBlueprint_<版本号>_x64-setup.exe`：Windows NSIS 安装版
+- `SceneBlueprint_<版本号>_x64_en-US.msi`：Windows MSI 安装包
+- 当前暂不提供免安装绿色版
 
 ## 当前交付形式
 
