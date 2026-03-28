@@ -261,31 +261,6 @@ SceneBlueprint Portable
         run: |
           gh release upload "${{ steps.release_meta.outputs.tag }}" "${{ steps.portable.outputs.zip_path }}" --clobber
 
-      - name: Overwrite release notes in Chinese
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $notes = @"
-SceneBlueprint v${{ steps.release_meta.outputs.version }} 发布说明
-
-## 下载文件说明
-- `SceneBlueprint_${{ steps.release_meta.outputs.version }}_x64-setup.exe`：Windows NSIS 安装版，适合大多数 Windows 用户直接安装使用。
-- `SceneBlueprint_${{ steps.release_meta.outputs.version }}_x64_en-US.msi`：Windows MSI 安装包，适合企业环境、静默安装或统一部署。
-- `${{ steps.release_meta.outputs.portable_asset_name }}`：Windows 免安装绿色版压缩包，解压后可直接运行，适合快速测试。
-
-## 构建信息
-- 触发方式：${{ github.event_name }}
-- 构建平台：windows-latest
-- 对应提交：${{ github.sha }}
-- 版本来源：${{ steps.release_meta.outputs.version_source }}
-
-更多背景说明可查看：
-- 仓库首页：https://github.com/zgx197/SceneBlueprint
-- 发布文档：https://zgx197.github.io/SceneBlueprint/
-"@
-          $notes | gh release edit "${{ steps.release_meta.outputs.tag }}" --title "${{ steps.release_meta.outputs.release_name }}" --notes-file -
-
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v6
         with:
