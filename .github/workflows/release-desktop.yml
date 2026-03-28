@@ -1,0 +1,69 @@
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_draft:
+        description: 'Whether to create/update the GitHub release as a draft'
+        required: true
+        default: true
+        type: boolean
+      prerelease:
+        description: 'Whether to mark the GitHub release as a prerelease'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  release-windows:
+    name: Build Windows Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+
+      - name: Build and upload desktop bundles
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ./
+          tagName: v__VERSION__
+          releaseName: SceneBlueprint v__VERSION__
+          releaseBody: |
+            SceneBlueprint MVP Windows desktop build.
+
+            - Triggered by: workflow_dispatch
+            - Platform: windows-latest
+            - Source commit: ${{ github.sha }}
+          releaseDraft: ${{ inputs.release_draft }}
+          prerelease: ${{ inputs.prerelease }}
+          generateReleaseNotes: true
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: windows-[arch]-[bundle]
