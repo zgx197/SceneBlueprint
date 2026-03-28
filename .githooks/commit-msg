@@ -1,0 +1,17 @@
+#!/bin/sh
+
+MSG_FILE="$1"
+FIRST_LINE="$(sed -n '1p' "$MSG_FILE")"
+
+if [ -z "$FIRST_LINE" ]; then
+  echo "提交失败：commit message 不能为空。"
+  exit 1
+fi
+
+if ! printf '%s' "$FIRST_LINE" | grep -q '[一-龥]'; then
+  echo "提交失败：commit message 需使用中文描述。"
+  echo "示例：重置仓库并建立重构文档基线"
+  exit 1
+fi
+
+exit 0

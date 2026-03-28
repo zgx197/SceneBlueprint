@@ -1,0 +1,48 @@
+name: Commit Policy
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit author and message
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          else
+            BEFORE="${{ github.event.before }}"
+            AFTER="${{ github.sha }}"
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              RANGE="$AFTER"
+            else
+              RANGE="$BEFORE..$AFTER"
+            fi
+          fi
+
+          echo "检查提交范围: $RANGE"
+
+          git log --format='%H%x09%an%x09%s' $RANGE | while IFS=$'\t' read -r SHA AUTHOR SUBJECT; do
+            [ -z "$SHA" ] && continue
+
+            if [ "$AUTHOR" != "zgx" ]; then
+              echo "提交校验失败: $SHA 的 author 为 '$AUTHOR'，要求为 'zgx'。"
+              exit 1
+            fi
+
+            if ! printf '%s' "$SUBJECT" | grep -q '[一-龥]'; then
+              echo "提交校验失败: $SHA 的 commit message 需使用中文。"
+              echo "当前内容: $SUBJECT"
+              exit 1
+            fi
+          done
