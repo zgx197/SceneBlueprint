@@ -2,15 +2,17 @@
 
 MSG_FILE="$1"
 FIRST_LINE="$(sed -n '1p' "$MSG_FILE")"
+PATTERN='^(feat|fix|docs|chore|refactor|test|build|ci|perf|style|revert)(\([^)]+\))?: .*[一-龥]'
 
 if [ -z "$FIRST_LINE" ]; then
   echo "提交失败：commit message 不能为空。"
   exit 1
 fi
 
-if ! printf '%s' "$FIRST_LINE" | grep -q '[一-龥]'; then
-  echo "提交失败：commit message 需使用中文描述。"
-  echo "示例：重置仓库并建立重构文档基线"
+if ! printf '%s' "$FIRST_LINE" | grep -Eq "$PATTERN"; then
+  echo "提交失败：commit message 需使用约定前缀，并使用中文描述。"
+  echo "示例：feat(editor-shell): 搭建 Tauri 桌面宿主骨架"
+  echo "示例：docs(readme): 调整 README 对外说明结构"
   exit 1
 fi
 

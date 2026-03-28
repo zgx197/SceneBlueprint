@@ -18,6 +18,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          PATTERN='^(feat|fix|docs|chore|refactor|test|build|ci|perf|style|revert)(\([^)]+\))?: .*[一-龥]'
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             RANGE="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
           else
@@ -35,14 +37,15 @@ jobs:
           git log --format='%H%x09%an%x09%s' $RANGE | while IFS=$'\t' read -r SHA AUTHOR SUBJECT; do
             [ -z "$SHA" ] && continue
 
-            if [ "$AUTHOR" != "zgx" ]; then
-              echo "提交校验失败: $SHA 的 author 为 '$AUTHOR'，要求为 'zgx'。"
+            if [ "$AUTHOR" != "zgx197" ]; then
+              echo "提交校验失败: $SHA 的 author 为 '$AUTHOR'，要求为 'zgx197'。"
               exit 1
             fi
 
-            if ! printf '%s' "$SUBJECT" | grep -q '[一-龥]'; then
-              echo "提交校验失败: $SHA 的 commit message 需使用中文。"
+            if ! printf '%s' "$SUBJECT" | grep -Eq "$PATTERN"; then
+              echo "提交校验失败: $SHA 的 commit message 需使用约定前缀，并包含中文描述。"
               echo "当前内容: $SUBJECT"
+              echo "示例: feat(editor-shell): 搭建 Tauri 桌面宿主骨架"
               exit 1
             fi
           done
