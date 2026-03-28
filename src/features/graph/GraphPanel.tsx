@@ -3,12 +3,12 @@ import { Panel } from "../../shared/components/Panel";
 export function GraphPanel() {
   return (
     <Panel
-      title="Graph 区域"
-      description="第一阶段先建立工作台主区域占位，后续在这里逐步填入节点图能力。"
+      title="Graph Workspace"
+      description="主 Authoring 画布区域，后续承接节点图、选择态、命令系统与编辑交互。"
     >
       <div className="sb-placeholder">
-        <p>当前阶段：Tauri 盒子骨架</p>
-        <p>后续阶段：Node Graph / Selection / Command / Undo</p>
+        <p>当前阶段：先明确正式编辑器主画布位置。</p>
+        <p>后续这里会承接 Node Graph、Selection、Command、Undo/Redo。</p>
       </div>
     </Panel>
   );

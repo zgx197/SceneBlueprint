@@ -67,11 +67,11 @@ button {
 
 .sb-workbench {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  grid-template-rows: minmax(380px, 1fr) 220px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr) 340px;
+  grid-template-rows: minmax(420px, 1fr) 240px;
   grid-template-areas:
-    "graph inspector"
-    "timeline log";
+    "graph scene inspector"
+    "bottom bottom inspector";
   gap: 1rem;
   margin-top: 1rem;
   min-height: calc(100vh - 130px);
@@ -81,16 +81,16 @@ button {
   grid-area: graph;
 }
 
+.sb-area-scene {
+  grid-area: scene;
+}
+
 .sb-area-inspector {
   grid-area: inspector;
 }
 
-.sb-area-timeline {
-  grid-area: timeline;
-}
-
-.sb-area-log {
-  grid-area: log;
+.sb-area-bottom {
+  grid-area: bottom;
 }
 
 .sb-panel {
@@ -152,16 +152,31 @@ button {
   margin: 0;
 }
 
+.sb-bottom-panels {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr);
+  gap: 1rem;
+  min-height: 0;
+  height: 100%;
+}
+
+.sb-bottom-panel-column {
+  min-height: 0;
+}
+
 @media (max-width: 1100px) {
   .sb-workbench {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) 320px;
     grid-template-rows: auto;
     grid-template-areas:
-      "graph"
-      "inspector"
-      "timeline"
-      "log";
+      "graph inspector"
+      "scene inspector"
+      "bottom bottom";
     min-height: auto;
+  }
+
+  .sb-bottom-panels {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -173,5 +188,14 @@ button {
 
   .sb-toolbar-status {
     justify-content: flex-start;
+  }
+
+  .sb-workbench {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "graph"
+      "scene"
+      "inspector"
+      "bottom";
   }
 }

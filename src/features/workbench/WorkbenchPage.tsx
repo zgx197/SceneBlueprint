@@ -3,15 +3,15 @@ import { WorkbenchLayout } from "../../app/layout/WorkbenchLayout";
 import { pingHost, readAppInfo } from "../../host/api/commands";
 import type { AppInfo, PingResult } from "../../host/types/host";
 import { GraphPanel } from "../graph/GraphPanel";
+import { SceneViewportPanel } from "../scene/SceneViewportPanel";
 import { InspectorPanel } from "../inspector/InspectorPanel";
-import { TimelinePanel } from "../timeline/TimelinePanel";
-import { LogPanel } from "../log/LogPanel";
+import { BottomPanels } from "../bottom-panels/BottomPanels";
 
 export function WorkbenchPage() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
   const [logs, setLogs] = useState<string[]>([
-    "SceneBlueprint 第一阶段目标：先把 Tauri 盒子搭起来。"
+    "SceneBlueprint 第二阶段目标：先把正式工作台区域骨架搭起来。"
   ]);
 
   useEffect(() => {
@@ -44,9 +44,9 @@ export function WorkbenchPage() {
         </div>
       }
       graph={<GraphPanel />}
+      scene={<SceneViewportPanel />}
       inspector={<InspectorPanel appInfo={appInfo} pingResult={pingResult} />}
-      timeline={<TimelinePanel />}
-      log={<LogPanel logs={logs} />}
+      bottomPanels={<BottomPanels logs={logs} />}
     />
   );
 }

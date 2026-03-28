@@ -7,8 +7,8 @@ interface LogPanelProps {
 export function LogPanel({ logs }: LogPanelProps) {
   return (
     <Panel
-      title="日志与验证"
-      description="记录当前阶段宿主启动、命令调用和结构验证结果。"
+      title="Log / Output"
+      description="承接宿主状态、问题输出、验证日志与后续调试信息。"
     >
       <div className="sb-log-list">
         {logs.map((log) => (

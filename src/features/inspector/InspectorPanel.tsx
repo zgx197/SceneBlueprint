@@ -11,8 +11,8 @@ export function InspectorPanel(props: InspectorPanelProps) {
 
   return (
     <Panel
-      title="Inspector 区域"
-      description="第一阶段先用来观察宿主状态与前后端通信结果。"
+      title="Inspector"
+      description="统一响应 Graph 与 Scene 的选择态，后续承接属性、分析、调试与概览信息。"
     >
       <dl className="sb-kv">
         <dt>应用</dt>
@@ -25,6 +25,8 @@ export function InspectorPanel(props: InspectorPanelProps) {
         <dd>{appInfo?.runtime ?? "未读取"}</dd>
         <dt>通信结果</dt>
         <dd>{pingResult?.message ?? "尚未验证"}</dd>
+        <dt>当前职责</dt>
+        <dd>统一信息面板</dd>
       </dl>
     </Panel>
   );
