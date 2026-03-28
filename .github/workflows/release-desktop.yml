@@ -3,10 +3,14 @@ name: Desktop Release
 on:
   workflow_dispatch:
     inputs:
-      release_draft:
-        description: 'Whether to create/update the GitHub release as a draft'
+      version:
+        description: 'Optional version without the v prefix. Leave empty to use the repository version.'
+        required: false
+        type: string
+      publish_release:
+        description: 'Publish as a formal GitHub Release instead of a draft'
         required: true
-        default: true
+        default: false
         type: boolean
       prerelease:
         description: 'Whether to mark the GitHub release as a prerelease'
@@ -36,6 +40,125 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Resolve release metadata
+        id: release_meta
+        shell: pwsh
+        run: |
+          $manualVersion = "${{ inputs.version }}".Trim()
+          if ($manualVersion.StartsWith("v")) {
+            $manualVersion = $manualVersion.Substring(1)
+          }
+
+          $packageVersion = node -p "require('./package.json').version"
+          $packageVersion = $packageVersion.Trim()
+          $tauriVersion = (Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json).version
+
+          $cargoVersion = ''
+          $inPackage = $false
+          foreach ($line in Get-Content 'src-tauri/Cargo.toml') {
+            if ($line -match '^\[package\]') {
+              $inPackage = $true
+              continue
+            }
+
+            if ($inPackage -and $line -match '^\[') {
+              break
+            }
+
+            if ($inPackage -and $line -match '^version\s*=\s*"([^"]+)"') {
+              $cargoVersion = $Matches[1]
+              break
+            }
+          }
+
+          if ([string]::IsNullOrWhiteSpace($cargoVersion)) {
+            throw "Could not read version from src-tauri/Cargo.toml."
+          }
+
+          if ([string]::IsNullOrWhiteSpace($manualVersion)) {
+            $version = $packageVersion
+
+            if ($packageVersion -ne $tauriVersion -or $packageVersion -ne $cargoVersion) {
+              throw "Version files are inconsistent. package.json=$packageVersion, src-tauri/tauri.conf.json=$tauriVersion, src-tauri/Cargo.toml=$cargoVersion. Align them first or provide the workflow version input."
+            }
+
+            $versionSource = 'repository'
+          } else {
+            $version = $manualVersion
+            $versionSource = 'manual-input'
+          }
+
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
+            throw "Invalid version '$version'. Expected semver like 0.1.0 or 0.1.0-beta.1."
+          }
+
+          $releaseDraft = if ("${{ inputs.publish_release }}" -eq "true") { "false" } else { "true" }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+          "release_name=SceneBlueprint v$version" >> $env:GITHUB_OUTPUT
+          "release_draft=$releaseDraft" >> $env:GITHUB_OUTPUT
+          "version_source=$versionSource" >> $env:GITHUB_OUTPUT
+
+      - name: Sync version files for this build
+        if: ${{ steps.release_meta.outputs.version_source == 'manual-input' }}
+        shell: pwsh
+        run: |
+          $version = "${{ steps.release_meta.outputs.version }}"
+
+          $packagePath = 'package.json'
+          $package = Get-Content $packagePath -Raw | ConvertFrom-Json
+          $package.version = $version
+          $packageJson = $package | ConvertTo-Json -Depth 100
+          [System.IO.File]::WriteAllText((Resolve-Path $packagePath), $packageJson + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+
+          $tauriPath = 'src-tauri/tauri.conf.json'
+          $tauri = Get-Content $tauriPath -Raw | ConvertFrom-Json
+          $tauri.version = $version
+          $tauriJson = $tauri | ConvertTo-Json -Depth 100
+          [System.IO.File]::WriteAllText((Resolve-Path $tauriPath), $tauriJson + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
+
+          $cargoPath = 'src-tauri/Cargo.toml'
+          $cargoLines = Get-Content $cargoPath
+          $inPackage = $false
+          $updated = $false
+
+          for ($i = 0; $i -lt $cargoLines.Count; $i++) {
+            if ($cargoLines[$i] -match '^\[package\]') {
+              $inPackage = $true
+              continue
+            }
+
+            if ($inPackage -and $cargoLines[$i] -match '^\[') {
+              break
+            }
+
+            if ($inPackage -and $cargoLines[$i] -match '^version\s*=') {
+              $cargoLines[$i] = "version = `"$version`""
+              $updated = $true
+              break
+            }
+          }
+
+          if (-not $updated) {
+            throw "Could not update version in src-tauri/Cargo.toml."
+          }
+
+          [System.IO.File]::WriteAllLines((Resolve-Path $cargoPath), $cargoLines, [System.Text.UTF8Encoding]::new($false))
+
+      - name: Write release summary
+        shell: pwsh
+        run: |
+          $publishMode = if ("${{ inputs.publish_release }}" -eq "true") { "formal" } else { "draft" }
+          @"
+          ## Desktop Release
+          - Version: `${{ steps.release_meta.outputs.version }}`
+          - Tag: `${{ steps.release_meta.outputs.tag }}`
+          - Publish mode: $publishMode
+          - Prerelease: `${{ inputs.prerelease }}`
+          - Version source: `${{ steps.release_meta.outputs.version_source }}`
+          "@ >> $env:GITHUB_STEP_SUMMARY
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -54,22 +177,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: ./
-          tagName: v__VERSION__
-          releaseName: SceneBlueprint v__VERSION__
+          tagName: ${{ steps.release_meta.outputs.tag }}
+          releaseName: ${{ steps.release_meta.outputs.release_name }}
           releaseBody: |
-            SceneBlueprint MVP Windows desktop build.
+            SceneBlueprint Windows desktop build.
 
             - Triggered by: workflow_dispatch
             - Platform: windows-latest
             - Source commit: ${{ github.sha }}
-          releaseDraft: ${{ inputs.release_draft }}
+            - Version source: ${{ steps.release_meta.outputs.version_source }}
+          releaseDraft: ${{ steps.release_meta.outputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           generateReleaseNotes: true
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sceneblueprint-windows-bundle
+          name: sceneblueprint-windows-bundle-${{ steps.release_meta.outputs.version }}
           path: src-tauri/target/release/bundle/
           if-no-files-found: error
           retention-days: 30
