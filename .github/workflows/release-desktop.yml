@@ -118,6 +118,7 @@ jobs:
           "release_draft=$releaseDraft" >> $env:GITHUB_OUTPUT
           "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
           "version_source=$versionSource" >> $env:GITHUB_OUTPUT
+          "portable_asset_name=SceneBlueprint_${version}_x64_portable.zip" >> $env:GITHUB_OUTPUT
 
       - name: Sync version files for this build
         if: ${{ steps.release_meta.outputs.version_source != 'repository' }}
@@ -176,6 +177,7 @@ jobs:
           - Publish mode: $publishMode
           - Prerelease: `${{ steps.release_meta.outputs.prerelease }}`
           - Version source: `${{ steps.release_meta.outputs.version_source }}`
+          - Portable asset: `${{ steps.release_meta.outputs.portable_asset_name }}`
           "@ >> $env:GITHUB_STEP_SUMMARY
 
       - name: Install frontend dependencies
@@ -204,7 +206,7 @@ jobs:
             ## 下载文件说明
             - `SceneBlueprint_${{ steps.release_meta.outputs.version }}_x64-setup.exe`：Windows NSIS 安装版，适合大多数 Windows 用户直接安装使用。
             - `SceneBlueprint_${{ steps.release_meta.outputs.version }}_x64_en-US.msi`：Windows MSI 安装包，适合企业环境、静默安装或统一部署。
-            - 当前正式 Release 暂不提供免安装绿色版。
+            - `${{ steps.release_meta.outputs.portable_asset_name }}`：Windows 免安装绿色版压缩包，解压后可直接运行，适合快速测试。
 
             ## 构建信息
             - 触发方式：${{ github.event_name }}
@@ -219,6 +221,46 @@ jobs:
           prerelease: ${{ steps.release_meta.outputs.prerelease }}
           generateReleaseNotes: false
 
+      - name: Create portable zip
+        id: portable
+        shell: pwsh
+        run: |
+          $version = "${{ steps.release_meta.outputs.version }}"
+          $assetName = "${{ steps.release_meta.outputs.portable_asset_name }}"
+          $bundleRoot = Join-Path (Resolve-Path 'src-tauri/target/release/bundle') 'portable'
+          $portableRoot = Join-Path $bundleRoot "SceneBlueprint-portable-$version"
+          $exeSource = Resolve-Path 'src-tauri/target/release/sceneblueprint.exe'
+          $exeTarget = Join-Path $portableRoot 'SceneBlueprint.exe'
+          $readmePath = Join-Path $portableRoot 'README.txt'
+          $zipPath = Join-Path $bundleRoot $assetName
+
+          New-Item -ItemType Directory -Force -Path $portableRoot | Out-Null
+          Copy-Item $exeSource $exeTarget -Force
+
+          @"
+SceneBlueprint Portable
+
+- 运行方式：双击 SceneBlueprint.exe
+- 当前版本：$version
+- 说明：这是免安装绿色版，适合快速验证与测试。
+- 注意：如果 Windows 提示安全警告，请根据本机策略选择继续运行。
+"@ | Set-Content -LiteralPath $readmePath -Encoding UTF8
+
+          if (Test-Path $zipPath) {
+            Remove-Item -LiteralPath $zipPath -Force
+          }
+
+          Compress-Archive -Path (Join-Path $portableRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
+
+          "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
+
+      - name: Upload portable zip to release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.release_meta.outputs.tag }}" "${{ steps.portable.outputs.zip_path }}" --clobber
+
       - name: Overwrite release notes in Chinese
         shell: pwsh
         env:
@@ -230,7 +272,7 @@ SceneBlueprint v${{ steps.release_meta.outputs.version }} 发布说明
 ## 下载文件说明
 - `SceneBlueprint_${{ steps.release_meta.outputs.version }}_x64-setup.exe`：Windows NSIS 安装版，适合大多数 Windows 用户直接安装使用。
 - `SceneBlueprint_${{ steps.release_meta.outputs.version }}_x64_en-US.msi`：Windows MSI 安装包，适合企业环境、静默安装或统一部署。
-- 当前正式 Release 暂不提供免安装绿色版。
+- `${{ steps.release_meta.outputs.portable_asset_name }}`：Windows 免安装绿色版压缩包，解压后可直接运行，适合快速测试。
 
 ## 构建信息
 - 触发方式：${{ github.event_name }}
