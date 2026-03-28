@@ -6,6 +6,7 @@
 
 - [架构设计文档](./SceneBlueprint-架构设计文档.md)
 - [实现与迭代文档](./SceneBlueprint-实现与迭代文档.md)
+- [GitHub 开发流程方案](./SceneBlueprint-GitHub开发流程方案.md)
 - [Phase 1 Notes](./phase-1-notes.md)
 
 ## 说明
