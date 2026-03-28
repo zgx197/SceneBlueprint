@@ -54,7 +54,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: ./
-          tauriScript: build
           tagName: v__VERSION__
           releaseName: SceneBlueprint v__VERSION__
           releaseBody: |

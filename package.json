@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
+    "tauri": "tauri",
     "build": "tauri build",
     "dev:web": "vite --host 0.0.0.0 --port 1420",
     "build:web": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build",
