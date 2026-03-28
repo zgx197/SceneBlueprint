@@ -138,7 +138,15 @@ jobs:
           $tauriPath = 'src-tauri/tauri.conf.json'
           $tauri = Get-Content $tauriPath -Raw | ConvertFrom-Json
           $tauri.version = $version
-          $tauri.bundle.targets = if ("${{ steps.release_meta.outputs.include_msi }}" -eq 'true') { @('msi', 'nsis') } else { @('nsis') }
+          $bundleTargets = if ("${{ steps.release_meta.outputs.include_msi }}" -eq 'true') { @('msi', 'nsis') } else { @('nsis') }
+          if ($null -eq $tauri.bundle) {
+            throw "Could not read bundle configuration from src-tauri/tauri.conf.json."
+          }
+          if ($tauri.bundle.PSObject.Properties.Name -contains 'targets') {
+            $tauri.bundle.targets = $bundleTargets
+          } else {
+            $tauri.bundle | Add-Member -NotePropertyName targets -NotePropertyValue $bundleTargets
+          }
           $tauriJson = $tauri | ConvertTo-Json -Depth 100
           [System.IO.File]::WriteAllText((Resolve-Path $tauriPath), $tauriJson + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
 
