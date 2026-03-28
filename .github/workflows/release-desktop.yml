@@ -119,62 +119,6 @@ jobs:
           "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
           "version_source=$versionSource" >> $env:GITHUB_OUTPUT
 
-      - name: Generate Chinese release notes
-        id: release_notes
-        shell: pwsh
-        run: |
-          $version = "${{ steps.release_meta.outputs.version }}"
-          $tag = "${{ steps.release_meta.outputs.tag }}"
-          $versionSource = "${{ steps.release_meta.outputs.version_source }}"
-          $eventName = "${{ github.event_name }}"
-          $commit = "${{ github.sha }}"
-
-          $previousTag = git tag --sort=-v:refname | Where-Object { $_ -ne $tag } | Select-Object -First 1
-          if ([string]::IsNullOrWhiteSpace($previousTag)) {
-            $subjects = git log --format='%s'
-          } else {
-            $subjects = git log "$previousTag..HEAD" --format='%s'
-          }
-
-          $items = @()
-          foreach ($subject in $subjects) {
-            if (-not [string]::IsNullOrWhiteSpace($subject)) {
-              $items += $subject.Trim()
-            }
-          }
-          $items = $items | Select-Object -Unique
-
-          if ($items.Count -eq 0) {
-            $changeLines = '- 首次发布。'
-          } else {
-            $changeLines = ($items | ForEach-Object { "- $_" }) -join [Environment]::NewLine
-          }
-
-          $body = @"
-SceneBlueprint v$version 发布说明
-
-## 下载文件说明
-
-- `SceneBlueprint_${version}_x64-setup.exe`：Windows NSIS 安装版，适合大多数 Windows 用户直接安装使用。
-- `SceneBlueprint_${version}_x64_en-US.msi`：Windows MSI 安装包，适合企业环境、静默安装或统一部署。
-- 当前正式 Release 暂不提供免安装绿色版。
-
-## 本次变更
-
-$changeLines
-
-## 构建信息
-
-- 触发方式：$eventName
-- 构建平台：windows-latest
-- 对应提交：$commit
-- 版本来源：$versionSource
-"@
-
-          "body<<EOF" >> $env:GITHUB_OUTPUT
-          $body >> $env:GITHUB_OUTPUT
-          "EOF" >> $env:GITHUB_OUTPUT
-
       - name: Sync version files for this build
         if: ${{ steps.release_meta.outputs.version_source != 'repository' }}
         shell: pwsh
@@ -254,7 +198,23 @@ $changeLines
           projectPath: ./
           tagName: ${{ steps.release_meta.outputs.tag }}
           releaseName: ${{ steps.release_meta.outputs.release_name }}
-          releaseBody: ${{ steps.release_notes.outputs.body }}
+          releaseBody: |
+            SceneBlueprint v${{ steps.release_meta.outputs.version }} 发布说明
+
+            ## 下载文件说明
+            - `SceneBlueprint_${{ steps.release_meta.outputs.version }}_x64-setup.exe`：Windows NSIS 安装版，适合大多数 Windows 用户直接安装使用。
+            - `SceneBlueprint_${{ steps.release_meta.outputs.version }}_x64_en-US.msi`：Windows MSI 安装包，适合企业环境、静默安装或统一部署。
+            - 当前正式 Release 暂不提供免安装绿色版。
+
+            ## 构建信息
+            - 触发方式：${{ github.event_name }}
+            - 构建平台：windows-latest
+            - 对应提交：${{ github.sha }}
+            - 版本来源：${{ steps.release_meta.outputs.version_source }}
+
+            更多背景说明可查看：
+            - 仓库首页：https://github.com/zgx197/SceneBlueprint
+            - 发布文档：https://zgx197.github.io/SceneBlueprint/
           releaseDraft: ${{ steps.release_meta.outputs.release_draft }}
           prerelease: ${{ steps.release_meta.outputs.prerelease }}
           generateReleaseNotes: false
