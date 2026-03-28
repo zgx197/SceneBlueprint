@@ -1,8 +1,8 @@
 # SceneBlueprint 实现与迭代文档
 
-> 版本：v0.3
-> 日期：2026-03-28
-> 状态：执行中，第一阶段桌面盒子已落地
+> 版本：v0.4
+> 日期：2026-03-29
+> 状态：执行中，第一阶段桌面盒子已落地，第二阶段工作台 UI 设计已启动
 
 ---
 
@@ -204,21 +204,147 @@ SceneBlueprint 后续能力很多，但当前应按层推进：
 
 ---
 
-## 6. 第二阶段及之后的填充顺序（待开始）
+## 6. 第二阶段及之后的填充顺序（进行中）
 
 在 Tauri 盒子建立完成后，建议按以下顺序逐步填充内容。
 
-### 6.1 第二阶段：填入 Authoring 工作台（待开始）
+### 6.1 第二阶段：填入 Authoring 工作台（已确认）
 
 建议填入：
 
 - 主工作区布局
-- Graph 区域占位与选择态
-- Inspector 区域占位
-- Timeline 区域占位
-- 日志与调试区域
+- Graph 区域基础视觉与选择态
+- Scene Viewport 区域骨架
+- Inspector 区域基础交互
+- Bottom Panels（日志 / 问题 / 调试）骨架
 
 目标是形成“像编辑器”的工作台，而不是立即形成完整编辑器能力。
+
+### 6.1.1 第二阶段的关键判断（已确认）
+
+进入外部编辑器形态后，SceneBlueprint 的 UI 不能被理解为“只有节点图的桌面版”。
+
+当前已经确认：
+
+- Graph 不是唯一主视图
+- Scene Viewport 必须作为正式工作区预留
+- Marker / Spatial Binding 不是附属能力，而是 Authoring 主链路的一部分
+- Inspector 必须同时响应 Graph 选择态与 Scene 选择态
+
+也就是说，第二阶段的目标不是简单把当前 `Graph + Inspector + Log` 做得更漂亮，而是建立一个真正适合场景蓝图作者工作的工作台结构。
+
+### 6.1.2 第二阶段推荐的工作台结构（已确认）
+
+当前推荐的工作台结构应调整为：
+
+- Top Toolbar
+- Graph Workspace
+- Scene Viewport
+- Inspector
+- Bottom Panels
+
+其关系可以简化理解为：
+
+```mermaid
+flowchart LR
+    A["Top Toolbar"] --> B["Graph Workspace"]
+    A --> C["Scene Viewport"]
+    B --> D["Inspector"]
+    C --> D["Inspector"]
+    B --> E["Bottom Panels"]
+    C --> E["Bottom Panels"]
+```
+
+这套结构表达的是：
+
+- Graph 与 Scene 是双主视图，而不是主次关系
+- Inspector 是右侧统一信息编辑与分析入口
+- Bottom Panels 用于日志、问题、调试和后续时间线承接
+
+### 6.1.3 为什么第二阶段必须预留 Scene Viewport（已确认）
+
+旧 Unity 版本中的真实工作流并不是单纯在节点图里连线，而是长期依赖：
+
+- 在场景中放置 Marker
+- 在场景中查看 Marker 的空间关系
+- 在图与场景之间切换选择对象
+- 通过场景白模验证空间逻辑与流程意图
+
+因此，外部编辑器如果没有 Scene Viewport，就会导致：
+
+- Marker 体系无法自然落地
+- Spatial Binding 无法形成作者心智
+- 后续 Unity / Godot 集成只能退回被动导入思路
+- Graph 编辑器会被迫承担本不该承担的空间语义表达压力
+
+所以第二阶段即便不完整实现白模预览，也必须先把 Scene Viewport 作为正式区域纳入工作台。
+
+### 6.1.4 第二阶段推荐的 UI 实现顺序（已确认）
+
+建议按以下顺序推进，而不是同时把所有面板做深：
+
+1. 重构工作台布局
+- 让现有工作台从 `Graph / Inspector / Timeline / Log` 升级为更接近正式编辑器的区域结构
+- 明确 `Graph Workspace`、`Scene Viewport`、`Inspector`、`Bottom Panels` 的位置和职责
+
+2. 先做 Top Toolbar
+- 建立新建、保存、撤销/重做、运行状态、自动保存提示等全局入口
+- 先把“编辑器是活的”这件事做出来
+
+3. 再做 Graph Workspace
+- 先实现画布容器、网格、缩放、平移、节点占位卡片、选择态
+- 当前不要求第一轮就做完整节点编辑器
+
+4. 再做 Scene Viewport
+- 先做白模场景占位、基础相机控制、Marker 占位显示
+- 第一轮目标是让 Scene 视窗成为可交互工作区，而不是完整 3D 工具
+
+5. 再做 Inspector
+- 先支持空白态、选中图态、选中节点态、选中 Marker 态
+- 让 Inspector 成为 Graph 与 Scene 的统一响应区
+
+6. 最后接 Bottom Panels
+- 先承接日志、问题列表、调试输出
+- Timeline 可以暂时继续以占位方式存在，不必抢在前面做深
+
+### 6.1.5 第二阶段第一轮应形成的最小 UI 流程（已确认）
+
+第二阶段第一轮不追求完整编辑能力，但应尽快形成以下最小流程：
+
+1. 打开编辑器
+2. 看到正式工作台布局
+3. 能在 Graph 区域看到画布与节点占位
+4. 能在 Scene Viewport 中看到基础白模或占位场景
+5. 选中 Graph 节点后，Inspector 有响应
+6. 选中 Scene Marker 后，Inspector 有响应
+7. 底部面板能显示日志、问题或状态变化
+
+可简化为：
+
+```mermaid
+flowchart LR
+    A["打开编辑器"] --> B["加载工作台布局"]
+    B --> C["Graph 可见"]
+    B --> D["Scene Viewport 可见"]
+    C --> E["选择节点"]
+    D --> F["选择 Marker"]
+    E --> G["Inspector 响应"]
+    F --> G["Inspector 响应"]
+    G --> H["日志 / 状态更新"]
+```
+
+### 6.1.6 第二阶段第一轮不要求完成的内容（已确认）
+
+当前轮次仍不要求完整实现：
+
+- 完整 Node Graph 编辑体验
+- 完整 Scene Gizmo 工具系统
+- 完整 Marker 放置工具链
+- 完整 3D 白模资源系统
+- 完整 Timeline 编辑交互
+- 完整导出 / 回放 / 调试闭环
+
+当前目标是先把工作流容器搭起来，而不是一次性把所有编辑器交互做完。
 
 ### 6.2 第三阶段：填入最小 Authoring 数据闭环（待开始）
 
@@ -292,13 +418,20 @@ SceneBlueprint 后续能力很多，但当前应按层推进：
 - `app/`：应用入口、布局、providers
 - `features/workbench/`：工作台页面
 - `features/graph/`：Graph 面板
+- `features/scene/`：Scene Viewport 面板
 - `features/inspector/`：Inspector 面板
-- `features/timeline/`：Timeline 面板
-- `features/log/`：Log 面板
+- `features/bottom-panels/`：日志 / 问题 / 调试等底部区域
 - `host/`：前端侧宿主桥接
 - `shared/`：通用组件与样式
 
 这一阶段仍不要求把复杂编辑器逻辑抽成独立核心层，因为此时主要还是在验证工作台形态。
+
+当前对第二阶段前端结构的补充约束：
+
+- `Graph Workspace` 与 `Scene Viewport` 应视为并列工作区
+- `Inspector` 不应只绑定 Graph，而应绑定统一选择态
+- `Bottom Panels` 后续可继续拆出 `timeline/`、`problems/`、`log/`、`debug/`
+- 若工作台布局逐渐复杂，可补入 `features/layout/` 或 `features/workspace/`
 
 ### 7.3 第三阶段：Authoring Core 抽离（待开始）
 
@@ -440,6 +573,18 @@ SceneBlueprint 后续能力很多，但当前应按层推进：
 - 命令入口验证
 - 构建成功验证
 
+### 8.4 第二阶段建议新增的验证（待开始）
+
+当第二阶段开始填入 UI 工作台时，建议新增以下基础验证：
+
+- 工作台布局可见性验证
+- Graph / Scene / Inspector 三方联动验证
+- 基础选择态切换验证
+- Scene Viewport 初始加载验证
+- 顶部命令栏基础交互验证
+
+这些验证当前不要求重型自动化，但至少应具备手动自测脚本或轻量 UI 回归样例。
+
 ---
 
 ## 9. 当前阶段不优先的事项（已确认）
@@ -501,21 +646,24 @@ SceneBlueprint 后续能力很多，但当前应按层推进：
 
 SceneBlueprint 当前阶段的实现策略已经调整为：
 
-- 第一阶段先实现 Tauri
-- 先把桌面宿主这只盒子搭起来
-- 后续再逐步往盒子中填充 Authoring、Toolchain、Preview、Integration 等内容
+- 第一阶段先实现 Tauri 盒子
+- 第一阶段桌面宿主骨架已经落地
+- 下一步进入第二阶段工作台 UI 骨架搭建
+- 第二阶段应优先建立 `Graph + Scene Viewport + Inspector + Bottom Panels` 的正式工作台
+- 后续再逐步往里面填充 Authoring、Toolchain、Preview、Integration 等内容
 
-这意味着当前阶段的判断标准不是“功能多不多”，而是：
+这意味着当前阶段的判断标准已经从“盒子是否成立”逐步过渡为：
 
-- 盒子是否已经成立
-- 宿主边界是否清晰
-- 后续是否容易继续填充能力
+- 工作台结构是否合理
+- Graph 与 Scene 是否形成双主视图心智
+- Inspector 是否能承接统一选择态
+- 后续 Marker / Spatial Binding / 白模预览是否容易接入
 
 ---
 
 ## 文档信息
 
-- 版本：v0.3
+- 版本：v0.4
 - 创建日期：2026-03-28
 - 更新策略：随当前阶段实施重点逐步修订
 
