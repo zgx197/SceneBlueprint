@@ -13,12 +13,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Validate commit author and message
         shell: bash
         run: |
           set -euo pipefail
-
-          PATTERN='^(feat|fix|docs|chore|refactor|test|build|ci|perf|style|revert)(\([^)]+\))?: .*[一-龥]'
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             RANGE="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
@@ -42,8 +45,18 @@ jobs:
               exit 1
             fi
 
-            if ! printf '%s' "$SUBJECT" | grep -Eq "$PATTERN"; then
-              echo "提交校验失败: $SHA 的 commit message 需使用约定前缀，并包含中文描述。"
+            node -e "const subject = process.argv[1] ?? ''; const prefix = /^(feat|fix|docs|chore|refactor|test|build|ci|perf|style|revert)(\([^)]+\))?: /; if (!prefix.test(subject)) process.exit(2); if (!/[\p{Script=Han}]/u.test(subject)) process.exit(3);" "$SUBJECT"
+            status=$?
+
+            if [ $status -eq 2 ]; then
+              echo "提交校验失败: $SHA 的 commit message 需使用约定前缀。"
+              echo "当前内容: $SUBJECT"
+              echo "示例: feat(editor-shell): 搭建 Tauri 桌面宿主骨架"
+              exit 1
+            fi
+
+            if [ $status -eq 3 ]; then
+              echo "提交校验失败: $SHA 的 commit message 需包含中文描述。"
               echo "当前内容: $SUBJECT"
               echo "示例: feat(editor-shell): 搭建 Tauri 桌面宿主骨架"
               exit 1
