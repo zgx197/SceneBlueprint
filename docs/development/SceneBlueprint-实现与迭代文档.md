@@ -483,9 +483,9 @@ SceneBlueprint 后续能力很多，但当前应按层推进：
 
 当前约定：
 
-- Git 提交作者统一使用 `zgx`
+- Git 提交作者统一使用 `zgx197`
 - commit message 使用中文描述
-- 本地默认通过仓库级 Git 配置约束提交作者
+- 本地默认通过仓库级 Git 配置约束提交作者，仓库默认身份保持为 `zgx197`
 - 本地 `commit-msg` hook 作为可选模板保留，不作为默认强制手段
 - 远端通过 GitHub Actions 做第二层校验
 

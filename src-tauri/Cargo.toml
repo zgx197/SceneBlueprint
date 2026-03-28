@@ -2,7 +2,7 @@
 name = "sceneblueprint"
 version = "0.1.0"
 description = "SceneBlueprint desktop shell"
-authors = ["zgx"]
+authors = ["zgx197"]
 license = "Apache-2.0"
 edition = "2021"
 
