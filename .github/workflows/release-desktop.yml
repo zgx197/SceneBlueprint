@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -191,7 +191,7 @@ jobs:
           generateReleaseNotes: true
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sceneblueprint-windows-bundle-${{ steps.release_meta.outputs.version }}
           path: src-tauri/target/release/bundle/
