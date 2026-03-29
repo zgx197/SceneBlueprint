@@ -1,15 +1,60 @@
+import { lazy, Suspense, useEffect, useState } from "react";
+import { RuntimeErrorBoundary } from "../../shared/components/RuntimeErrorBoundary";
+import { useAppLogContext } from "../../shared/logging/LogContext";
 import { Panel } from "../../shared/components/Panel";
 
+const SceneViewportCanvas = lazy(async () => {
+  const module = await import("./SceneViewportCanvas");
+  return { default: module.SceneViewportCanvas };
+});
+
+const VIEWPORT_BOOT_DELAY_MS = 320;
+
+function SceneViewportFallback() {
+  return (
+    <div className="sb-scene-fallback sb-scene-fallback-error">
+      Scene Viewport 挂载失败，已降级为安全占位视图，请查看运行日志。
+    </div>
+  );
+}
+
+function SceneViewportBooting() {
+  return <div className="sb-scene-fallback">正在准备 Scene Viewport 运行时...</div>;
+}
+
 export function SceneViewportPanel() {
+  const { log } = useAppLogContext();
+  const [shouldRenderCanvas, setShouldRenderCanvas] = useState(false);
+
+  useEffect(() => {
+    log("info", "scene-viewport", "Scene Viewport 面板已挂载，准备延迟启动 3D 视口。");
+
+    const timer = window.setTimeout(() => {
+      setShouldRenderCanvas(true);
+      log("info", "scene-viewport", "开始挂载 Scene Viewport 3D 画布。");
+    }, VIEWPORT_BOOT_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [log]);
+
   return (
     <Panel
       title="Scene Viewport"
       description="预留场景白模与 Marker 空间视窗，后续承接相机、空间绑定与场景选择态。"
+      className="sb-scene-panel"
+      bodyClassName="sb-scene-panel-body"
     >
-      <div className="sb-placeholder">
-        <p>当前阶段：先建立正式 Scene 工作区。</p>
-        <p>后续阶段：白模加载、相机控制、Marker 预览、空间绑定。</p>
-      </div>
+      <RuntimeErrorBoundary scope="scene-viewport" fallback={<SceneViewportFallback />}>
+        {shouldRenderCanvas ? (
+          <Suspense fallback={<div className="sb-scene-fallback">正在加载场景视口...</div>}>
+            <SceneViewportCanvas />
+          </Suspense>
+        ) : (
+          <SceneViewportBooting />
+        )}
+      </RuntimeErrorBoundary>
     </Panel>
   );
 }

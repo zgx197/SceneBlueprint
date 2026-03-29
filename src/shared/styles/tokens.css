@@ -1,16 +1,28 @@
 :root {
-  color-scheme: dark;
-  --sb-bg: #0d1117;
-  --sb-surface: rgba(20, 28, 39, 0.9);
-  --sb-surface-2: rgba(13, 19, 28, 0.9);
-  --sb-border: rgba(158, 185, 211, 0.16);
-  --sb-text: #edf2f7;
-  --sb-text-dim: #9cb0c3;
-  --sb-accent: #ff9e59;
-  --sb-accent-2: #65d6ff;
-  --sb-radius-xl: 24px;
-  --sb-radius-lg: 18px;
-  --sb-radius-md: 14px;
-  --sb-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
-  font-family: "Segoe UI Variable", "Aptos", sans-serif;
+  color-scheme: light;
+  --sb-font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --sb-font-size-base: 13px;
+  --sb-font-size-sm: 12px;
+  --sb-font-size-xs: 11px;
+  --sb-font-size-lg: 15px;
+  --sb-font-size-xl: 17px;
+
+  --sb-bg: #f5f1e8;
+  --sb-bg-accent: #ebe4d7;
+  --sb-surface: rgba(255, 252, 246, 0.94);
+  --sb-surface-2: rgba(246, 241, 232, 0.96);
+  --sb-surface-3: rgba(239, 233, 223, 0.92);
+  --sb-border: rgba(129, 117, 98, 0.2);
+  --sb-border-strong: rgba(129, 117, 98, 0.3);
+  --sb-text: #2f2a24;
+  --sb-text-dim: #6f6559;
+  --sb-accent: #d79b53;
+  --sb-accent-2: #3f86b8;
+  --sb-accent-soft: rgba(63, 134, 184, 0.14);
+  --sb-success: #5e9774;
+
+  --sb-radius-xl: 22px;
+  --sb-radius-lg: 16px;
+  --sb-radius-md: 12px;
+  --sb-shadow: 0 18px 42px rgba(110, 92, 63, 0.12);
 }

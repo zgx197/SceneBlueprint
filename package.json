@@ -13,13 +13,18 @@
     "check": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
     "@tauri-apps/api": "^2.0.0",
+    "@types/three": "^0.183.1",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "react-resizable-panels": "^4.8.0",
+    "three": "^0.183.2"
   },
   "devDependencies": {
-    "@types/node": "^24.3.0",
     "@tauri-apps/cli": "^2.0.0",
+    "@types/node": "^24.3.0",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.0",

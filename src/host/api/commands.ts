@@ -8,3 +8,7 @@ export function readAppInfo(): Promise<AppInfo> {
 export function pingHost(): Promise<PingResult> {
   return invokeHost<PingResult>("ping_host");
 }
+
+export function readLogFilePath(): Promise<string> {
+  return invokeHost<string>("get_log_file_path");
+}
