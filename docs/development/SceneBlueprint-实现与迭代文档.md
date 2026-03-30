@@ -1,8 +1,8 @@
 # SceneBlueprint 实现与迭代文档
 
-> 版本：v0.4
+> 版本：v0.6
 > 日期：2026-03-29
-> 状态：执行中，第一阶段桌面盒子已落地，第二阶段工作台 UI 设计已启动
+> 状态：执行中，第一阶段桌面盒子已落地，第二阶段工作台第一轮骨架已落地
 
 ---
 
@@ -73,7 +73,7 @@
 
 在 Tauri 盒子建立完成后，建议按以下顺序逐步填充内容。
 
-### 6.1 第二阶段：填入 Authoring 工作台（已确认）
+### 6.1 第二阶段：填入 Authoring 工作台（进行中）
 
 建议填入：
 
@@ -84,6 +84,33 @@
 - Bottom Panels（日志 / 问题 / 调试）骨架
 
 目标是形成“像编辑器”的工作台，而不是立即形成完整编辑器能力。
+### 6.1.0 第二阶段当前状态总结（已建立）
+
+截至当前代码库，第二阶段已经不再停留在纯设计讨论，而是进入“第一轮工作台骨架已落地”的状态。
+
+当前已经落地的内容包括：
+
+- 启动页已升级为正式启动界面，并接入真实启动链路
+- 启动日志、桥接日志、宿主日志已经形成基础闭环
+- 工作台已经稳定进入桌面窗口，不再停留在仅能显示网页容器的状态
+- 主工作区已经形成 `Scene Viewport + Graph Workspace + Inspector + Status Bar` 的正式布局
+- 分栏拖拽与尺寸记忆已经建立
+- `Scene Viewport` 已接入第一版白模 3D 视口骨架
+- 顶部区域已经从临时标题栏转向“原生菜单 + 工具栏信息带”的结构
+- Tauri 原生菜单已经接入，并开始承接开发调试类命令
+
+当前仍未完成的内容包括：
+
+- Graph Workspace 仍主要是占位画布与说明区
+- Inspector 仍主要呈现宿主与占位信息，尚未进入真实编辑态
+- 底部区域目前以状态栏为主，尚未扩展为完整 Bottom Panels
+- 文件、编辑、工具等大部分正式菜单命令仍未接入可用实现
+
+因此，第二阶段当前应被理解为：
+
+- 工作台骨架已经成立
+- 真实编辑能力尚未展开
+- 后续重点将从“把区域摆出来”转向“让区域真正开始工作”
 
 ### 6.1.1 第二阶段的关键判断（已确认）
 
@@ -327,6 +354,309 @@ flowchart LR
 - 现在最需要验证的是整体工作台，不是节点细节
 - 节点图库一旦接早了，容易把注意力带偏到节点编辑细节上
 - 这会延后 Scene 与 Graph 双主视图工作流的建立
+
+### 6.1.10 第二阶段第一轮已落地结果（已落地）
+
+当前第一轮已经落地的实际结果，可以按“启动、布局、视口、菜单、诊断”五个方面来理解。
+
+#### 1. 启动与诊断
+
+已经落地：
+
+- 启动页不再是简单占位，而是与真实初始化步骤挂钩
+- 首步宿主初始化失败时，会停留在启动页，不会继续误入工作台
+- 前端运行时异常监听、工作台错误边界、Scene Viewport 错误边界已经建立
+- 日志已支持前端内存日志与宿主本地日志落盘
+- Rust 日志时间已统一为 ISO 时间格式
+
+这意味着当前已经具备“出问题时能够继续定位”的最小诊断能力。
+
+#### 2. 工作台布局
+
+已经落地：
+
+- 正式工作台区域已经形成
+- 左侧为 `Scene Viewport`
+- 中部为 `Graph Workspace`
+- 右侧为 `Inspector`
+- 底部目前收敛为较薄的 `Status Bar`
+- 分栏支持拖拽调整
+- 分栏尺寸支持记忆
+- 提供了“重置布局”入口
+
+当前判断：
+
+- 这套布局已经可以支撑后续继续填充复杂编辑能力
+- 但底部仍只是状态栏，不应误判为完整 Bottom Panels 已经完成
+
+#### 3. Scene Viewport
+
+已经落地：
+
+- 接入 `three.js + @react-three/fiber`
+- 白模地面、基础块体、Marker 占位已经可见
+- 具备基础轨道相机交互
+- 已经能够承担“空间工作区占位”的角色
+
+当前判断：
+
+- Scene Viewport 已经从“概念预留”升级为“可交互骨架”
+- 但还未进入选中、拾取、Marker 编辑、Gizmo、空间绑定等真实 Authoring 能力
+
+#### 4. 顶部导航与菜单
+
+已经落地：
+
+- 顶部区域已经改为更接近正式工具的工具栏信息带
+- Tauri 原生菜单已经接入
+- 菜单结构已经形成 `文件 / 编辑 / 视图 / 工具 / 开发 / 帮助`
+- `开发` 菜单已承接宿主通信验证与日志路径输出
+- `视图 -> 重置布局` 已可用
+- 尚未实现的菜单项已经显示为 `按钮 [不可用]`
+
+当前判断：
+
+- 原生菜单负责全局命令入口
+- 顶部工具栏负责呈现当前项目、工作区、模式、宿主、通信状态
+- 这套方向已经明确，不需要再退回临时标题栏方案
+
+#### 5. 当前未完成但已明确的第二阶段后续重点（已确认）
+
+接下来第二阶段不应继续平均铺开，而应按以下重点推进：
+
+1. 让 Graph Workspace 从说明区升级为真正的可交互画布
+2. 让 Inspector 从信息面板升级为响应选择态的真实编辑区
+3. 把底部从状态栏升级为可扩展的 Bottom Panels 体系
+4. 把菜单命令从“结构已建立”逐步升级为“真实可用”
+5. 开始建立 Graph / Scene / Inspector 之间的统一选择态
+
+### 6.1.11 Graph Workspace 第二轮的分层建议（已确认）
+
+在继续推进 Graph Workspace 之前，我们已经重新回看了旧 Unity 版本的 `com.zgx197.nodegraph` 与 `com.zgx197.sceneblueprint`。
+
+当前已经确认：
+
+- 旧 `nodegraph` 不是单纯渲染层，而是完整的图编辑基础设施
+- 旧 SceneBlueprint 更多是建立在其上的业务语义层、Inspector 层、Binding 层与编辑器工作流层
+- 这条分层思路应继续保留到当前外部编辑器，而不是重新把所有逻辑揉进单一 Graph 组件
+
+因此，第二阶段后续不应把 Graph Workspace 理解为“一个越来越复杂的 React 画布组件”，而应逐步拆出以下边界：
+
+- Graph Document
+- Graph Commands
+- Graph View State
+- Graph Definitions
+- Graph UI Adapter
+- Inspector Binding
+
+它们各自的职责应理解为：
+
+| 边界 | 当前职责 | 当前是否应尽快建立 |
+|------|----------|-------------------|
+| Graph Document | 节点、端口、边、分组、子图、注释等稳定编辑态数据 | 是 |
+| Graph Commands | 增删节点、移动、连接、断开、撤销重做 | 是 |
+| Graph View State | 选中、悬停、拖拽、视口、缩放、连接预览 | 是 |
+| Graph Definitions | 节点类型、端口语义、分类、搜索元数据 | 是 |
+| Graph UI Adapter | 把文档模型映射到具体节点图库或画布实现 | 是 |
+| Inspector Binding | 选中对象到右侧属性区的绑定与投影 | 是 |
+
+当前不建议把以下内容混在一起推进：
+
+- 用 UI 组件内部状态直接替代 Graph 文档模型
+- 用节点图库内部数据结构直接充当 SceneBlueprint 的核心 Authoring 模型
+- 把场景绑定、宿主对象引用、Marker 引用直接写进 Graph 纯文档模型
+
+### 6.1.12 Graph Workspace 第二轮的实现判断（已确认）
+
+结合旧方案和当前外部编辑器形态，第二轮实现应坚持以下判断：
+
+1. 详细编辑优先放到 Inspector
+- 节点图上的节点卡片优先承担浏览、连接、结构调整职责
+- 节点详细属性编辑优先通过右侧 Inspector 完成
+- 不急于先做重型节点内联编辑
+
+2. 第三方节点图库可以接入，但只能作为 UI 适配层
+- 可以借助成熟交互能力来减少首轮手写成本
+- 但 Graph Document / Commands / View State / Definitions 不能被其反向定义
+
+3. Graph 与 Scene 必须继续按双主视图推进
+- Graph Workspace 不应独占 Authoring 心智
+- Marker、Spatial Binding、Scene 选择态必须继续预留与 Graph 的统一联动
+
+4. Session 仍然是顶层编排中心
+- Graph、Scene、Inspector、日志、分析、导出、最近项目等能力最终都应由 Session 或等价顶层上下文串起来
+
+### 6.1.13 Graph Workspace 第二轮建议的最小落地顺序（已确认）
+
+当前最合适的顺序不是直接追求“完整节点图体验”，而是先把基础分层落起来。
+
+建议顺序如下：
+
+1. 建立最小 `Graph Document`
+- 节点、端口、边的最小结构先稳定
+- 先不急于把子图、分组、注释一次做全
+
+2. 建立最小 `Graph View State`
+- 选中节点
+- 当前视口
+- 当前拖拽态
+- 当前连线预览态
+
+3. 建立最小 `Graph Commands`
+- 添加节点
+- 移动节点
+- 连接端口
+- 删除节点 / 断开边
+- Undo / Redo 入口占位
+
+4. 建立 `Graph Definitions`
+- 节点类型目录
+- 端口语义定义
+- 分类与搜索元数据
+
+5. 最后再接 `Graph UI Adapter`
+- 让具体画布或节点图库只负责显示与交互
+- 不负责定义 SceneBlueprint 内部模型
+
+### 6.1.14 Graph Workspace 当前阶段不急于实现的内容（已确认）
+
+第二阶段接下来的几轮里，以下内容不应抢在前面：
+
+- 完整子图系统
+- 完整分组与注释体系
+- 复杂端口槽位与高级端口布局
+- 节点内联表单编辑
+- 自定义渲染管线
+- 过早抽象出过重的平台编辑控件层
+
+当前优先级仍然应是：
+
+- 先让 Graph Workspace 成为真正可工作的结构编辑区
+- 再让 Inspector 与 Scene 联动起来
+- 再继续做复杂的节点图语义增强
+
+### 6.1.15 Graph Canvas 交互规格已完成收敛（已完成）
+
+在继续推进 Graph Workspace 实现之前，当前已经单独完成了一份正式的 `Graph Canvas` 交互设计清单：
+
+- 文档位置：`docs/development/GraphCanvas-交互设计清单.md`
+
+这份文档已经明确了当前仓库第一轮 Graph Canvas 的核心规则：
+
+- 四类命中目标：`canvas / node / edge / port`
+- 统一命中优先级：`port > edge > node > canvas`
+- 左键、右键、中键、滚轮、Esc 的职责边界
+- 右键前的选择态切换规则
+- `Canvas / Node / Edge` 三类菜单的第一轮最小项
+- 连线的开始、预览、完成、取消规则
+- 节点删除与“断开所有连线”的语义区别
+- 菜单动作与命令层之间的推荐映射关系
+
+这意味着后续第二阶段继续推进右键菜单、断线命令、端口菜单、框选和多选时，已经不需要再回到“基础规则是否成立”的讨论，而应直接按这份交互规格继续实现。
+
+当前判断：
+
+- 第二阶段关于 `Graph Canvas` 的第 1 步已经严格意义上完成
+- 后续实现重点应进入“抽离菜单模型、补齐命令层能力、收口上下文菜单行为”的阶段
+### 6.1.16 Graph Canvas 命中与菜单模型已建立（已完成）
+
+在第一轮交互规格已经收敛之后，当前仓库已经继续完成了 `Graph Canvas` 的第 2 步实现：
+
+- 抽离命中目标模型
+- 抽离上下文菜单模型
+- 让 `GraphCanvas` 从“直接写死菜单判断”升级为“消费交互模型”的结构
+
+当前已经建立的内容包括：
+
+- `src/features/graph/ui/graphCanvasContextMenuModel.ts`
+- `src/features/graph/ui/GraphCanvasContextMenu.tsx`
+- `src/features/graph/ui/GraphCanvas.tsx` 已改为消费上述模型
+
+当前已经稳定下来的边界包括：
+
+- `GraphHitTargetDescriptor`：用于描述右键或命中事件的原始目标
+- `GraphHitTarget`：用于描述带世界坐标的正式命中目标
+- `GraphContextMenuState`：统一承接当前菜单状态
+- `GraphContextMenuModel`：统一承接当前菜单应显示的动作、分类和可创建节点项
+- `getSelectionForGraphHitTarget(...)`：统一节点、边、端口右键前的选择态同步规则
+- `buildGraphContextMenuModel(...)`：统一不同目标类型对应的菜单动作组织方式
+
+这一步完成后，当前 Graph Canvas 已经不再依赖以下旧方式：
+
+- 在组件 JSX 中直接按 `target === "node"` 或 `target === "edge"` 拼装菜单
+- 在多个事件处理器中重复拼写节点、边、画布的右键选择逻辑
+- 把“菜单状态”和“命中目标语义”混成一个临时对象
+
+当前判断：
+
+- 第二阶段关于 `Graph Canvas` 的第 2 步已经严格意义上完成
+- 后续第 3 步可以直接在这套模型上继续补“菜单动作分发”和更完整的命令层能力，而不需要再次重构基础结构
+### 6.1.17 Graph Canvas 第一版右键菜单已可用（已完成）
+
+在命中目标模型与菜单模型已经建立之后，当前仓库已经继续完成了 `Graph Canvas` 的第 3 步实现：
+
+- `Canvas / Node / Edge` 三类菜单已经按目标分开
+- 第一轮菜单项已经与交互规格文档中的最小要求对齐
+- 菜单动作已经从“临时 UI 逻辑”升级为“可执行的真实行为”
+
+当前已经落地的菜单行为包括：
+
+- `Canvas` 菜单：保留创建节点入口与 `重置视口`
+- `Node` 菜单：`断开所有连线`、`删除当前节点`
+- `Edge` 菜单：`删除当前连线`
+- `Node / Edge` 菜单不再继续混入画布级节点创建浏览区
+
+为支撑这一步，当前还同步补齐了第一条上下文菜单专属命令语义：
+
+- `graph.disconnect-node-edges`
+
+当前这条链路已经形成闭环：
+
+- 菜单目标命中
+- 右键前选择态同步
+- 菜单模型构建
+- 菜单动作分发
+- 命令进入 reducer
+- Graph 文档边关系真实更新
+
+这意味着第 3 步现在已经不是“菜单看起来像是可用”，而是严格意义上的可执行功能。
+
+当前判断：
+
+- 第二阶段关于 `Graph Canvas` 的第 3 步已经严格意义上完成
+- 后续第 4 步可以继续补更完整的命令层能力，例如端口级断线与更细粒度的上下文动作
+### 6.1.18 Graph Canvas 命令层第一轮已补齐（已完成）
+
+在第一版右键菜单已经可用之后，当前仓库已经继续完成了 `Graph Canvas` 的第 4 步实现：
+
+- 将命令层从“节点级断线已具备”继续补齐到“端口级断线也具备”
+- 把新命令贯通到 `command types -> reducer -> controller -> Graph Canvas 入口`
+- 让端口级断线不再只是理论接口，而是能在画布上被真实触发和验证
+
+当前已经补齐的能力包括：
+
+- `graph.disconnect-node-edges`
+- `graph.disconnect-port-edges`
+- `GraphWorkspaceController.disconnectNodeEdges(...)`
+- `GraphWorkspaceController.disconnectPortEdges(...)`
+
+当前对应的可验证入口包括：
+
+- 节点右键菜单中的 `断开所有连线`
+- 端口右键菜单中的 `断开此端点所有连线`
+
+这意味着第 4 步当前已经形成完整闭环：
+
+- 命令类型已定义
+- reducer 已处理
+- controller 已提供稳定调用入口
+- Graph Canvas 已提供真实触发入口
+- 构建与类型检查已验证通过
+
+当前判断：
+
+- 第二阶段关于 `Graph Canvas` 的第 4 步已经严格意义上完成
+- 后续如果继续推进，可进入更细粒度命令，例如仅断开输入、仅断开输出、边中插入节点等增强能力
 ### 6.2 第三阶段：填入最小 Authoring 数据闭环（待开始）
 
 建议填入：
@@ -392,7 +722,7 @@ flowchart LR
 - 未来 Toolchain 位置
 - 未来引擎集成位置
 
-### 7.2 第二阶段：工作台层升级（待开始）
+### 7.2 第二阶段：工作台层升级（部分已完成）
 
 当 Tauri 盒子已经稳定，且开始填入主工作台界面时，前端目录应维持“页面壳 + 功能面板”的组织方式：
 
@@ -406,6 +736,18 @@ flowchart LR
 - `shared/`：通用组件与样式
 
 这一阶段仍不要求把复杂编辑器逻辑抽成独立核心层，因为此时主要还是在验证工作台形态。
+当前已经落地的目录结果包括：
+
+- `features/workbench/` 已承接工作台页面
+- `features/scene/` 已承接 Scene Viewport 及其白模视口骨架
+- `features/inspector/` 已承接 Inspector 占位面板
+- `features/status-bar/` 已承接底部状态栏
+- `app/layout/` 已承接工作台整体布局
+- `app/commands/` 已开始承接菜单命令定义与桥接
+- `host/` 已继续承接前端侧宿主调用
+- `shared/logging/`、`shared/theme/`、`shared/components/` 已形成基础共享层
+
+因此，第二阶段目录层面已经不是“待开始”，而是已经进入可继续扩展的状态。
 
 当前对第二阶段前端结构的补充约束：
 
@@ -424,21 +766,33 @@ flowchart LR
 - 命令系统、选择态、Undo/Redo 开始出现
 - `.blueprint.json` 开始形成明确编辑态结构
 
-前端目录应升级，抽出独立 `authoring/`：
+前端目录应升级，抽出独立 uthoring/：
 
-- `authoring/graph/`
-- `authoring/inspector/`
-- `authoring/timeline/`
-- `authoring/document/`
-- `authoring/command/`
-- `authoring/selection/`
-- `authoring/validation/`
-- `authoring/services/`
+- uthoring/graph/
+- uthoring/inspector/
+- uthoring/timeline/
+- uthoring/document/
+- uthoring/command/
+- uthoring/selection/
+- uthoring/validation/
+- uthoring/services/
+
+同时，Graph Workspace 相关目录建议优先演进为：
+
+- src/features/graph/document/
+- src/features/graph/commands/
+- src/features/graph/state/
+- src/features/graph/definitions/
+- src/features/graph/ui/
+- src/features/graph/binding/
 
 此时需要明确一条约束：
 
-- `features/` 负责页面与组合
-- `authoring/` 负责真正的编辑器核心逻辑
+- eatures/ 负责页面与组合
+- uthoring/ 负责真正的编辑器核心逻辑
+- 文档模型不跟具体节点图库绑死
+- 交互状态不跟持久化数据混在一起
+- Inspector 绑定不直接侵入 Graph 文档
 
 ### 7.4 第四阶段：Contract 与 Toolchain 边界提升（待开始）
 
@@ -554,7 +908,7 @@ flowchart LR
 - 命令入口验证
 - 构建成功验证
 
-### 8.4 第二阶段建议新增的验证（待开始）
+### 8.4 第二阶段建议新增的验证（部分已完成）
 
 当第二阶段开始填入 UI 工作台时，建议新增以下基础验证：
 
@@ -564,7 +918,22 @@ flowchart LR
 - Scene Viewport 初始加载验证
 - 顶部命令栏基础交互验证
 
-这些验证当前不要求重型自动化，但至少应具备手动自测脚本或轻量 UI 回归样例。
+当前已经部分建立的内容包括：
+
+- 工作台启动与挂载验证
+- Scene Viewport 初始加载验证
+- 顶部菜单命令入口验证
+- 布局缓存与重置布局验证
+- 运行时异常与日志回看能力
+
+当前仍待补充的内容包括：
+
+- Graph / Scene / Inspector 三方联动验证
+- 基础选择态切换验证
+- 更明确的手动自测脚本
+- 轻量 UI 回归样例
+
+这些验证当前不要求重型自动化，但至少应逐步形成稳定的手动验证路径。
 
 ---
 
@@ -629,7 +998,7 @@ SceneBlueprint 当前阶段的实现策略已经调整为：
 
 - 第一阶段先实现 Tauri 盒子
 - 第一阶段桌面宿主骨架已经落地
-- 下一步进入第二阶段工作台 UI 骨架搭建
+- 第二阶段工作台第一轮骨架已经落地
 - 第二阶段应优先建立 `Graph + Scene Viewport + Inspector + Bottom Panels` 的正式工作台
 - 后续再逐步往里面填充 Authoring、Toolchain、Preview、Integration 等内容
 
@@ -644,8 +1013,16 @@ SceneBlueprint 当前阶段的实现策略已经调整为：
 
 ## 文档信息
 
-- 版本：v0.4
+- 版本：v0.6
 - 创建日期：2026-03-28
 - 更新策略：随当前阶段实施重点逐步修订
+
+
+
+
+
+
+
+
 
 

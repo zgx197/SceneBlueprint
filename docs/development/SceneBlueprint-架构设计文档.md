@@ -1,7 +1,7 @@
 # SceneBlueprint 架构设计文档
 
-> 版本：v1.4  
-> 日期：2026-03-28  
+> 版本：v1.5  
+> 日期：2026-03-29  
 > 状态：设计阶段，已完成第一阶段桌面盒子落地
 
 ---
@@ -263,8 +263,83 @@ SceneBlueprint 的真正核心资产应当是：
 - `Infra Core` 不参与业务语义定义
 - `Engine Integration` 只能消费 contract，不定义 contract
 
----
+### 4.4 图编辑基础设施分层原则（已确认）
 
+结合旧 Unity 版本的 `com.zgx197.nodegraph` 与 `com.zgx197.sceneblueprint` 可以确认：
+
+- 旧 `nodegraph` 承担的并不只是渲染职责，而是完整的图编辑基础设施
+- 旧 `SceneBlueprint` 更多承担业务语义、编辑器工作流、场景绑定、分析与导出职责
+- 这套“基础图编辑层”和“业务语义层”分离的方向是正确的，应继续保留
+
+从旧方案提炼出来，外部编辑器中的 Graph Workspace 至少应拆成以下稳定层：
+
+| 层 | 主要职责 | 说明 |
+|----|----------|------|
+| Graph Document | 节点、端口、边、分组、子图、注释等纯编辑态数据 | 只负责稳定可序列化结构 |
+| Graph Commands | 新增、删除、连接、断开、移动、分组、折叠、撤销重做 | 所有写操作应通过命令进入 |
+| Graph View State | 选中、悬停、拖拽中、视口、缩放、连接预览等临时态 | 不应混入文档持久化数据 |
+| Graph Definitions | 节点类型、端口语义、分类、搜索元数据 | 由业务定义层适配进入 |
+| Graph UI Adapter | 把文档与状态映射到具体节点图库或视图实现 | 可替换，不应反向绑死核心模型 |
+| Inspector Binding | 选中对象到属性面板的绑定与投影 | 不等同于 Graph Document 本身 |
+
+这里最重要的长期约束是：
+
+- Graph UI 不是 Graph Core
+- Inspector 不是节点图的附属区域，而是业务编辑入口
+- 场景绑定、引擎对象引用、宿主对象引用不应直接侵入 Graph Document
+- 第三方节点图库只能承担交互壳或显示壳，不能定义 SceneBlueprint 的核心 Authoring 模型
+
+### 4.5 旧 Unity 架构经验的继承与重构（已确认）
+
+旧 Unity 版本给我们的真正启发，不是要继续复刻 IMGUI 时代的渲染实现，而是要继承它的边界意识。
+
+当前已经确认应继承的经验包括：
+
+- 用图文档模型承载稳定编辑态，而不是让 UI 直接改散落状态
+- 用命令系统统一承接结构变更，为撤销重做和后续批量操作留口
+- 用视图状态单独承接选择态、悬停态、拖拽态和视口状态
+- 用业务注册表或类型目录把 SceneBlueprint 节点定义适配进 Graph 基础设施
+- 用独立 Binding Context 承接场景引用、资源引用、Marker 引用等宿主相关数据
+- 用 Session 统一编排 Graph、Scene、Inspector、Analysis、Export、Logging 等工作区能力
+
+当前已经确认不应照搬的内容包括：
+
+- 不应优先在 Web 端复刻 `GraphFrameBuilder + 手写渲染器` 作为首轮路线
+- 不应过早把节点内部内联编辑做成主工作流
+- 不应把 Unity 时代为了适配 IMGUI 而出现的平台控件抽象原样搬到 React 层
+
+对当前外部编辑器而言，更合理的理解是：
+
+- 旧 `nodegraph` 的“文档模型 / 命令 / 交互状态 / 类型目录”值得继承
+- 旧 `SceneBlueprint` 的“业务语义 / Inspector / Binding / Marker / Analysis / Session”值得继承
+- 旧 Unity 渲染器本身不应成为新项目必须复刻的目标
+
+### 4.6 当前 Graph Workspace 的架构落点（已确认）
+
+基于上述判断，当前外部编辑器中的 Graph Workspace 推荐落点如下：
+
+```mermaid
+flowchart LR
+    A["SceneBlueprint Definitions"] --> B["Graph Definitions"]
+    B --> C["Graph Document"]
+    C --> D["Graph Commands"]
+    C --> E["Graph View State"]
+    D --> F["Graph UI Adapter"]
+    E --> F
+    F --> G["Graph Workspace UI"]
+    G --> H["Inspector Binding"]
+    I["Scene / Marker / Host Binding"] --> H
+    H --> J["Inspector"]
+```
+
+这张图表达的不是最终代码结构，而是当前应坚持的依赖方向：
+
+- SceneBlueprint 的业务定义先适配成 Graph 可消费的类型定义
+- Graph UI 只消费文档、命令和视图状态，不反向定义它们
+- Inspector 通过绑定层响应 Graph 与 Scene 的统一选择态
+- 场景对象、Marker、宿主桥接通过 Binding 层进入，不直接污染 Graph Core
+
+---
 ## 5. 技术选型与理由
 
 ### 5.1 当前推荐路线
@@ -718,9 +793,11 @@ SceneBlueprint 不应回退到以下路线：
 
 ## 文档信息
 
-- 版本：v1.4
+- 版本：v1.5
 - 创建日期：2026-03-26
 - 更新说明：
+  - v1.5：补充旧 Unity 
+odegraph / SceneBlueprint 的职责边界分析，明确 Graph Workspace 的长期分层原则与当前外部编辑器中的架构落点
   - v1.4：补充当前实现状态与许可证决策，明确第一阶段 Tauri 桌面盒子已建立
   - v1.3：强化“外部编辑器工具”定位，补充外部编辑器架构原则、技术选型理由、行业案例启发与长期边界约束
 
@@ -731,4 +808,6 @@ SceneBlueprint 不应回退到以下路线：
 - 当实现层验证出新的稳定边界时，再把它们提升到本架构文档
 - 当只是阶段性实现方案变化时，优先更新《实现与迭代文档》
 - 当某项技术选型发生变化时，必须先重新审视本文件中的架构原则是否仍然成立
+
+
 
