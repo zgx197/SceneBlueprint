@@ -30,8 +30,10 @@ pub fn run() {
             commands::app::ping_host,
             commands::app::write_log_entry,
             commands::app::get_log_file_path,
+            commands::workspace::get_workspace_graph_file_info,
+            commands::workspace::read_workspace_graph_file,
+            commands::workspace::write_workspace_graph_file,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run SceneBlueprint desktop shell");
 }
-

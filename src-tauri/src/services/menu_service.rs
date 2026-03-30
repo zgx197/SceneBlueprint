@@ -53,9 +53,9 @@ fn unavailable_menu_item<R: Runtime, M: Manager<R>>(
 pub fn build_app_menu<R: Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<Menu<R>> {
     let file_new_project = unavailable_menu_item(manager, COMMAND_FILE_NEW_PROJECT, "新建项目")?;
     let file_open_project = unavailable_menu_item(manager, COMMAND_FILE_OPEN_PROJECT, "打开项目")?;
-    let file_save_project = unavailable_menu_item(manager, COMMAND_FILE_SAVE_PROJECT, "保存项目")?;
-    let edit_undo = unavailable_menu_item(manager, COMMAND_EDIT_UNDO, "撤销")?;
-    let edit_redo = unavailable_menu_item(manager, COMMAND_EDIT_REDO, "重做")?;
+    let file_save_project = MenuItemBuilder::with_id(COMMAND_FILE_SAVE_PROJECT, "保存项目").build(manager)?;
+    let edit_undo = MenuItemBuilder::with_id(COMMAND_EDIT_UNDO, "撤销").build(manager)?;
+    let edit_redo = MenuItemBuilder::with_id(COMMAND_EDIT_REDO, "重做").build(manager)?;
     let tools_project_settings =
         unavailable_menu_item(manager, COMMAND_TOOLS_PROJECT_SETTINGS, "项目设置")?;
     let tools_preferences =
@@ -119,3 +119,4 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event_id: &str) {
         },
     );
 }
+

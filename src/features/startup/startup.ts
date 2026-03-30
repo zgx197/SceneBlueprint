@@ -219,16 +219,8 @@ export async function runStartupSequence(
   setStage("layout", "completed", layoutLabel);
 
   setStage("viewport", "running");
-
-  try {
-    await import("../scene/SceneViewportCanvas");
-    logger.log("info", "startup", "Scene Viewport 3D 模块预热完成");
-    setStage("viewport", "completed", "Scene Viewport 已完成预热");
-  } catch (error) {
-    const message = toErrorMessage(error);
-    logger.log("warn", "startup", `Scene Viewport 预热失败：${message}`);
-    setStage("viewport", "failed", `视口预热失败：${message}`);
-  }
+  logger.log("info", "startup", "Scene Viewport 将在首次显示时按需懒加载，当前跳过 3D 模块预热。");
+  setStage("viewport", "completed", "Scene Viewport 将在首次打开时懒加载");
 
   return {
     appInfo,
@@ -236,3 +228,4 @@ export async function runStartupSequence(
     stages: cloneStages(stages),
   };
 }
+

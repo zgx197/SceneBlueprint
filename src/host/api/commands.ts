@@ -1,5 +1,13 @@
 import { invokeHost } from "../bridge/tauriBridge";
-import type { AppInfo, PingResult } from "../types/host";
+import type {
+  AppInfo,
+  PingResult,
+  ReadWorkspaceGraphFileRequest,
+  ReadWorkspaceGraphFileResult,
+  WorkspaceGraphFileInfo,
+  WriteWorkspaceGraphFileRequest,
+  WriteWorkspaceGraphFileResult,
+} from "../types/host";
 
 export function readAppInfo(): Promise<AppInfo> {
   return invokeHost<AppInfo>("get_app_info");
@@ -11,4 +19,20 @@ export function pingHost(): Promise<PingResult> {
 
 export function readLogFilePath(): Promise<string> {
   return invokeHost<string>("get_log_file_path");
+}
+
+export function readWorkspaceGraphFileInfo(): Promise<WorkspaceGraphFileInfo> {
+  return invokeHost<WorkspaceGraphFileInfo>("get_workspace_graph_file_info");
+}
+
+export function readWorkspaceGraphFile(
+  request: ReadWorkspaceGraphFileRequest = {},
+): Promise<ReadWorkspaceGraphFileResult> {
+  return invokeHost<ReadWorkspaceGraphFileResult>("read_workspace_graph_file", { request });
+}
+
+export function writeWorkspaceGraphFile(
+  request: WriteWorkspaceGraphFileRequest,
+): Promise<WriteWorkspaceGraphFileResult> {
+  return invokeHost<WriteWorkspaceGraphFileResult>("write_workspace_graph_file", { request });
 }

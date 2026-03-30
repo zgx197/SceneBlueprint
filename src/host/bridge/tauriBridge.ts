@@ -1,5 +1,11 @@
 import { writeAppLog } from "../../shared/logging/LogContext";
-import type { AppInfo, PingResult } from "../types/host";
+import type {
+  AppInfo,
+  PingResult,
+  ReadWorkspaceGraphFileResult,
+  WorkspaceGraphFileInfo,
+  WriteWorkspaceGraphFileResult,
+} from "../types/host";
 
 type InvokeFn = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -8,6 +14,9 @@ declare global {
     __TAURI_INTERNALS__?: unknown;
   }
 }
+
+const MOCK_WORKSPACE_GRAPH_FILE_CONTENT_KEY = "sceneblueprint.mock.workspace-graph-file.content";
+const MOCK_WORKSPACE_GRAPH_FILE_PATH = "browser://SceneBlueprint.graph.json";
 
 function describeError(error: unknown) {
   if (error instanceof Error && error.message) {
@@ -61,7 +70,7 @@ export async function invokeHost<T>(
 
   if (!invoke) {
     writeAppLog("warn", "bridge", `宿主命令 ${command} 未进入 Tauri Runtime，返回 mock 数据。`);
-    return readMock(command) as T;
+    return readMock(command, args) as T;
   }
 
   try {
@@ -75,22 +84,66 @@ export async function invokeHost<T>(
   }
 }
 
-function readMock(command: string): AppInfo | PingResult | string {
+function buildMockWorkspaceFileInfo(): WorkspaceGraphFileInfo {
+  const exists = typeof window !== "undefined" && window.localStorage.getItem(MOCK_WORKSPACE_GRAPH_FILE_CONTENT_KEY) !== null;
+
+  return {
+    path: MOCK_WORKSPACE_GRAPH_FILE_PATH,
+    exists,
+    backend: "browser-mock",
+  };
+}
+
+function readMock(command: string, args?: Record<string, unknown>) {
   if (command === "get_app_info") {
     return {
       name: "SceneBlueprint",
       version: "0.1.0-dev",
       runtime: "Browser Mock",
       platform: "web",
-    };
+    } satisfies AppInfo;
   }
 
   if (command === "get_log_file_path") {
     return "浏览器占位模式下没有本地日志文件路径。";
   }
 
+  if (command === "get_workspace_graph_file_info") {
+    return buildMockWorkspaceFileInfo();
+  }
+
+  if (command === "read_workspace_graph_file") {
+    const content = typeof window !== "undefined"
+      ? window.localStorage.getItem(MOCK_WORKSPACE_GRAPH_FILE_CONTENT_KEY)
+      : null;
+
+    return {
+      ...buildMockWorkspaceFileInfo(),
+      content,
+      readAt: new Date().toISOString(),
+    } satisfies ReadWorkspaceGraphFileResult;
+  }
+
+  if (command === "write_workspace_graph_file") {
+    const request = args?.request;
+    const content =
+      request && typeof request === "object" && request !== null && "content" in request
+        ? request.content
+        : null;
+
+    if (typeof window !== "undefined" && typeof content === "string") {
+      window.localStorage.setItem(MOCK_WORKSPACE_GRAPH_FILE_CONTENT_KEY, content);
+    }
+
+    return {
+      ...buildMockWorkspaceFileInfo(),
+      exists: true,
+      writtenAt: new Date().toISOString(),
+    } satisfies WriteWorkspaceGraphFileResult;
+  }
+
   return {
     message: "当前运行在浏览器占位模式，Rust 宿主尚未接管。",
     timestamp: new Date().toISOString(),
-  };
+  } satisfies PingResult;
 }
