@@ -1,15 +1,22 @@
 import { Panel } from "../../shared/components/Panel";
+import type { GraphWorkspaceController } from "./GraphWorkspaceController";
+import { GraphCanvas } from "./ui/GraphCanvas";
 
-export function GraphPanel() {
+interface GraphPanelProps {
+  controller: GraphWorkspaceController;
+}
+
+export function GraphPanel(props: GraphPanelProps) {
+  const { controller } = props;
+
   return (
     <Panel
       title="Graph Workspace"
-      description="主 Authoring 画布区域，后续承接节点图、选择态、命令系统与编辑交互。"
+      description="节点图主创作区"
+      bodyClassName="sb-graph-panel-body"
     >
-      <div className="sb-placeholder">
-        <p>当前阶段：先明确正式编辑器主画布位置。</p>
-        <p>后续这里会承接 Node Graph、Selection、Command、Undo/Redo。</p>
-      </div>
+      <GraphCanvas controller={controller} />
     </Panel>
   );
 }
+

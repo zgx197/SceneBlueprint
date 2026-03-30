@@ -7,6 +7,7 @@ import type { AppInfo, PingResult } from "../../host/types/host";
 import { RuntimeErrorBoundary } from "../../shared/components/RuntimeErrorBoundary";
 import { useAppLogContext } from "../../shared/logging/LogContext";
 import { GraphPanel } from "../graph/GraphPanel";
+import { useGraphWorkspaceController } from "../graph/GraphWorkspaceController";
 import { InspectorPanel } from "../inspector/InspectorPanel";
 import { SceneViewportPanel } from "../scene/SceneViewportPanel";
 import { StatusBar } from "../status-bar/StatusBar";
@@ -15,11 +16,7 @@ interface WorkbenchPageProps {
   initialAppInfo?: AppInfo | null;
 }
 
-const layoutStorageIds = [
-  "sb-workbench-shell",
-  "sb-workbench-left",
-  "sb-workbench-top",
-] as const;
+const layoutStorageIds = ["sb-workbench-shell", "sb-workbench-left", "sb-workbench-top"] as const;
 
 function WorkbenchFallback() {
   return (
@@ -36,6 +33,7 @@ function WorkbenchFallback() {
 function WorkbenchPageContent(props: WorkbenchPageProps) {
   const { initialAppInfo = null } = props;
   const { entries, log } = useAppLogContext();
+  const graphWorkspaceController = useGraphWorkspaceController();
   const [appInfo, setAppInfo] = useState<AppInfo | null>(initialAppInfo);
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
 
@@ -101,6 +99,15 @@ function WorkbenchPageContent(props: WorkbenchPageProps) {
     const unregisterLogPath = registerAppCommand(appCommandIds.developPrintLogPath, async () => {
       await handlePrintLogPath();
     });
+    const unregisterSaveProject = registerAppCommand(appCommandIds.fileSaveProject, async () => {
+      await graphWorkspaceController.saveWorkspaceFile();
+    });
+    const unregisterUndo = registerAppCommand(appCommandIds.editUndo, () => {
+      graphWorkspaceController.undo();
+    });
+    const unregisterRedo = registerAppCommand(appCommandIds.editRedo, () => {
+      graphWorkspaceController.redo();
+    });
     const unregisterResetLayout = registerAppCommand(appCommandIds.viewResetLayout, () => {
       handleResetLayout();
     });
@@ -112,33 +119,74 @@ function WorkbenchPageContent(props: WorkbenchPageProps) {
     return () => {
       unregisterPing();
       unregisterLogPath();
+      unregisterSaveProject();
+      unregisterUndo();
+      unregisterRedo();
       unregisterResetLayout();
       unregisterAbout();
     };
-  }, [appInfo, handlePing, handlePrintLogPath, handleResetLayout, log]);
+  }, [appInfo, graphWorkspaceController, handlePing, handlePrintLogPath, handleResetLayout, log]);
+
+  const graphSummary = useMemo(() => {
+    return {
+      graphId: graphWorkspaceController.document.id,
+      nodeCount: graphWorkspaceController.document.nodes.length,
+      edgeCount: graphWorkspaceController.document.edges.length,
+      zoom: graphWorkspaceController.viewState.viewport.zoom,
+      selectionKind: graphWorkspaceController.selectionTarget.kind,
+      savedAt:
+        graphWorkspaceController.workspaceFileSnapshot?.writtenAt ??
+        graphWorkspaceController.persistenceSnapshot.savedAt,
+    };
+  }, [
+    graphWorkspaceController.document.edges.length,
+    graphWorkspaceController.document.id,
+    graphWorkspaceController.document.nodes.length,
+    graphWorkspaceController.persistenceSnapshot.savedAt,
+    graphWorkspaceController.selectionTarget.kind,
+    graphWorkspaceController.viewState.viewport.zoom,
+    graphWorkspaceController.workspaceFileSnapshot?.writtenAt,
+  ]);
 
   const toolbarItems = useMemo(() => {
     const hostLabel = appInfo ? `${appInfo.runtime} / ${appInfo.platform}` : "读取宿主中";
     const bridgeLabel = pingResult ? "已验证" : "待验证";
 
     return [
-      { label: "项目", value: "未打开项目" },
+      { label: "项目", value: graphWorkspaceController.workspaceFileSnapshot?.path ?? "未建立正式项目文件" },
       { label: "工作区", value: "主工作台" },
       { label: "模式", value: "Authoring" },
       { label: "宿主", value: hostLabel },
       { label: "通信", value: bridgeLabel },
     ];
-  }, [appInfo, pingResult]);
+  }, [appInfo, graphWorkspaceController.workspaceFileSnapshot?.path, pingResult]);
 
   return (
     <WorkbenchLayout
       toolbarTitle="主工作台"
       toolbarSubtitle="原生菜单负责全局命令，顶部工具栏承载当前上下文信息。"
       toolbarItems={toolbarItems}
-      graph={<GraphPanel />}
+      graph={<GraphPanel controller={graphWorkspaceController} />}
       scene={<SceneViewportPanel />}
-      inspector={<InspectorPanel appInfo={appInfo} pingResult={pingResult} />}
-      statusBar={<StatusBar entries={entries} appInfo={appInfo} pingResult={pingResult} />}
+      inspector={
+        <InspectorPanel
+          appInfo={appInfo}
+          pingResult={pingResult}
+          selectionTarget={graphWorkspaceController.selectionTarget}
+          workspaceFileInfo={graphWorkspaceController.workspaceFileSnapshot}
+          onPatchNodePayload={(nodeId, patch) => {
+            graphWorkspaceController.patchNodePayload(nodeId, patch);
+          }}
+        />
+      }
+      statusBar={
+        <StatusBar
+          entries={entries}
+          appInfo={appInfo}
+          pingResult={pingResult}
+          graphSummary={graphSummary}
+        />
+      }
     />
   );
 }

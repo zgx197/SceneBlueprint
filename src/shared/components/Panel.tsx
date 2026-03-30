@@ -2,7 +2,7 @@ import type { PropsWithChildren } from "react";
 
 interface PanelProps extends PropsWithChildren {
   title: string;
-  description: string;
+  description?: string;
   className?: string;
   bodyClassName?: string;
 }
@@ -17,8 +17,10 @@ export function Panel(props: PanelProps) {
   return (
     <section className={joinClassNames("sb-panel", className)}>
       <header className="sb-panel-header">
-        <h2>{title}</h2>
-        <p>{description}</p>
+        <div className="sb-panel-header-main">
+          <h2>{title}</h2>
+          {description ? <p>{description}</p> : null}
+        </div>
       </header>
       <div className={joinClassNames("sb-panel-body", bodyClassName)}>{children}</div>
     </section>

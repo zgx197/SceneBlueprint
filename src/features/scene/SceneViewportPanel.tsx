@@ -42,7 +42,7 @@ export function SceneViewportPanel() {
   return (
     <Panel
       title="Scene Viewport"
-      description="预留场景白模与 Marker 空间视窗，后续承接相机、空间绑定与场景选择态。"
+      description="场景白模与 Marker 视窗"
       className="sb-scene-panel"
       bodyClassName="sb-scene-panel-body"
     >
@@ -58,3 +58,4 @@ export function SceneViewportPanel() {
     </Panel>
   );
 }
+
