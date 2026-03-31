@@ -8,6 +8,15 @@ export interface GraphFrameBounds {
   height: number;
 }
 
+export interface GraphFrameBackground {
+  width: number;
+  height: number;
+  gridSize: number;
+  backgroundColor: string;
+  minorLineColor: string;
+  majorLineColor: string;
+}
+
 export interface GraphFramePort {
   id: PortId;
   key: string;
@@ -32,18 +41,68 @@ export interface GraphFramePortRow {
   output?: GraphFramePort;
 }
 
+export interface GraphFrameNodeContentLine {
+  key: string;
+  label: string;
+  value: string;
+}
+
+export interface GraphFrameNodeContent {
+  mode: "summary";
+  summaryText?: string;
+  detailLines: GraphFrameNodeContentLine[];
+}
+
 export interface GraphFrameNode {
   id: string;
   title: string;
   typeId: string;
   category?: string;
-  summary?: string;
+  description?: string;
   bounds: GraphFrameBounds;
   selected: boolean;
   hovered: boolean;
   rows: GraphFramePortRow[];
   inputs: GraphFramePort[];
   outputs: GraphFramePort[];
+  content: GraphFrameNodeContent;
+}
+
+export interface GraphFrameGroup {
+  id: string;
+  title: string;
+  bounds: GraphFrameBounds;
+  nodeIds: string[];
+  color?: string;
+  padding: number;
+  selected: boolean;
+  hovered: boolean;
+}
+
+export interface GraphFrameComment {
+  id: string;
+  text: string;
+  bounds: GraphFrameBounds;
+  tone: "neutral" | "info" | "success" | "warning" | "danger";
+  selected: boolean;
+  hovered: boolean;
+}
+
+export interface GraphFrameSubgraph {
+  id: string;
+  title: string;
+  bounds: GraphFrameBounds;
+  nodeIds: string[];
+  color?: string;
+  description?: string;
+  entryNodeId?: string;
+  selected: boolean;
+  hovered: boolean;
+}
+
+export interface GraphFrameEdgeLabel {
+  text: string;
+  position: GraphPoint;
 }
 
 export interface GraphFrameEdge {
@@ -60,7 +119,17 @@ export interface GraphFrameEdge {
   end: GraphPoint;
   path: string;
   midpoint: GraphPoint;
+  label?: GraphFrameEdgeLabel;
   selected: boolean;
+}
+
+export interface GraphFrameDecoration {
+  id: string;
+  target: "node" | "edge";
+  targetId: string;
+  position: GraphPoint;
+  tone: "info" | "warning" | "error";
+  label: string;
 }
 
 export interface GraphFrameOverlay {
@@ -77,6 +146,13 @@ export interface GraphFrameOverlay {
   path: string;
 }
 
+export interface GraphFrameMiniMap {
+  enabled: boolean;
+  contentWidth: number;
+  contentHeight: number;
+  viewportRect: GraphFrameBounds | null;
+}
+
 export interface GraphFrameSummary {
   nodeCount: number;
   edgeCount: number;
@@ -86,8 +162,14 @@ export interface GraphFrameSummary {
 
 export interface GraphFrame {
   viewport: GraphViewportState;
+  background: GraphFrameBackground;
+  groups: GraphFrameGroup[];
+  subgraphs: GraphFrameSubgraph[];
+  comments: GraphFrameComment[];
   nodes: GraphFrameNode[];
   edges: GraphFrameEdge[];
   overlays: GraphFrameOverlay[];
+  decorations: GraphFrameDecoration[];
+  minimap: GraphFrameMiniMap | null;
   summary: GraphFrameSummary;
 }

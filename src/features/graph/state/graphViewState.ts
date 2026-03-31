@@ -1,4 +1,11 @@
-import type { EdgeId, NodeId, PortId } from "../document/graphDocument";
+import type {
+  EdgeId,
+  GraphCommentId,
+  GraphGroupId,
+  GraphSubgraphId,
+  NodeId,
+  PortId,
+} from "../document/graphDocument";
 
 export interface GraphViewportState {
   zoom: number;
@@ -9,6 +16,14 @@ export interface GraphViewportState {
 export interface GraphSelectionState {
   selectedNodeIds: NodeId[];
   selectedEdgeIds: EdgeId[];
+  selectedGroupIds: GraphGroupId[];
+  selectedCommentIds: GraphCommentId[];
+  selectedSubgraphIds: GraphSubgraphId[];
+  primarySelectedNodeId?: NodeId;
+  primarySelectedEdgeId?: EdgeId;
+  primarySelectedGroupId?: GraphGroupId;
+  primarySelectedCommentId?: GraphCommentId;
+  primarySelectedSubgraphId?: GraphSubgraphId;
 }
 
 export interface GraphConnectionPreviewState {
@@ -22,6 +37,9 @@ export interface GraphInteractionState {
   draggingNodeIds: NodeId[];
   hoveredNodeId?: NodeId;
   hoveredPortId?: PortId;
+  hoveredGroupId?: GraphGroupId;
+  hoveredCommentId?: GraphCommentId;
+  hoveredSubgraphId?: GraphSubgraphId;
   marqueeSelection?: {
     startX: number;
     startY: number;
@@ -57,6 +75,14 @@ export function createInitialGraphViewState(options: CreateGraphViewStateOptions
     selection: {
       selectedNodeIds: [],
       selectedEdgeIds: [],
+      selectedGroupIds: [],
+      selectedCommentIds: [],
+      selectedSubgraphIds: [],
+      primarySelectedNodeId: undefined,
+      primarySelectedEdgeId: undefined,
+      primarySelectedGroupId: undefined,
+      primarySelectedCommentId: undefined,
+      primarySelectedSubgraphId: undefined,
       ...selection,
     },
     connectionPreview: {

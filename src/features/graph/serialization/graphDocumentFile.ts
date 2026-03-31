@@ -1,5 +1,6 @@
 import type { GraphWorkspaceRuntimeState } from "../commands/graphCommands";
 import type {
+  GraphAnnotationTone,
   GraphComment,
   GraphDocument,
   GraphEdge,
@@ -10,6 +11,7 @@ import type {
   GraphSubgraph,
 } from "../document/graphDocument";
 import { createInitialGraphViewState, type GraphSelectionState, type GraphViewportState } from "../state/graphViewState";
+import { normalizeGraphWorkspaceRuntimeState } from "../runtime/graphRuntimeStateMigration";
 
 export const GRAPH_DOCUMENT_FILE_SCHEMA = "sceneblueprint.graph-document.v1" as const;
 
@@ -48,6 +50,12 @@ function readStringArray(value: unknown): string[] | null {
 
   const items = value.filter((entry): entry is string => typeof entry === "string");
   return items.length === value.length ? items : null;
+}
+
+function readAnnotationTone(value: unknown): GraphAnnotationTone | undefined {
+  return value === "neutral" || value === "info" || value === "success" || value === "warning" || value === "danger"
+    ? value
+    : undefined;
 }
 
 function sanitizeNodeUi(value: unknown): GraphNodeUiState | undefined {
@@ -176,12 +184,20 @@ function sanitizeGraphGroup(value: unknown): GraphGroup {
   const id = readString(value.id);
   const title = readString(value.title);
   const nodeIds = readStringArray(value.nodeIds);
+  const color = readString(value.color) ?? undefined;
+  const padding = readNumber(value.padding) ?? undefined;
 
   if (!id || !title || !nodeIds) {
     throw new Error("Graph 分组缺少必要字段。");
   }
 
-  return { id, title, nodeIds };
+  return {
+    id,
+    title,
+    nodeIds,
+    color,
+    padding,
+  };
 }
 
 function sanitizeGraphComment(value: unknown): GraphComment {
@@ -191,12 +207,26 @@ function sanitizeGraphComment(value: unknown): GraphComment {
 
   const id = readString(value.id);
   const text = readString(value.text);
+  const positionRecord = isRecord(value.position) ? value.position : {};
+  const sizeRecord = isRecord(value.size) ? value.size : {};
 
   if (!id || text === null) {
     throw new Error("Graph 注释缺少必要字段。");
   }
 
-  return { id, text };
+  return {
+    id,
+    text,
+    position: {
+      x: readNumber(positionRecord.x) ?? 0,
+      y: readNumber(positionRecord.y) ?? 0,
+    },
+    size: {
+      width: readNumber(sizeRecord.width) ?? 240,
+      height: readNumber(sizeRecord.height) ?? 132,
+    },
+    tone: readAnnotationTone(value.tone) ?? "info",
+  };
 }
 
 function sanitizeGraphSubgraph(value: unknown): GraphSubgraph {
@@ -207,12 +237,22 @@ function sanitizeGraphSubgraph(value: unknown): GraphSubgraph {
   const id = readString(value.id);
   const title = readString(value.title);
   const nodeIds = readStringArray(value.nodeIds);
+  const color = readString(value.color) ?? undefined;
+  const entryNodeId = readString(value.entryNodeId) ?? undefined;
+  const description = readString(value.description) ?? undefined;
 
   if (!id || !title || !nodeIds) {
     throw new Error("Graph 子图缺少必要字段。");
   }
 
-  return { id, title, nodeIds };
+  return {
+    id,
+    title,
+    nodeIds,
+    color,
+    entryNodeId,
+    description,
+  };
 }
 
 function sanitizeGraphDocument(value: unknown): GraphDocument {
@@ -247,28 +287,60 @@ function sanitizeGraphDocument(value: unknown): GraphDocument {
 }
 
 function sanitizeWorkspaceSnapshot(value: unknown): GraphDocumentWorkspaceSnapshot {
+  const initialState = createInitialGraphViewState();
   if (!isRecord(value)) {
     return {
-      viewport: createInitialGraphViewState().viewport,
-      selection: createInitialGraphViewState().selection,
+      viewport: initialState.viewport,
+      selection: initialState.selection,
     };
   }
 
   const viewportRecord = isRecord(value.viewport) ? value.viewport : {};
   const selectionRecord = isRecord(value.selection) ? value.selection : {};
   const viewport = {
-    zoom: readNumber(viewportRecord.zoom) ?? createInitialGraphViewState().viewport.zoom,
-    panX: readNumber(viewportRecord.panX) ?? createInitialGraphViewState().viewport.panX,
-    panY: readNumber(viewportRecord.panY) ?? createInitialGraphViewState().viewport.panY,
+    zoom: readNumber(viewportRecord.zoom) ?? initialState.viewport.zoom,
+    panX: readNumber(viewportRecord.panX) ?? initialState.viewport.panX,
+    panY: readNumber(viewportRecord.panY) ?? initialState.viewport.panY,
   };
   const selectedNodeIds = readStringArray(selectionRecord.selectedNodeIds) ?? [];
   const selectedEdgeIds = readStringArray(selectionRecord.selectedEdgeIds) ?? [];
+  const selectedGroupIds = readStringArray(selectionRecord.selectedGroupIds) ?? [];
+  const selectedCommentIds = readStringArray(selectionRecord.selectedCommentIds) ?? [];
+  const selectedSubgraphIds = readStringArray(selectionRecord.selectedSubgraphIds) ?? [];
+  const primarySelectedNodeId = readString(selectionRecord.primarySelectedNodeId);
+  const primarySelectedEdgeId = readString(selectionRecord.primarySelectedEdgeId);
+  const primarySelectedGroupId = readString(selectionRecord.primarySelectedGroupId);
+  const primarySelectedCommentId = readString(selectionRecord.primarySelectedCommentId);
+  const primarySelectedSubgraphId = readString(selectionRecord.primarySelectedSubgraphId);
 
   return {
     viewport,
     selection: {
       selectedNodeIds,
       selectedEdgeIds,
+      selectedGroupIds,
+      selectedCommentIds,
+      selectedSubgraphIds,
+      primarySelectedNodeId:
+        primarySelectedNodeId && selectedNodeIds.includes(primarySelectedNodeId)
+          ? primarySelectedNodeId
+          : selectedNodeIds[0],
+      primarySelectedEdgeId:
+        primarySelectedEdgeId && selectedEdgeIds.includes(primarySelectedEdgeId)
+          ? primarySelectedEdgeId
+          : selectedEdgeIds[0],
+      primarySelectedGroupId:
+        primarySelectedGroupId && selectedGroupIds.includes(primarySelectedGroupId)
+          ? primarySelectedGroupId
+          : selectedGroupIds[0],
+      primarySelectedCommentId:
+        primarySelectedCommentId && selectedCommentIds.includes(primarySelectedCommentId)
+          ? primarySelectedCommentId
+          : selectedCommentIds[0],
+      primarySelectedSubgraphId:
+        primarySelectedSubgraphId && selectedSubgraphIds.includes(primarySelectedSubgraphId)
+          ? primarySelectedSubgraphId
+          : selectedSubgraphIds[0],
     },
   };
 }
@@ -322,11 +394,12 @@ export function parseGraphDocumentFileEnvelope(raw: string): GraphDocumentFileEn
 export function deserializeGraphDocumentFile(raw: string): GraphWorkspaceRuntimeState {
   const envelope = parseGraphDocumentFileEnvelope(raw);
 
-  return {
+  return normalizeGraphWorkspaceRuntimeState({
     document: envelope.graph,
     viewState: createInitialGraphViewState({
       viewport: envelope.workspace.viewport,
       selection: envelope.workspace.selection,
     }),
-  };
+  });
 }
+

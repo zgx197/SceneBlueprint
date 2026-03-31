@@ -1,11 +1,17 @@
 import {
+  createGraphComment,
   createGraphDocument,
   createGraphEdge,
+  createGraphGroup,
   createGraphPoint,
   createGraphPort,
+  createGraphSubgraph,
+  type GraphComment,
   type GraphDocument,
+  type GraphGroup,
   type GraphNode,
   type GraphPort,
+  type GraphSubgraph,
   type NodeId,
   type PortId,
 } from "../document/graphDocument";
@@ -27,15 +33,21 @@ import {
   type GraphSelectionState,
   type GraphViewportState,
 } from "../state/graphViewState";
+import { createDefaultGraphProfile, type GraphProfile } from "../profile/graphProfile";
+import { createGraphBehavior, type GraphBehavior } from "./graphBehavior";
 import type { GraphSelectionManager } from "./graphSelectionManager";
 import { createGraphSelectionManager } from "./graphSelectionManager";
 import type { GraphConnectionPolicy } from "./graphConnectionPolicy";
-import { createGraphConnectionPolicy } from "./graphConnectionPolicy";
+import { createGraphSubgraphRuntime, type GraphSubgraphRuntime } from "./graphSubgraphRuntime";
+import { normalizeGraphSelectionState, normalizeGraphWorkspaceRuntimeState } from "./graphRuntimeStateMigration";
 
 export interface GraphWorkspaceRuntime {
   readonly definitions: GraphDefinitionRegistry;
+  readonly profile: GraphProfile;
+  readonly behavior: GraphBehavior;
   readonly selectionManager: GraphSelectionManager;
   readonly connectionPolicy: GraphConnectionPolicy;
+  readonly subgraphRuntime: GraphSubgraphRuntime;
 
   getState(): GraphWorkspaceRuntimeState;
   getCommandSnapshot(): GraphCommandBusSnapshot;
@@ -43,7 +55,7 @@ export interface GraphWorkspaceRuntime {
   undo(): GraphWorkspaceRuntimeState | undefined;
   redo(): GraphWorkspaceRuntimeState | undefined;
   replaceState(state: GraphWorkspaceRuntimeState, options?: { resetHistory?: boolean }): void;
-  setSelection(selection: GraphSelectionState): GraphWorkspaceRuntimeState;
+  setSelection(selection: Partial<GraphSelectionState>): GraphWorkspaceRuntimeState;
   patchViewport(patch: Partial<GraphViewportState>): GraphWorkspaceRuntimeState;
   patchInteraction(patch: Partial<GraphInteractionState>): GraphWorkspaceRuntimeState;
   setConnectionPreview(state: GraphConnectionPreviewState): GraphWorkspaceRuntimeState;
@@ -56,8 +68,11 @@ export interface GraphWorkspaceRuntime {
 export interface CreateGraphWorkspaceRuntimeOptions {
   initialState: GraphWorkspaceRuntimeState;
   definitions: GraphDefinitionRegistry;
+  profile?: GraphProfile;
+  behavior?: GraphBehavior;
   selectionManager?: GraphSelectionManager;
   connectionPolicy?: GraphConnectionPolicy;
+  subgraphRuntime?: GraphSubgraphRuntime;
 }
 
 function cloneRuntimeState(state: GraphWorkspaceRuntimeState): GraphWorkspaceRuntimeState {
@@ -67,17 +82,25 @@ function cloneRuntimeState(state: GraphWorkspaceRuntimeState): GraphWorkspaceRun
 function createIdFactory() {
   let nodeCounter = 1;
   let edgeCounter = 1;
+  let groupCounter = 1;
+  let commentCounter = 1;
+  let subgraphCounter = 1;
 
   return {
     nextNodeId() {
-      const nextValue = nodeCounter;
-      nodeCounter += 1;
-      return `node-generated-${nextValue}`;
+      return `node-generated-${nodeCounter++}`;
     },
     nextEdgeId() {
-      const nextValue = edgeCounter;
-      edgeCounter += 1;
-      return `edge-generated-${nextValue}`;
+      return `edge-generated-${edgeCounter++}`;
+    },
+    nextGroupId() {
+      return `group-generated-${groupCounter++}`;
+    },
+    nextCommentId() {
+      return `comment-generated-${commentCounter++}`;
+    },
+    nextSubgraphId() {
+      return `subgraph-generated-${subgraphCounter++}`;
     },
   };
 }
@@ -90,36 +113,12 @@ function ensurePayloadRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
-function clonePortWithNodeId(nodeId: NodeId, port: GraphPort): GraphPort {
-  return createGraphPort({
-    id: `${nodeId}:${port.key}`,
-    key: port.key,
-    name: port.name,
-    direction: port.direction,
-    kind: port.kind,
-    dataType: port.dataType,
-    capacity: port.capacity,
-  });
-}
-
 function ensureRuntimeStateIntegrity(
   state: GraphWorkspaceRuntimeState,
   selectionManager: GraphSelectionManager,
+  subgraphRuntime: GraphSubgraphRuntime = createGraphSubgraphRuntime(),
 ): GraphWorkspaceRuntimeState {
-  return {
-    ...state,
-    viewState: {
-      ...state.viewState,
-      selection: selectionManager.prune(state.document, state.viewState.selection),
-      connectionPreview: {
-        active: false,
-      },
-      interaction: {
-        ...state.viewState.interaction,
-        draggingNodeIds: [],
-      },
-    },
-  };
+  return normalizeGraphWorkspaceRuntimeState(state, { selectionManager, subgraphRuntime });
 }
 
 function reduceGraphRuntimeState(
@@ -129,6 +128,7 @@ function reduceGraphRuntimeState(
   selectionManager: GraphSelectionManager,
   connectionPolicy: GraphConnectionPolicy,
   idFactory: ReturnType<typeof createIdFactory>,
+  subgraphRuntime: GraphSubgraphRuntime = createGraphSubgraphRuntime(),
 ): GraphWorkspaceRuntimeState {
   switch (command.type) {
     case "graph.add-node": {
@@ -186,7 +186,7 @@ function reduceGraphRuntimeState(
     case "graph.connect-ports": {
       const evaluation = connectionPolicy.evaluate(state.document, command);
       if (!evaluation.accepted) {
-        return ensureRuntimeStateIntegrity(state, selectionManager);
+        return ensureRuntimeStateIntegrity(state, selectionManager, subgraphRuntime);
       }
 
       const filteredEdges = state.document.edges.filter((edge) => !evaluation.displacedEdgeIds.includes(edge.id));
@@ -282,9 +282,8 @@ function reduceGraphRuntimeState(
         return state;
       }
 
-      const currentPayload = ensurePayloadRecord(node.payload);
       const nextPayload = {
-        ...currentPayload,
+        ...ensurePayloadRecord(node.payload),
         ...command.payloadPatch,
       };
 
@@ -292,16 +291,159 @@ function reduceGraphRuntimeState(
         {
           document: {
             ...state.document,
-            nodes: state.document.nodes.map((entry) => {
-              if (entry.id !== command.nodeId) {
-                return entry;
-              }
+            nodes: state.document.nodes.map((entry) => entry.id === command.nodeId ? { ...entry, payload: nextPayload } : entry),
+          },
+          viewState: state.viewState,
+        },
+        selectionManager,
+      );
+    }
 
-              return {
-                ...entry,
-                payload: nextPayload,
-              };
-            }),
+    case "graph.patch-edge-payload": {
+      const edge = state.document.edges.find((entry) => entry.id === command.edgeId);
+      if (!edge) {
+        return state;
+      }
+
+      const nextPayload = {
+        ...ensurePayloadRecord(edge.payload),
+        ...command.payloadPatch,
+      };
+
+      return ensureRuntimeStateIntegrity(
+        {
+          document: {
+            ...state.document,
+            edges: state.document.edges.map((entry) => entry.id === command.edgeId ? { ...entry, payload: nextPayload } : entry),
+          },
+          viewState: state.viewState,
+        },
+        selectionManager,
+      );
+    }
+
+    case "graph.add-group": {
+      return ensureRuntimeStateIntegrity(
+        {
+          document: {
+            ...state.document,
+            groups: [...state.document.groups, command.group],
+          },
+          viewState: {
+            ...state.viewState,
+            selection: selectionManager.selectGroup(command.group.id),
+          },
+        },
+        selectionManager,
+      );
+    }
+
+    case "graph.patch-group": {
+      return ensureRuntimeStateIntegrity(
+        {
+          document: {
+            ...state.document,
+            groups: state.document.groups.map((group) => group.id === command.groupId ? { ...group, ...command.patch } : group),
+          },
+          viewState: state.viewState,
+        },
+        selectionManager,
+      );
+    }
+
+    case "graph.remove-groups": {
+      const removedIds = new Set(command.groupIds);
+      return ensureRuntimeStateIntegrity(
+        {
+          document: {
+            ...state.document,
+            groups: state.document.groups.filter((group) => !removedIds.has(group.id)),
+          },
+          viewState: state.viewState,
+        },
+        selectionManager,
+      );
+    }
+
+    case "graph.add-comment": {
+      return ensureRuntimeStateIntegrity(
+        {
+          document: {
+            ...state.document,
+            comments: [...state.document.comments, command.comment],
+          },
+          viewState: {
+            ...state.viewState,
+            selection: selectionManager.selectComment(command.comment.id),
+          },
+        },
+        selectionManager,
+      );
+    }
+
+    case "graph.patch-comment": {
+      return ensureRuntimeStateIntegrity(
+        {
+          document: {
+            ...state.document,
+            comments: state.document.comments.map((comment) => comment.id === command.commentId ? { ...comment, ...command.patch } : comment),
+          },
+          viewState: state.viewState,
+        },
+        selectionManager,
+      );
+    }
+
+    case "graph.remove-comments": {
+      const removedIds = new Set(command.commentIds);
+      return ensureRuntimeStateIntegrity(
+        {
+          document: {
+            ...state.document,
+            comments: state.document.comments.filter((comment) => !removedIds.has(comment.id)),
+          },
+          viewState: state.viewState,
+        },
+        selectionManager,
+      );
+    }
+
+    case "graph.add-subgraph": {
+      return ensureRuntimeStateIntegrity(
+        {
+          document: {
+            ...state.document,
+            subgraphs: [...state.document.subgraphs, command.subgraph],
+          },
+          viewState: {
+            ...state.viewState,
+            selection: selectionManager.selectSubgraph(command.subgraph.id),
+          },
+        },
+        selectionManager,
+      );
+    }
+
+    case "graph.patch-subgraph": {
+      return ensureRuntimeStateIntegrity(
+        {
+          document: {
+            ...state.document,
+            subgraphs: state.document.subgraphs.map((subgraph) => subgraph.id === command.subgraphId ? { ...subgraph, ...command.patch } : subgraph),
+          },
+          viewState: state.viewState,
+        },
+        selectionManager,
+      );
+    }
+
+    case "graph.remove-subgraphs": {
+      const removedIds = new Set(command.subgraphIds);
+      return ensureRuntimeStateIntegrity(
+        {
+          document: {
+            ...state.document,
+            subgraphs: state.document.subgraphs.filter((subgraph) => !removedIds.has(subgraph.id)),
           },
           viewState: state.viewState,
         },
@@ -344,10 +486,7 @@ function reduceGraphRuntimeState(
 
       const pastedNodePortMaps = new Map<NodeId, Map<string, PortId>>();
       pastedNodes.forEach((node) => {
-        pastedNodePortMaps.set(
-          node.id,
-          new Map(node.ports.map((port) => [port.key, port.id])),
-        );
+        pastedNodePortMaps.set(node.id, new Map(node.ports.map((port) => [port.key, port.id])));
       });
 
       const pastedEdges = command.snapshot.edges.flatMap((edgeSnapshot) => {
@@ -403,14 +542,7 @@ function reduceGraphRuntimeState(
             ...state.document,
             nodes: state.document.nodes.map((node) => {
               const position = layoutMap.get(node.id);
-              if (!position) {
-                return node;
-              }
-
-              return {
-                ...node,
-                position,
-              };
+              return position ? { ...node, position } : node;
             }),
           },
           viewState: state.viewState,
@@ -460,6 +592,10 @@ export function createBootstrapGraphDocument(definitions: GraphDefinitionRegistr
         sourcePortId: `${startNode.id}:next`,
         targetNodeId: spawnMarkerNode.id,
         targetPortId: `${spawnMarkerNode.id}:in`,
+        payload: {
+          label: "进入出生点",
+          diagnosticTone: "info",
+        },
       }),
       createGraphEdge({
         id: "edge-spawn-to-wait",
@@ -467,6 +603,37 @@ export function createBootstrapGraphDocument(definitions: GraphDefinitionRegistr
         sourcePortId: `${spawnMarkerNode.id}:completed`,
         targetNodeId: waitSignalNode.id,
         targetPortId: `${waitSignalNode.id}:in`,
+        payload: {
+          label: "等待战斗信号",
+          diagnosticTone: "warning",
+        },
+      }),
+    ],
+    groups: [
+      createGraphGroup({
+        id: "group-bootstrap-flow",
+        title: "基础流程",
+        nodeIds: [startNode.id, spawnMarkerNode.id],
+        color: "rgba(175, 144, 96, 0.16)",
+        padding: 36,
+      }),
+    ],
+    comments: [
+      createGraphComment({
+        id: "comment-bootstrap-note",
+        text: "这里后续会与 Scene Viewport 中的 Marker 白模建立联动。",
+        position: createGraphPoint(118, 344),
+        size: { width: 264, height: 128 },
+        tone: "info",
+      }),
+    ],
+    subgraphs: [
+      createGraphSubgraph({
+        id: "subgraph-bootstrap-main",
+        title: "主线子图",
+        nodeIds: [startNode.id, spawnMarkerNode.id, waitSignalNode.id],
+        entryNodeId: startNode.id,
+        description: "主流程收束到 Scene Marker 与等待信号两段逻辑。",
       }),
     ],
   });
@@ -482,6 +649,14 @@ export function createBootstrapGraphViewState() {
     selection: {
       selectedNodeIds: ["node-spawn-marker"],
       selectedEdgeIds: [],
+      selectedGroupIds: [],
+      selectedCommentIds: [],
+      selectedSubgraphIds: [],
+      primarySelectedNodeId: "node-spawn-marker",
+      primarySelectedEdgeId: undefined,
+      primarySelectedGroupId: undefined,
+      primarySelectedCommentId: undefined,
+      primarySelectedSubgraphId: undefined,
     },
     interaction: {
       hoveredNodeId: "node-wait-signal",
@@ -502,28 +677,33 @@ export function createGraphWorkspaceRuntime(
   options: CreateGraphWorkspaceRuntimeOptions,
 ): GraphWorkspaceRuntime {
   const { initialState, definitions } = options;
+  const profile = options.profile ?? createDefaultGraphProfile();
+  const behavior = options.behavior ?? createGraphBehavior({
+    topologyPolicy: profile.topologyPolicy,
+    connectionPolicy: options.connectionPolicy,
+  });
   const selectionManager = options.selectionManager ?? createGraphSelectionManager();
-  const connectionPolicy = options.connectionPolicy ?? createGraphConnectionPolicy();
+  const connectionPolicy = behavior.connectionPolicy;
+  const subgraphRuntime = options.subgraphRuntime ?? createGraphSubgraphRuntime();
   const idFactory = createIdFactory();
 
   const commandBus: GraphCommandBus = createReducerGraphCommandBus({
-    initialState: cloneRuntimeState(initialState),
+    initialState: normalizeGraphWorkspaceRuntimeState(cloneRuntimeState(initialState), {
+      selectionManager,
+      subgraphRuntime,
+    }),
     reduce: (state, command) => {
-      return reduceGraphRuntimeState(
-        state,
-        command,
-        definitions,
-        selectionManager,
-        connectionPolicy,
-        idFactory,
-      );
+      return reduceGraphRuntimeState(state, command, definitions, selectionManager, connectionPolicy, idFactory, subgraphRuntime);
     },
   });
 
   return {
     definitions,
+    profile,
+    behavior,
     selectionManager,
     connectionPolicy,
+    subgraphRuntime,
     getState() {
       return commandBus.getState();
     },
@@ -539,8 +719,14 @@ export function createGraphWorkspaceRuntime(
     redo() {
       return commandBus.redo();
     },
-    replaceState(state, options) {
-      commandBus.replaceState(cloneRuntimeState(state), options);
+    replaceState(state, replaceOptions) {
+      commandBus.replaceState(
+        normalizeGraphWorkspaceRuntimeState(cloneRuntimeState(state), {
+          selectionManager,
+          subgraphRuntime,
+        }),
+        replaceOptions,
+      );
     },
     setSelection(selection) {
       const currentState = commandBus.getState();
@@ -548,7 +734,7 @@ export function createGraphWorkspaceRuntime(
         ...currentState,
         viewState: {
           ...currentState.viewState,
-          selection: selectionManager.replace(selection, currentState.document),
+          selection: selectionManager.replace(normalizeGraphSelectionState(selection), currentState.document),
         },
       };
       commandBus.replaceState(nextState);
@@ -556,6 +742,7 @@ export function createGraphWorkspaceRuntime(
     },
     patchViewport(patch) {
       const currentState = commandBus.getState();
+      const nextZoom = patch.zoom ?? currentState.viewState.viewport.zoom;
       const nextState = {
         ...currentState,
         viewState: {
@@ -563,6 +750,7 @@ export function createGraphWorkspaceRuntime(
           viewport: {
             ...currentState.viewState.viewport,
             ...patch,
+            zoom: Math.min(Math.max(nextZoom, profile.render.layout.zoomMin), profile.render.layout.zoomMax),
           },
         },
       };
@@ -598,33 +786,29 @@ export function createGraphWorkspaceRuntime(
     },
     deleteSelection() {
       const currentState = commandBus.getState();
-      if (currentState.viewState.selection.selectedNodeIds.length > 0) {
-        return this.execute({
-          type: "graph.remove-nodes",
-          nodeIds: currentState.viewState.selection.selectedNodeIds,
-        });
+      const selection = currentState.viewState.selection;
+      if (selection.selectedNodeIds.length > 0) {
+        return this.execute({ type: "graph.remove-nodes", nodeIds: selection.selectedNodeIds });
       }
-
-      if (currentState.viewState.selection.selectedEdgeIds.length > 0) {
-        return this.execute({
-          type: "graph.remove-edges",
-          edgeIds: currentState.viewState.selection.selectedEdgeIds,
-        });
+      if (selection.selectedEdgeIds.length > 0) {
+        return this.execute({ type: "graph.remove-edges", edgeIds: selection.selectedEdgeIds });
       }
-
+      if (selection.selectedGroupIds.length > 0) {
+        return this.execute({ type: "graph.remove-groups", groupIds: selection.selectedGroupIds });
+      }
+      if (selection.selectedCommentIds.length > 0) {
+        return this.execute({ type: "graph.remove-comments", commentIds: selection.selectedCommentIds });
+      }
+      if (selection.selectedSubgraphIds.length > 0) {
+        return this.execute({ type: "graph.remove-subgraphs", subgraphIds: selection.selectedSubgraphIds });
+      }
       return currentState;
     },
     disconnectNodeEdges(nodeIds) {
-      return this.execute({
-        type: "graph.disconnect-node-edges",
-        nodeIds,
-      });
+      return this.execute({ type: "graph.disconnect-node-edges", nodeIds });
     },
     disconnectPortEdges(portIds) {
-      return this.execute({
-        type: "graph.disconnect-port-edges",
-        portIds,
-      });
+      return this.execute({ type: "graph.disconnect-port-edges", portIds });
     },
     selectAllNodes() {
       const currentState = commandBus.getState();
@@ -640,3 +824,10 @@ export function createGraphWorkspaceRuntime(
     },
   };
 }
+
+
+
+
+
+
+

@@ -1,5 +1,5 @@
 import type { GraphWorkspaceRuntimeState } from "../commands/graphCommands";
-import { createInitialGraphViewState } from "../state/graphViewState";
+import { normalizeGraphWorkspaceRuntimeState } from "../runtime/graphRuntimeStateMigration";
 
 export interface GraphWorkspacePersistedSnapshot {
   version: 1;
@@ -25,16 +25,7 @@ export interface CreateGraphWorkspaceStorageOptions {
 }
 
 function sanitizeRuntimeState(runtimeState: GraphWorkspaceRuntimeState): GraphWorkspaceRuntimeState {
-  return {
-    document: JSON.parse(JSON.stringify(runtimeState.document)),
-    viewState: {
-      ...JSON.parse(JSON.stringify(runtimeState.viewState)),
-      connectionPreview: {
-        active: false,
-      },
-      interaction: createInitialGraphViewState().interaction,
-    },
-  };
+  return normalizeGraphWorkspaceRuntimeState(runtimeState);
 }
 
 function readRawSnapshot(storageKey: string): GraphWorkspacePersistedSnapshot | null {
@@ -105,3 +96,4 @@ export function createGraphWorkspaceStorage(
     },
   };
 }
+

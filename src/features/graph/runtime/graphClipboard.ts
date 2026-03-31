@@ -42,6 +42,10 @@ export interface GraphClipboardSnapshot {
 }
 
 function cloneJson<T>(value: T): T {
+  if (value === undefined) {
+    return value;
+  }
+
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
@@ -121,3 +125,4 @@ export function getGraphClipboardSummary(snapshot: GraphClipboardSnapshot | null
     copiedAt: snapshot.copiedAt,
   };
 }
+

@@ -2,15 +2,26 @@ export type GraphId = string;
 export type NodeId = string;
 export type PortId = string;
 export type EdgeId = string;
+export type GraphGroupId = string;
+export type GraphCommentId = string;
+export type GraphSubgraphId = string;
 
 export type PortDirection = "input" | "output";
 export type PortCapacity = "single" | "multiple";
 export type PortKind = "control" | "event" | "data";
+export type GraphAnnotationTone = "neutral" | "info" | "success" | "warning" | "danger";
 
 export interface GraphPoint {
   x: number;
   y: number;
 }
+
+export interface GraphSize {
+  width: number;
+  height: number;
+}
+
+export interface GraphBounds extends GraphPoint, GraphSize {}
 
 export interface GraphDocument {
   id: GraphId;
@@ -57,20 +68,28 @@ export interface GraphEdge {
 }
 
 export interface GraphGroup {
-  id: string;
+  id: GraphGroupId;
   title: string;
   nodeIds: NodeId[];
+  color?: string;
+  padding?: number;
 }
 
 export interface GraphComment {
-  id: string;
+  id: GraphCommentId;
   text: string;
+  position: GraphPoint;
+  size: GraphSize;
+  tone?: GraphAnnotationTone;
 }
 
 export interface GraphSubgraph {
-  id: string;
+  id: GraphSubgraphId;
   title: string;
   nodeIds: NodeId[];
+  color?: string;
+  entryNodeId?: NodeId;
+  description?: string;
 }
 
 export interface CreateGraphDocumentOptions {
@@ -111,6 +130,31 @@ export interface CreateGraphEdgeOptions {
   payload?: unknown;
 }
 
+export interface CreateGraphGroupOptions {
+  id: GraphGroupId;
+  title: string;
+  nodeIds: NodeId[];
+  color?: string;
+  padding?: number;
+}
+
+export interface CreateGraphCommentOptions {
+  id: GraphCommentId;
+  text: string;
+  position: GraphPoint;
+  size?: GraphSize;
+  tone?: GraphAnnotationTone;
+}
+
+export interface CreateGraphSubgraphOptions {
+  id: GraphSubgraphId;
+  title: string;
+  nodeIds: NodeId[];
+  color?: string;
+  entryNodeId?: NodeId;
+  description?: string;
+}
+
 export function createGraphPoint(x: number, y: number): GraphPoint {
   return { x, y };
 }
@@ -133,6 +177,28 @@ export function createGraphNode(options: CreateGraphNodeOptions): GraphNode {
 
 export function createGraphEdge(options: CreateGraphEdgeOptions): GraphEdge {
   return {
+    ...options,
+  };
+}
+
+export function createGraphGroup(options: CreateGraphGroupOptions): GraphGroup {
+  return {
+    padding: 28,
+    ...options,
+  };
+}
+
+export function createGraphComment(options: CreateGraphCommentOptions): GraphComment {
+  return {
+    size: options.size ?? { width: 240, height: 132 },
+    tone: options.tone ?? "info",
+    ...options,
+  };
+}
+
+export function createGraphSubgraph(options: CreateGraphSubgraphOptions): GraphSubgraph {
+  return {
+    color: options.color ?? "rgba(119, 143, 199, 0.18)",
     ...options,
   };
 }

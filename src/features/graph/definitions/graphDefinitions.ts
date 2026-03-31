@@ -7,32 +7,33 @@ import {
   type PortDirection,
   type PortKind,
 } from "../document/graphDocument";
+import type { GraphNodeContentDefinition } from "../content/graphNodeContent";
+import type { GraphNodeBridgeDefinition } from "../bridge/graphBridgeMapping";
 
-export type GraphInspectorFieldKind = "text" | "number";
-
-export interface GraphNodeInspectorFieldDefinition {
-  key: string;
-  label: string;
-  kind: GraphInspectorFieldKind;
-  description?: string;
-  placeholder?: string;
-  min?: number;
-  max?: number;
-  step?: number;
-}
-
-export interface GraphNodeInspectorSchema {
-  fields: GraphNodeInspectorFieldDefinition[];
-}
+export type {
+  GraphNodeBooleanFieldDefinition,
+  GraphNodeContentDefinition,
+  GraphNodeContentFieldDefinition,
+  GraphNodeContentFieldKind,
+  GraphNodeContentLine,
+  GraphNodeContentProjection,
+  GraphNodeContentSectionDefinition,
+  GraphNodeContentSelectOption,
+  GraphNodeNumberFieldDefinition,
+  GraphNodeReadonlyFieldDefinition,
+  GraphNodeSelectFieldDefinition,
+  GraphNodeTextFieldDefinition,
+} from "../content/graphNodeContent";
 
 export interface GraphNodeDefinition {
   typeId: string;
   displayName: string;
   category?: string;
-  summary?: string;
+  description?: string;
   ports: GraphPortDefinition[];
   defaultPayload?: () => unknown;
-  inspector?: GraphNodeInspectorSchema;
+  bridge?: GraphNodeBridgeDefinition;
+  content: GraphNodeContentDefinition;
 }
 
 export interface GraphPortDefinition {
@@ -77,7 +78,7 @@ export function createGraphDefinitionRegistry(definitions: GraphNodeDefinition[]
       }
 
       return [...map.values()].filter((definition) => {
-        return [definition.typeId, definition.displayName, definition.category ?? "", definition.summary ?? ""]
+        return [definition.typeId, definition.displayName, definition.category ?? "", definition.description ?? ""]
           .join(" ")
           .toLowerCase()
           .includes(normalizedKeyword);
@@ -110,3 +111,4 @@ export function instantiateGraphNode(
     }),
   });
 }
+
