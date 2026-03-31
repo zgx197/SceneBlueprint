@@ -2,6 +2,7 @@ export const appCommandIds = {
   fileNewProject: "file.new-project",
   fileOpenProject: "file.open-project",
   fileSaveProject: "file.save-project",
+  fileExportRuntimeContract: "file.export-runtime-contract",
   fileExit: "file.exit",
   editUndo: "edit.undo",
   editRedo: "edit.redo",
@@ -46,6 +47,12 @@ export const appCommandDefinitions: Record<AppCommandId, AppCommandDefinition> =
     id: appCommandIds.fileSaveProject,
     label: "保存项目",
     description: "保存当前项目内容。",
+    group: "file",
+  },
+  [appCommandIds.fileExportRuntimeContract]: {
+    id: appCommandIds.fileExportRuntimeContract,
+    label: "导出 Runtime Contract",
+    description: "将当前 Graph 编译并导出为 runtime contract 文件。",
     group: "file",
   },
   [appCommandIds.fileExit]: {

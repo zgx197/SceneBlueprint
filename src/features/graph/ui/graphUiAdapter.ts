@@ -1,3 +1,4 @@
+import { projectGraphNodeContent, readGraphNodePayloadRecord } from "../content/graphNodeContent";
 import type { GraphDocument, EdgeId, NodeId, PortId, PortKind } from "../document/graphDocument";
 import type { GraphDefinitionRegistry } from "../definitions/graphDefinitions";
 import type { GraphViewState, GraphViewportState } from "../state/graphViewState";
@@ -15,7 +16,8 @@ export interface GraphCanvasNodeViewModel {
   title: string;
   typeId: string;
   category?: string;
-  summary?: string;
+  description?: string;
+  summaryText?: string;
   x: number;
   y: number;
   width: number;
@@ -59,6 +61,10 @@ export function createGraphUiAdapter(): GraphUiAdapter {
       return {
         nodes: document.nodes.map((node) => {
           const definition = definitions.getNode(node.typeId);
+          const payload = readGraphNodePayloadRecord(node.payload);
+          const contentProjection = definition
+            ? projectGraphNodeContent(definition.content, payload)
+            : { summaryText: undefined, detailLines: [] };
           const selected = viewState.selection.selectedNodeIds.includes(node.id);
           const inputs = node.ports
             .filter((port) => port.direction === "input")
@@ -84,7 +90,8 @@ export function createGraphUiAdapter(): GraphUiAdapter {
             title: definition?.displayName ?? node.typeId,
             typeId: node.typeId,
             category: definition?.category,
-            summary: definition?.summary,
+            description: definition?.description,
+            summaryText: contentProjection.summaryText,
             x: node.position.x,
             y: node.position.y,
             width: node.ui?.width ?? 292,

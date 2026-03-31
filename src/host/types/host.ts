@@ -33,3 +33,18 @@ export interface WriteWorkspaceGraphFileRequest {
 export interface WriteWorkspaceGraphFileResult extends WorkspaceGraphFileInfo {
   writtenAt: string;
 }
+
+export interface WorkspaceRuntimeContractFileInfo {
+  path: string;
+  exists: boolean;
+  backend: string;
+}
+
+export interface WriteWorkspaceRuntimeContractFileRequest {
+  content: string;
+  targetPath?: string;
+}
+
+export interface WriteWorkspaceRuntimeContractFileResult extends WorkspaceRuntimeContractFileInfo {
+  writtenAt: string;
+}

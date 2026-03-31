@@ -77,7 +77,7 @@ export function GraphCanvasContextMenu(props: GraphCanvasContextMenuProps) {
                 type="button"
                 className="sb-graph-context-menu-item"
                 onClick={() => onCreateNode(definition)}
-                title={definition.summary ?? definition.displayName}
+                title={definition.description ?? definition.displayName}
               >
                 <span>{definition.displayName}</span>
               </button>

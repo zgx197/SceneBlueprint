@@ -7,6 +7,8 @@ import type {
   WorkspaceGraphFileInfo,
   WriteWorkspaceGraphFileRequest,
   WriteWorkspaceGraphFileResult,
+  WriteWorkspaceRuntimeContractFileRequest,
+  WriteWorkspaceRuntimeContractFileResult,
 } from "../types/host";
 
 export function readAppInfo(): Promise<AppInfo> {
@@ -35,4 +37,10 @@ export function writeWorkspaceGraphFile(
   request: WriteWorkspaceGraphFileRequest,
 ): Promise<WriteWorkspaceGraphFileResult> {
   return invokeHost<WriteWorkspaceGraphFileResult>("write_workspace_graph_file", { request });
+}
+
+export function writeWorkspaceRuntimeContractFile(
+  request: WriteWorkspaceRuntimeContractFileRequest,
+): Promise<WriteWorkspaceRuntimeContractFileResult> {
+  return invokeHost<WriteWorkspaceRuntimeContractFileResult>("write_workspace_runtime_contract_file", { request });
 }

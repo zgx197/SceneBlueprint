@@ -30,6 +30,15 @@ pub struct WriteWorkspaceGraphFileResultDto {
     written_at: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteWorkspaceRuntimeContractFileResultDto {
+    path: String,
+    exists: bool,
+    backend: String,
+    written_at: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadWorkspaceGraphFileRequestDto {
@@ -39,6 +48,13 @@ pub struct ReadWorkspaceGraphFileRequestDto {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WriteWorkspaceGraphFileRequestDto {
+    content: String,
+    target_path: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteWorkspaceRuntimeContractFileRequestDto {
     content: String,
     target_path: Option<String>,
 }
@@ -90,6 +106,26 @@ pub fn write_workspace_graph_file(
     write_workspace_log(&app, &format!("保存 Graph 工作区文件：{}", path.display()));
 
     Ok(WriteWorkspaceGraphFileResultDto {
+        path: path.display().to_string(),
+        exists: true,
+        backend: "tauri-file-system".into(),
+        written_at: app_service::read_timestamp(),
+    })
+}
+
+#[tauri::command]
+pub fn write_workspace_runtime_contract_file(
+    app: AppHandle,
+    request: WriteWorkspaceRuntimeContractFileRequestDto,
+) -> Result<WriteWorkspaceRuntimeContractFileResultDto, String> {
+    let path = workspace_service::write_workspace_runtime_contract_file(
+        &app,
+        request.target_path.as_deref(),
+        &request.content,
+    )?;
+    write_workspace_log(&app, &format!("导出 runtime contract 文件：{}", path.display()));
+
+    Ok(WriteWorkspaceRuntimeContractFileResultDto {
         path: path.display().to_string(),
         exists: true,
         backend: "tauri-file-system".into(),

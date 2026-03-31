@@ -33,6 +33,7 @@ pub fn run() {
             commands::workspace::get_workspace_graph_file_info,
             commands::workspace::read_workspace_graph_file,
             commands::workspace::write_workspace_graph_file,
+            commands::workspace::write_workspace_runtime_contract_file,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run SceneBlueprint desktop shell");

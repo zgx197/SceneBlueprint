@@ -5,6 +5,7 @@ import type {
   ReadWorkspaceGraphFileResult,
   WorkspaceGraphFileInfo,
   WriteWorkspaceGraphFileResult,
+  WriteWorkspaceRuntimeContractFileResult,
 } from "../types/host";
 
 type InvokeFn = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
@@ -16,7 +17,9 @@ declare global {
 }
 
 const MOCK_WORKSPACE_GRAPH_FILE_CONTENT_KEY = "sceneblueprint.mock.workspace-graph-file.content";
+const MOCK_WORKSPACE_RUNTIME_CONTRACT_FILE_CONTENT_KEY = "sceneblueprint.mock.workspace-runtime-contract.content";
 const MOCK_WORKSPACE_GRAPH_FILE_PATH = "browser://SceneBlueprint.graph.json";
+const MOCK_WORKSPACE_RUNTIME_CONTRACT_FILE_PATH = "browser://SceneBlueprint.runtime.json";
 
 function describeError(error: unknown) {
   if (error instanceof Error && error.message) {
@@ -140,6 +143,25 @@ function readMock(command: string, args?: Record<string, unknown>) {
       exists: true,
       writtenAt: new Date().toISOString(),
     } satisfies WriteWorkspaceGraphFileResult;
+  }
+
+  if (command === "write_workspace_runtime_contract_file") {
+    const request = args?.request;
+    const content =
+      request && typeof request === "object" && request !== null && "content" in request
+        ? request.content
+        : null;
+
+    if (typeof window !== "undefined" && typeof content === "string") {
+      window.localStorage.setItem(MOCK_WORKSPACE_RUNTIME_CONTRACT_FILE_CONTENT_KEY, content);
+    }
+
+    return {
+      path: MOCK_WORKSPACE_RUNTIME_CONTRACT_FILE_PATH,
+      exists: true,
+      backend: "browser-mock",
+      writtenAt: new Date().toISOString(),
+    } satisfies WriteWorkspaceRuntimeContractFileResult;
   }
 
   return {

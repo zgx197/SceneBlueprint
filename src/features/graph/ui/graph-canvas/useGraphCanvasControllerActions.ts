@@ -1,8 +1,16 @@
 import type { MouseEvent, MutableRefObject, PointerEvent as ReactPointerEvent, RefObject } from "react";
-import type { GraphPoint, NodeId, PortId } from "../../document/graphDocument";
+import type {
+  GraphCommentId,
+  GraphGroupId,
+  GraphPoint,
+  GraphSubgraphId,
+  NodeId,
+  PortId,
+} from "../../document/graphDocument";
 import type { GraphWorkspaceController } from "../../GraphWorkspaceController";
 import { GRAPH_FRAME_LAYOUT } from "../../frame/graphFrameBuilder";
 import { clearGraphConnectionPreview, createGraphConnectionPreview } from "../../interaction/graphConnectionPreviewHandler";
+import { screenToGraphWorld } from "../../interaction/graphPanZoomHandler";
 import type { GraphHitTargetDescriptor } from "../graphCanvasContextMenuModel";
 import { clamp } from "./graphCanvasUtils";
 import { isGraphAdditiveSelectionPointer } from "../../../../host/input/graphInput";
@@ -24,6 +32,21 @@ interface UseGraphCanvasControllerActionsOptions {
   ) => unknown;
 }
 
+function createEmptySelection() {
+  return {
+    selectedNodeIds: [],
+    selectedEdgeIds: [],
+    selectedGroupIds: [],
+    selectedCommentIds: [],
+    selectedSubgraphIds: [],
+    primarySelectedNodeId: undefined,
+    primarySelectedEdgeId: undefined,
+    primarySelectedGroupId: undefined,
+    primarySelectedCommentId: undefined,
+    primarySelectedSubgraphId: undefined,
+  };
+}
+
 export function useGraphCanvasControllerActions(options: UseGraphCanvasControllerActionsOptions) {
   const {
     controller,
@@ -38,6 +61,26 @@ export function useGraphCanvasControllerActions(options: UseGraphCanvasControlle
 
   const { displayNodeMap, displayPortMap } = displayState;
 
+  /**
+   * 连线预览态是 Graph Canvas 的高优先级临时态。
+   *
+   * 一旦已经从输出端点拉出预览线，用户接下来的常见意图只有两类：
+   * 1. 左键点击合法输入端点完成连线；
+   * 2. 右键 / Esc / 点击空白取消这次连线。
+   *
+   * 因此在 preview 仍然 active 时，右键不应该再继续穿透到 context menu，
+   * 否则会出现“本来想取消拖线，却顺手弹出菜单”的混乱体验。
+   */
+  const cancelConnectionPreview = () => {
+    if (!viewState.connectionPreview.active) {
+      return false;
+    }
+
+    controller.setConnectionPreview(clearGraphConnectionPreview());
+    controller.patchInteraction({ hoveredPortId: undefined });
+    return true;
+  };
+
   const startConnectionPreview = (event: MouseEvent<HTMLButtonElement>, nodeId: NodeId, portId: PortId) => {
     event.stopPropagation();
 
@@ -46,12 +89,15 @@ export function useGraphCanvasControllerActions(options: UseGraphCanvasControlle
       return;
     }
 
-    controller.setSelection({ selectedNodeIds: [nodeId], selectedEdgeIds: [] });
+    controller.setSelection({
+      ...createEmptySelection(),
+      selectedNodeIds: [nodeId],
+      primarySelectedNodeId: nodeId,
+    });
     controller.setConnectionPreview(
       createGraphConnectionPreview(
         nodeId,
         portId,
-        // 新建预览线时也必须优先采用实测 socket 圆心，避免起点瞬间从节点中部跳出来。
         measuredPortAnchors.get(portId) ?? sourcePort.anchor,
       ),
     );
@@ -88,7 +134,11 @@ export function useGraphCanvasControllerActions(options: UseGraphCanvasControlle
       return;
     }
 
-    controller.setSelection({ selectedNodeIds: [nodeId], selectedEdgeIds: [] });
+    controller.setSelection({
+      ...createEmptySelection(),
+      selectedNodeIds: [nodeId],
+      primarySelectedNodeId: nodeId,
+    });
     controller.centerViewportOnPoint(
       {
         x: node.bounds.x + node.bounds.width * 0.5,
@@ -96,6 +146,36 @@ export function useGraphCanvasControllerActions(options: UseGraphCanvasControlle
       },
       { width: viewportElement.clientWidth, height: viewportElement.clientHeight },
     );
+  };
+
+  const createNodeAtViewportCenter = (nodeTypeId: string) => {
+    const viewportElement = viewportRef.current;
+    if (!viewportElement) {
+      return;
+    }
+
+    const rect = viewportElement.getBoundingClientRect();
+    const world = screenToGraphWorld(
+      {
+        x: rect.left + rect.width * 0.5,
+        y: rect.top + rect.height * 0.5,
+      },
+      viewportElement,
+      viewState.viewport,
+    );
+
+    controller.execute({
+      type: "graph.add-node",
+      nodeTypeId,
+      position: {
+        x: Math.round(world.x),
+        y: Math.round(world.y),
+      },
+    });
+  };
+
+  const resetViewport = () => {
+    controller.patchViewport({ zoom: 1, panX: 0, panY: 0 });
   };
 
   const handleNodeClick = (event: MouseEvent<HTMLElement>, nodeId: NodeId) => {
@@ -107,15 +187,20 @@ export function useGraphCanvasControllerActions(options: UseGraphCanvasControlle
     if (isGraphAdditiveSelectionPointer(event)) {
       const exists = viewState.selection.selectedNodeIds.includes(nodeId);
       controller.setSelection({
+        ...createEmptySelection(),
         selectedNodeIds: exists
           ? viewState.selection.selectedNodeIds.filter((entry) => entry !== nodeId)
           : [...viewState.selection.selectedNodeIds, nodeId],
-        selectedEdgeIds: [],
+        primarySelectedNodeId: nodeId,
       });
       return;
     }
 
-    controller.setSelection({ selectedNodeIds: [nodeId], selectedEdgeIds: [] });
+    controller.setSelection({
+      ...createEmptySelection(),
+      selectedNodeIds: [nodeId],
+      primarySelectedNodeId: nodeId,
+    });
   };
 
   const handleEdgeClick = (event: MouseEvent<SVGPathElement | SVGGElement>, edgeId: string) => {
@@ -123,15 +208,47 @@ export function useGraphCanvasControllerActions(options: UseGraphCanvasControlle
     if (isGraphAdditiveSelectionPointer(event)) {
       const exists = viewState.selection.selectedEdgeIds.includes(edgeId);
       controller.setSelection({
-        selectedNodeIds: [],
+        ...createEmptySelection(),
         selectedEdgeIds: exists
           ? viewState.selection.selectedEdgeIds.filter((entry) => entry !== edgeId)
           : [...viewState.selection.selectedEdgeIds, edgeId],
+        primarySelectedEdgeId: edgeId,
       });
       return;
     }
 
-    controller.setSelection({ selectedNodeIds: [], selectedEdgeIds: [edgeId] });
+    controller.setSelection({
+      ...createEmptySelection(),
+      selectedEdgeIds: [edgeId],
+      primarySelectedEdgeId: edgeId,
+    });
+  };
+
+  const handleGroupClick = (event: MouseEvent<HTMLElement>, groupId: GraphGroupId) => {
+    event.stopPropagation();
+    controller.setSelection({
+      ...createEmptySelection(),
+      selectedGroupIds: [groupId],
+      primarySelectedGroupId: groupId,
+    });
+  };
+
+  const handleCommentClick = (event: MouseEvent<HTMLElement>, commentId: GraphCommentId) => {
+    event.stopPropagation();
+    controller.setSelection({
+      ...createEmptySelection(),
+      selectedCommentIds: [commentId],
+      primarySelectedCommentId: commentId,
+    });
+  };
+
+  const handleSubgraphClick = (event: MouseEvent<HTMLElement>, subgraphId: GraphSubgraphId) => {
+    event.stopPropagation();
+    controller.setSelection({
+      ...createEmptySelection(),
+      selectedSubgraphIds: [subgraphId],
+      primarySelectedSubgraphId: subgraphId,
+    });
   };
 
   const handleNodePointerEnter = (nodeId: NodeId) => {
@@ -150,10 +267,92 @@ export function useGraphCanvasControllerActions(options: UseGraphCanvasControlle
     controller.patchInteraction({ hoveredPortId: undefined });
   };
 
+  const handleGroupPointerEnter = (groupId: GraphGroupId) => {
+    controller.patchInteraction({ hoveredGroupId: groupId });
+  };
+
+  const handleGroupPointerLeave = () => {
+    controller.patchInteraction({ hoveredGroupId: undefined });
+  };
+
+  const handleCommentPointerEnter = (commentId: GraphCommentId) => {
+    controller.patchInteraction({ hoveredCommentId: commentId });
+  };
+
+  const handleCommentPointerLeave = () => {
+    controller.patchInteraction({ hoveredCommentId: undefined });
+  };
+
+  const handleSubgraphPointerEnter = (subgraphId: GraphSubgraphId) => {
+    controller.patchInteraction({ hoveredSubgraphId: subgraphId });
+  };
+
+  const handleSubgraphPointerLeave = () => {
+    controller.patchInteraction({ hoveredSubgraphId: undefined });
+  };
+
   const handleViewportContextMenu = (event: MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
+
+    if (cancelConnectionPreview()) {
+      return;
+    }
+
     openContextMenu({ x: event.clientX, y: event.clientY }, { kind: "canvas" }, { syncSelection: false });
+  };
+
+  const handleEdgeContextMenu = (clientPoint: GraphPoint, edgeId: string) => {
+    if (cancelConnectionPreview()) {
+      return;
+    }
+
+    openContextMenu(clientPoint, { kind: "edge", edgeId });
+  };
+
+  const handleNodeContextMenu = (clientPoint: GraphPoint, nodeId: NodeId) => {
+    if (cancelConnectionPreview()) {
+      return;
+    }
+
+    openContextMenu(clientPoint, { kind: "node", nodeId });
+  };
+
+  const handleGroupContextMenu = (clientPoint: GraphPoint, groupId: GraphGroupId) => {
+    if (cancelConnectionPreview()) {
+      return;
+    }
+
+    openContextMenu(clientPoint, { kind: "group", groupId });
+  };
+
+  const handleCommentContextMenu = (clientPoint: GraphPoint, commentId: GraphCommentId) => {
+    if (cancelConnectionPreview()) {
+      return;
+    }
+
+    openContextMenu(clientPoint, { kind: "comment", commentId });
+  };
+
+  const handleSubgraphContextMenu = (clientPoint: GraphPoint, subgraphId: GraphSubgraphId) => {
+    if (cancelConnectionPreview()) {
+      return;
+    }
+
+    openContextMenu(clientPoint, { kind: "subgraph", subgraphId });
+  };
+
+  const handlePortContextMenu = (
+    clientPoint: GraphPoint,
+    nodeId: NodeId,
+    portId: PortId,
+    direction: "input" | "output",
+  ) => {
+    if (cancelConnectionPreview()) {
+      return;
+    }
+
+    openContextMenu(clientPoint, { kind: "port", nodeId, portId, direction });
   };
 
   const handleMinimapPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -177,11 +376,29 @@ export function useGraphCanvasControllerActions(options: UseGraphCanvasControlle
   };
 
   return {
+    cancelConnectionPreview,
+    createNodeAtViewportCenter,
     focusNode,
+    resetViewport,
     handleNodeClick,
     handleEdgeClick,
+    handleGroupClick,
+    handleCommentClick,
+    handleSubgraphClick,
+    handleEdgeContextMenu,
+    handleNodeContextMenu,
+    handleGroupContextMenu,
+    handleCommentContextMenu,
+    handleSubgraphContextMenu,
     handleNodePointerEnter,
     handleNodePointerLeave,
+    handleGroupPointerEnter,
+    handleGroupPointerLeave,
+    handleCommentPointerEnter,
+    handleCommentPointerLeave,
+    handleSubgraphPointerEnter,
+    handleSubgraphPointerLeave,
+    handlePortContextMenu,
     handlePortPointerEnter,
     handlePortPointerLeave,
     handleViewportContextMenu,
@@ -190,3 +407,8 @@ export function useGraphCanvasControllerActions(options: UseGraphCanvasControlle
     completeConnectionPreview,
   };
 }
+
+
+
+
+

@@ -8,6 +8,8 @@ interface GraphStatusSummary {
   zoom: number;
   selectionKind: string;
   savedAt?: string;
+  issueStatusLabel: string;
+  issueDetail: string;
 }
 
 interface StatusBarProps {
@@ -53,6 +55,10 @@ export function StatusBar({ entries, appInfo, pingResult, graphSummary }: Status
         <span className="sb-statusbar-value">{graphLabel}</span>
       </div>
       <div className="sb-statusbar-section">
+        <span className="sb-statusbar-label">Issues</span>
+        <span className="sb-statusbar-value" title={graphSummary.issueDetail}>{graphSummary.issueStatusLabel}</span>
+      </div>
+      <div className="sb-statusbar-section">
         <span className="sb-statusbar-label">Save</span>
         <span className="sb-statusbar-value">{saveLabel}</span>
       </div>
@@ -71,4 +77,3 @@ export function StatusBar({ entries, appInfo, pingResult, graphSummary }: Status
     </div>
   );
 }
-

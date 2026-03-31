@@ -43,6 +43,8 @@ export function GraphCanvasNodeLayer(props: GraphCanvasNodeLayerProps) {
   return (
     <>
       {nodes.map((node) => {
+        const summaryText = node.content.summaryText ?? node.description ?? "当前节点暂未提供内容摘要。";
+
         return (
           <article
             key={node.id}
@@ -79,7 +81,17 @@ export function GraphCanvasNodeLayer(props: GraphCanvasNodeLayerProps) {
               </div>
               <span className="sb-graph-node-category">{node.category ?? "Uncategorized"}</span>
             </header>
-            <div className="sb-graph-node-summary">{node.summary ?? "当前节点暂未提供摘要说明。"}</div>
+            <div className="sb-graph-node-summary">
+              <div className="sb-graph-node-summary-text">{summaryText}</div>
+              {node.content.detailLines.map((line) => {
+                return (
+                  <div key={`${node.id}-${line.key}`} className="sb-graph-node-detail-line">
+                    <span className="sb-graph-node-detail-label">{line.label}</span>
+                    <span className="sb-graph-node-detail-value">{line.value}</span>
+                  </div>
+                );
+              })}
+            </div>
             <div className="sb-graph-node-ports">
               {node.rows.map((row, index) => {
                 return (

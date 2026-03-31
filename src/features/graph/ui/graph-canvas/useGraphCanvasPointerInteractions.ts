@@ -200,6 +200,17 @@ export function useGraphCanvasPointerInteractions(options: UseGraphCanvasPointer
       return;
     }
 
+    /**
+     * 连线预览态下，点击空白区域的首要语义是“取消这次连线”，
+     * 而不是顺便开始 marquee。否则用户只是想退出临时态，
+     * 却会误触成框选，手感会非常别扭。
+     */
+    if (viewState.connectionPreview.active) {
+      controller.setConnectionPreview(clearGraphConnectionPreview());
+      controller.patchInteraction({ hoveredPortId: undefined, marqueeSelection: undefined });
+      return;
+    }
+
     const viewportElement = viewportRef.current;
     if (!viewportElement) {
       return;
@@ -208,7 +219,6 @@ export function useGraphCanvasPointerInteractions(options: UseGraphCanvasPointer
     const local = screenToGraphLocal({ x: event.clientX, y: event.clientY }, viewportElement);
     const additive = isGraphAdditiveSelectionPointer(event);
 
-    controller.setConnectionPreview(clearGraphConnectionPreview());
     controller.patchInteraction({
       hoveredPortId: undefined,
       marqueeSelection: {

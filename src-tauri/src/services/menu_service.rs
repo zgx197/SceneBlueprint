@@ -10,6 +10,7 @@ pub const NATIVE_MENU_COMMAND_EVENT: &str = "sceneblueprint://menu-command";
 pub const COMMAND_FILE_NEW_PROJECT: &str = "file.new-project";
 pub const COMMAND_FILE_OPEN_PROJECT: &str = "file.open-project";
 pub const COMMAND_FILE_SAVE_PROJECT: &str = "file.save-project";
+pub const COMMAND_FILE_EXPORT_RUNTIME_CONTRACT: &str = "file.export-runtime-contract";
 pub const COMMAND_FILE_EXIT: &str = "file.exit";
 pub const COMMAND_EDIT_UNDO: &str = "edit.undo";
 pub const COMMAND_EDIT_REDO: &str = "edit.redo";
@@ -54,6 +55,8 @@ pub fn build_app_menu<R: Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<M
     let file_new_project = unavailable_menu_item(manager, COMMAND_FILE_NEW_PROJECT, "新建项目")?;
     let file_open_project = unavailable_menu_item(manager, COMMAND_FILE_OPEN_PROJECT, "打开项目")?;
     let file_save_project = MenuItemBuilder::with_id(COMMAND_FILE_SAVE_PROJECT, "保存项目").build(manager)?;
+    let file_export_runtime_contract =
+        MenuItemBuilder::with_id(COMMAND_FILE_EXPORT_RUNTIME_CONTRACT, "导出 Runtime Contract").build(manager)?;
     let edit_undo = MenuItemBuilder::with_id(COMMAND_EDIT_UNDO, "撤销").build(manager)?;
     let edit_redo = MenuItemBuilder::with_id(COMMAND_EDIT_REDO, "重做").build(manager)?;
     let tools_project_settings =
@@ -66,6 +69,7 @@ pub fn build_app_menu<R: Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<M
         .item(&file_open_project)
         .separator()
         .item(&file_save_project)
+        .item(&file_export_runtime_contract)
         .separator()
         .text(COMMAND_FILE_EXIT, "退出")
         .build()?;
@@ -119,4 +123,3 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event_id: &str) {
         },
     );
 }
-

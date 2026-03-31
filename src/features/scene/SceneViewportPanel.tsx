@@ -1,4 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import type { GraphRuntimeBridgeContract } from "../graph/runtime/graphWorkspaceBridge";
+import type { GraphWorkspaceIssue } from "../graph/runtime/graphWorkspaceExport";
 import { RuntimeErrorBoundary } from "../../shared/components/RuntimeErrorBoundary";
 import { useAppLogContext } from "../../shared/logging/LogContext";
 import { Panel } from "../../shared/components/Panel";
@@ -9,6 +11,14 @@ const SceneViewportCanvas = lazy(async () => {
 });
 
 const VIEWPORT_BOOT_DELAY_MS = 320;
+
+export interface SceneViewportPanelProps {
+  bridgeContract: GraphRuntimeBridgeContract;
+  issues: GraphWorkspaceIssue[];
+  selectedMarkerId: string | null;
+  onSelectMarker: (markerId: string) => void;
+  onClearSelection: () => void;
+}
 
 function SceneViewportFallback() {
   return (
@@ -22,7 +32,8 @@ function SceneViewportBooting() {
   return <div className="sb-scene-fallback">正在准备 Scene Viewport 运行时...</div>;
 }
 
-export function SceneViewportPanel() {
+export function SceneViewportPanel(props: SceneViewportPanelProps) {
+  const { bridgeContract, issues, selectedMarkerId, onSelectMarker, onClearSelection } = props;
   const { log } = useAppLogContext();
   const [shouldRenderCanvas, setShouldRenderCanvas] = useState(false);
 
@@ -49,7 +60,13 @@ export function SceneViewportPanel() {
       <RuntimeErrorBoundary scope="scene-viewport" fallback={<SceneViewportFallback />}>
         {shouldRenderCanvas ? (
           <Suspense fallback={<div className="sb-scene-fallback">正在加载场景视口...</div>}>
-            <SceneViewportCanvas />
+            <SceneViewportCanvas
+              bridgeContract={bridgeContract}
+              issues={issues}
+              selectedMarkerId={selectedMarkerId}
+              onSelectMarker={onSelectMarker}
+              onClearSelection={onClearSelection}
+            />
           </Suspense>
         ) : (
           <SceneViewportBooting />
@@ -58,4 +75,3 @@ export function SceneViewportPanel() {
     </Panel>
   );
 }
-

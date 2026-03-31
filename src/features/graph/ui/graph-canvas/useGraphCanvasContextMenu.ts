@@ -80,11 +80,32 @@ export function useGraphCanvasContextMenu(options: UseGraphCanvasContextMenuOpti
   };
 
   const executeContextMenuAction = (actionId: GraphContextMenuActionId) => {
+    const viewportElement = viewportRef.current;
     if (!contextMenu) {
       return;
     }
 
     switch (actionId) {
+      case "context.create-comment": {
+        if (viewportElement) {
+          controller.createCommentAtViewportCenter({
+            width: viewportElement.clientWidth,
+            height: viewportElement.clientHeight,
+          });
+        }
+        setContextMenu(null);
+        return;
+      }
+      case "context.create-group": {
+        controller.createGroupFromSelection();
+        setContextMenu(null);
+        return;
+      }
+      case "context.create-subgraph": {
+        controller.createSubgraphFromSelection();
+        setContextMenu(null);
+        return;
+      }
       case "context.disconnect-node-edges": {
         if (contextMenu.target.kind === "node") {
           controller.disconnectNodeEdges([contextMenu.target.nodeId]);
@@ -109,6 +130,27 @@ export function useGraphCanvasContextMenu(options: UseGraphCanvasContextMenuOpti
       case "context.delete-edge": {
         if (contextMenu.target.kind === "edge") {
           controller.execute({ type: "graph.remove-edges", edgeIds: [contextMenu.target.edgeId] });
+        }
+        setContextMenu(null);
+        return;
+      }
+      case "context.delete-group": {
+        if (contextMenu.target.kind === "group") {
+          controller.execute({ type: "graph.remove-groups", groupIds: [contextMenu.target.groupId] });
+        }
+        setContextMenu(null);
+        return;
+      }
+      case "context.delete-comment": {
+        if (contextMenu.target.kind === "comment") {
+          controller.execute({ type: "graph.remove-comments", commentIds: [contextMenu.target.commentId] });
+        }
+        setContextMenu(null);
+        return;
+      }
+      case "context.delete-subgraph": {
+        if (contextMenu.target.kind === "subgraph") {
+          controller.execute({ type: "graph.remove-subgraphs", subgraphIds: [contextMenu.target.subgraphId] });
         }
         setContextMenu(null);
         return;

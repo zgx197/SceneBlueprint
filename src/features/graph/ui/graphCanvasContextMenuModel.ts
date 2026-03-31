@@ -1,4 +1,13 @@
-import type { EdgeId, GraphPoint, NodeId, PortDirection, PortId } from "../document/graphDocument";
+import type {
+  EdgeId,
+  GraphCommentId,
+  GraphGroupId,
+  GraphPoint,
+  GraphSubgraphId,
+  NodeId,
+  PortDirection,
+  PortId,
+} from "../document/graphDocument";
 import type { GraphNodeDefinition } from "../definitions/graphDefinitions";
 import type { GraphSelectionState } from "../state/graphViewState";
 
@@ -6,12 +15,18 @@ export type GraphHitTargetDescriptor =
   | { kind: "canvas" }
   | { kind: "node"; nodeId: NodeId }
   | { kind: "edge"; edgeId: EdgeId }
+  | { kind: "group"; groupId: GraphGroupId }
+  | { kind: "comment"; commentId: GraphCommentId }
+  | { kind: "subgraph"; subgraphId: GraphSubgraphId }
   | { kind: "port"; nodeId: NodeId; portId: PortId; direction: PortDirection };
 
 export type GraphHitTarget =
   | { kind: "canvas"; world: GraphPoint }
   | { kind: "node"; world: GraphPoint; nodeId: NodeId }
   | { kind: "edge"; world: GraphPoint; edgeId: EdgeId }
+  | { kind: "group"; world: GraphPoint; groupId: GraphGroupId }
+  | { kind: "comment"; world: GraphPoint; commentId: GraphCommentId }
+  | { kind: "subgraph"; world: GraphPoint; subgraphId: GraphSubgraphId }
   | { kind: "port"; world: GraphPoint; nodeId: NodeId; portId: PortId; direction: PortDirection };
 
 export interface GraphContextMenuState {
@@ -22,10 +37,16 @@ export interface GraphContextMenuState {
 }
 
 export type GraphContextMenuActionId =
+  | "context.create-comment"
+  | "context.create-group"
+  | "context.create-subgraph"
   | "context.disconnect-node-edges"
   | "context.disconnect-port-edges"
   | "context.delete-node"
   | "context.delete-edge"
+  | "context.delete-group"
+  | "context.delete-comment"
+  | "context.delete-subgraph"
   | "context.reset-viewport";
 
 export interface GraphContextMenuAction {
@@ -54,6 +75,21 @@ export interface BuildGraphContextMenuModelOptions {
   activeCategory?: string;
 }
 
+function createEmptySelection(): GraphSelectionState {
+  return {
+    selectedNodeIds: [],
+    selectedEdgeIds: [],
+    selectedGroupIds: [],
+    selectedCommentIds: [],
+    selectedSubgraphIds: [],
+    primarySelectedNodeId: undefined,
+    primarySelectedEdgeId: undefined,
+    primarySelectedGroupId: undefined,
+    primarySelectedCommentId: undefined,
+    primarySelectedSubgraphId: undefined,
+  };
+}
+
 export function createGraphHitTarget(
   world: GraphPoint,
   descriptor: GraphHitTargetDescriptor,
@@ -76,6 +112,24 @@ export function createGraphHitTarget(
         world,
         edgeId: descriptor.edgeId,
       };
+    case "group":
+      return {
+        kind: "group",
+        world,
+        groupId: descriptor.groupId,
+      };
+    case "comment":
+      return {
+        kind: "comment",
+        world,
+        commentId: descriptor.commentId,
+      };
+    case "subgraph":
+      return {
+        kind: "subgraph",
+        world,
+        subgraphId: descriptor.subgraphId,
+      };
     case "port":
       return {
         kind: "port",
@@ -89,23 +143,44 @@ export function createGraphHitTarget(
   }
 }
 
-export function getSelectionForGraphHitTarget(target: GraphHitTarget): GraphSelectionState | null {
+export function getSelectionForGraphHitTarget(target: GraphHitTarget): Partial<GraphSelectionState> | null {
   switch (target.kind) {
-    case "node":
-      return {
-        selectedNodeIds: [target.nodeId],
-        selectedEdgeIds: [],
-      };
-    case "edge":
-      return {
-        selectedNodeIds: [],
-        selectedEdgeIds: [target.edgeId],
-      };
-    case "port":
-      return {
-        selectedNodeIds: [target.nodeId],
-        selectedEdgeIds: [],
-      };
+    case "node": {
+      const selection = createEmptySelection();
+      selection.selectedNodeIds = [target.nodeId];
+      selection.primarySelectedNodeId = target.nodeId;
+      return selection;
+    }
+    case "edge": {
+      const selection = createEmptySelection();
+      selection.selectedEdgeIds = [target.edgeId];
+      selection.primarySelectedEdgeId = target.edgeId;
+      return selection;
+    }
+    case "group": {
+      const selection = createEmptySelection();
+      selection.selectedGroupIds = [target.groupId];
+      selection.primarySelectedGroupId = target.groupId;
+      return selection;
+    }
+    case "comment": {
+      const selection = createEmptySelection();
+      selection.selectedCommentIds = [target.commentId];
+      selection.primarySelectedCommentId = target.commentId;
+      return selection;
+    }
+    case "subgraph": {
+      const selection = createEmptySelection();
+      selection.selectedSubgraphIds = [target.subgraphId];
+      selection.primarySelectedSubgraphId = target.subgraphId;
+      return selection;
+    }
+    case "port": {
+      const selection = createEmptySelection();
+      selection.selectedNodeIds = [target.nodeId];
+      selection.primarySelectedNodeId = target.nodeId;
+      return selection;
+    }
     case "canvas":
       return null;
     default:
@@ -182,8 +257,44 @@ function getGraphContextMenuActions(target: GraphHitTarget): GraphContextMenuAct
           tone: "danger",
         },
       ];
+    case "group":
+      return [
+        {
+          id: "context.delete-group",
+          label: "删除当前分组",
+          tone: "danger",
+        },
+      ];
+    case "comment":
+      return [
+        {
+          id: "context.delete-comment",
+          label: "删除当前注释",
+          tone: "danger",
+        },
+      ];
+    case "subgraph":
+      return [
+        {
+          id: "context.delete-subgraph",
+          label: "删除当前子图",
+          tone: "danger",
+        },
+      ];
     case "canvas":
       return [
+        {
+          id: "context.create-comment",
+          label: "创建注释",
+        },
+        {
+          id: "context.create-group",
+          label: "用当前节点选择创建分组",
+        },
+        {
+          id: "context.create-subgraph",
+          label: "用当前节点选择创建子图",
+        },
         {
           id: "context.reset-viewport",
           label: "重置视口",

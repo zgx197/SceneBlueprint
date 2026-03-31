@@ -8,6 +8,8 @@ import { RuntimeErrorBoundary } from "../../shared/components/RuntimeErrorBounda
 import { useAppLogContext } from "../../shared/logging/LogContext";
 import { GraphPanel } from "../graph/GraphPanel";
 import { useGraphWorkspaceController } from "../graph/GraphWorkspaceController";
+import { buildSceneMarkerSelectionTarget } from "../graph/binding/graphInspectorBinding";
+import { createGraphWorkspaceIssueFeedbackSummary } from "../graph/ui/graphWorkspaceIssueFeedback";
 import { InspectorPanel } from "../inspector/InspectorPanel";
 import { SceneViewportPanel } from "../scene/SceneViewportPanel";
 import { StatusBar } from "../status-bar/StatusBar";
@@ -36,6 +38,7 @@ function WorkbenchPageContent(props: WorkbenchPageProps) {
   const graphWorkspaceController = useGraphWorkspaceController();
   const [appInfo, setAppInfo] = useState<AppInfo | null>(initialAppInfo);
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
+  const [selectedSceneMarkerId, setSelectedSceneMarkerId] = useState<string | null>(null);
 
   useEffect(() => {
     log("info", "workbench", "工作台页面已挂载。");
@@ -61,6 +64,50 @@ function WorkbenchPageContent(props: WorkbenchPageProps) {
         log("error", "host", `宿主信息读取失败：${message}`);
       });
   }, [initialAppInfo, log]);
+
+  useEffect(() => {
+    if (selectedSceneMarkerId && graphWorkspaceController.selectionTarget.kind !== "none") {
+      setSelectedSceneMarkerId(null);
+    }
+  }, [graphWorkspaceController.selectionTarget.kind, selectedSceneMarkerId]);
+
+  useEffect(() => {
+    if (!selectedSceneMarkerId) {
+      return;
+    }
+
+    const markerStillExists = graphWorkspaceController.bridgeContract.markers.some((marker) => marker.id === selectedSceneMarkerId);
+    if (!markerStillExists) {
+      setSelectedSceneMarkerId(null);
+    }
+  }, [graphWorkspaceController.bridgeContract, selectedSceneMarkerId]);
+
+  const inspectorSelectionTarget = useMemo(() => {
+    if (!selectedSceneMarkerId) {
+      return graphWorkspaceController.selectionTarget;
+    }
+
+    const sceneSelection = buildSceneMarkerSelectionTarget(
+      graphWorkspaceController.document,
+      graphWorkspaceController.definitions,
+      graphWorkspaceController.bridgeContract,
+      graphWorkspaceController.exportPreflight.issues,
+      selectedSceneMarkerId,
+    );
+
+    return sceneSelection.kind === "none" ? graphWorkspaceController.selectionTarget : sceneSelection;
+  }, [
+    graphWorkspaceController.bridgeContract,
+    graphWorkspaceController.definitions,
+    graphWorkspaceController.document,
+    graphWorkspaceController.exportPreflight.issues,
+    graphWorkspaceController.selectionTarget,
+    selectedSceneMarkerId,
+  ]);
+
+  const issueFeedback = useMemo(() => {
+    return createGraphWorkspaceIssueFeedbackSummary(graphWorkspaceController.exportPreflight);
+  }, [graphWorkspaceController.exportPreflight]);
 
   const handlePing = useCallback(async () => {
     try {
@@ -102,6 +149,9 @@ function WorkbenchPageContent(props: WorkbenchPageProps) {
     const unregisterSaveProject = registerAppCommand(appCommandIds.fileSaveProject, async () => {
       await graphWorkspaceController.saveWorkspaceFile();
     });
+    const unregisterExportRuntimeContract = registerAppCommand(appCommandIds.fileExportRuntimeContract, async () => {
+      await graphWorkspaceController.exportRuntimeContractFile();
+    });
     const unregisterUndo = registerAppCommand(appCommandIds.editUndo, () => {
       graphWorkspaceController.undo();
     });
@@ -120,6 +170,7 @@ function WorkbenchPageContent(props: WorkbenchPageProps) {
       unregisterPing();
       unregisterLogPath();
       unregisterSaveProject();
+      unregisterExportRuntimeContract();
       unregisterUndo();
       unregisterRedo();
       unregisterResetLayout();
@@ -133,19 +184,23 @@ function WorkbenchPageContent(props: WorkbenchPageProps) {
       nodeCount: graphWorkspaceController.document.nodes.length,
       edgeCount: graphWorkspaceController.document.edges.length,
       zoom: graphWorkspaceController.viewState.viewport.zoom,
-      selectionKind: graphWorkspaceController.selectionTarget.kind,
+      selectionKind: inspectorSelectionTarget.kind,
       savedAt:
         graphWorkspaceController.workspaceFileSnapshot?.writtenAt ??
         graphWorkspaceController.persistenceSnapshot.savedAt,
+      issueStatusLabel: issueFeedback.statusLabel,
+      issueDetail: issueFeedback.detail,
     };
   }, [
     graphWorkspaceController.document.edges.length,
     graphWorkspaceController.document.id,
     graphWorkspaceController.document.nodes.length,
     graphWorkspaceController.persistenceSnapshot.savedAt,
-    graphWorkspaceController.selectionTarget.kind,
     graphWorkspaceController.viewState.viewport.zoom,
     graphWorkspaceController.workspaceFileSnapshot?.writtenAt,
+    inspectorSelectionTarget.kind,
+    issueFeedback.detail,
+    issueFeedback.statusLabel,
   ]);
 
   const toolbarItems = useMemo(() => {
@@ -154,12 +209,20 @@ function WorkbenchPageContent(props: WorkbenchPageProps) {
 
     return [
       { label: "项目", value: graphWorkspaceController.workspaceFileSnapshot?.path ?? "未建立正式项目文件" },
+      { label: "导出", value: graphWorkspaceController.runtimeContractFileSnapshot?.path ?? "未导出 runtime contract" },
+      { label: "预检", value: issueFeedback.statusLabel },
       { label: "工作区", value: "主工作台" },
       { label: "模式", value: "Authoring" },
       { label: "宿主", value: hostLabel },
       { label: "通信", value: bridgeLabel },
     ];
-  }, [appInfo, graphWorkspaceController.workspaceFileSnapshot?.path, pingResult]);
+  }, [
+    appInfo,
+    graphWorkspaceController.runtimeContractFileSnapshot?.path,
+    graphWorkspaceController.workspaceFileSnapshot?.path,
+    issueFeedback.statusLabel,
+    pingResult,
+  ]);
 
   return (
     <WorkbenchLayout
@@ -167,15 +230,53 @@ function WorkbenchPageContent(props: WorkbenchPageProps) {
       toolbarSubtitle="原生菜单负责全局命令，顶部工具栏承载当前上下文信息。"
       toolbarItems={toolbarItems}
       graph={<GraphPanel controller={graphWorkspaceController} />}
-      scene={<SceneViewportPanel />}
+      scene={
+        <SceneViewportPanel
+          bridgeContract={graphWorkspaceController.bridgeContract}
+          issues={graphWorkspaceController.exportPreflight.issues}
+          selectedMarkerId={selectedSceneMarkerId}
+          onSelectMarker={(markerId) => {
+            setSelectedSceneMarkerId(markerId);
+            graphWorkspaceController.setSelection({
+              selectedNodeIds: [],
+              selectedEdgeIds: [],
+              selectedGroupIds: [],
+              selectedCommentIds: [],
+              selectedSubgraphIds: [],
+              primarySelectedNodeId: undefined,
+              primarySelectedEdgeId: undefined,
+              primarySelectedGroupId: undefined,
+              primarySelectedCommentId: undefined,
+              primarySelectedSubgraphId: undefined,
+            });
+          }}
+          onClearSelection={() => {
+            setSelectedSceneMarkerId(null);
+          }}
+        />
+      }
       inspector={
         <InspectorPanel
           appInfo={appInfo}
           pingResult={pingResult}
-          selectionTarget={graphWorkspaceController.selectionTarget}
+          selectionTarget={inspectorSelectionTarget}
+          bridgeContract={graphWorkspaceController.bridgeContract}
+          bridgeIssues={graphWorkspaceController.exportPreflight.issues}
           workspaceFileInfo={graphWorkspaceController.workspaceFileSnapshot}
           onPatchNodePayload={(nodeId, patch) => {
             graphWorkspaceController.patchNodePayload(nodeId, patch);
+          }}
+          onPatchEdgePayload={(edgeId, patch) => {
+            graphWorkspaceController.patchEdgePayload(edgeId, patch);
+          }}
+          onPatchGroup={(groupId, patch) => {
+            graphWorkspaceController.patchGroup(groupId, patch);
+          }}
+          onPatchComment={(commentId, patch) => {
+            graphWorkspaceController.patchComment(commentId, patch);
+          }}
+          onPatchSubgraph={(subgraphId, patch) => {
+            graphWorkspaceController.patchSubgraph(subgraphId, patch);
           }}
         />
       }

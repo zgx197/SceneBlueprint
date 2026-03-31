@@ -1,25 +1,52 @@
+import { useMemo } from "react";
 import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
+import type { GraphRuntimeBridgeContract } from "../graph/runtime/graphWorkspaceBridge";
+import type { GraphWorkspaceIssue } from "../graph/runtime/graphWorkspaceExport";
 import { sceneTheme } from "../../shared/theme/sceneTheme";
+import { createSceneViewportBridgeModel } from "./sceneViewportBridge";
 
-function MarkerBlock(props: { position: readonly [number, number, number]; color: string }) {
-  const { position, color } = props;
+interface SceneViewportCanvasProps {
+  bridgeContract: GraphRuntimeBridgeContract;
+  issues: GraphWorkspaceIssue[];
+  selectedMarkerId: string | null;
+  onSelectMarker: (markerId: string) => void;
+  onClearSelection: () => void;
+}
+
+function MarkerBlock(props: {
+  marker: ReturnType<typeof createSceneViewportBridgeModel>["markers"][number];
+  onSelectMarker: (markerId: string) => void;
+}) {
+  const { marker, onSelectMarker } = props;
+  const height = marker.selected ? 1.1 : 0.9;
 
   return (
-    <group position={position}>
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[0.42, 0.9, 0.42]} />
-        <meshStandardMaterial color={color} roughness={0.48} metalness={0.02} />
+    <group
+      position={marker.position}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelectMarker(marker.id);
+      }}
+    >
+      <mesh castShadow receiveShadow scale={marker.selected ? 1.12 : 1}>
+        <boxGeometry args={[0.42, height, 0.42]} />
+        <meshStandardMaterial color={marker.color} roughness={0.48} metalness={0.02} />
       </mesh>
-      <mesh position={[0, 0.62, 0]}>
+      <mesh position={[0, 0.62, 0]} scale={marker.selected ? 1.14 : 1}>
         <sphereGeometry args={[0.14, 24, 24]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.18} />
+        <meshStandardMaterial color={marker.color} emissive={marker.color} emissiveIntensity={0.18} />
       </mesh>
     </group>
   );
 }
 
-function SceneDraftStage() {
+function SceneDraftStage(props: {
+  model: ReturnType<typeof createSceneViewportBridgeModel>;
+  onSelectMarker: (markerId: string) => void;
+}) {
+  const { model, onSelectMarker } = props;
+
   return (
     <>
       <color attach="background" args={[sceneTheme.background]} />
@@ -66,8 +93,8 @@ function SceneDraftStage() {
           <meshStandardMaterial color={sceneTheme.blocks.secondary} roughness={0.88} metalness={0.02} />
         </mesh>
 
-        {sceneTheme.markers.map((marker) => (
-          <MarkerBlock key={marker.id} position={marker.position} color={marker.color} />
+        {model.markers.map((marker) => (
+          <MarkerBlock key={marker.id} marker={marker} onSelectMarker={onSelectMarker} />
         ))}
       </group>
 
@@ -86,7 +113,13 @@ function SceneDraftStage() {
   );
 }
 
-export function SceneViewportCanvas() {
+export function SceneViewportCanvas(props: SceneViewportCanvasProps) {
+  const { bridgeContract, issues, selectedMarkerId, onSelectMarker, onClearSelection } = props;
+  const model = useMemo(() => {
+    return createSceneViewportBridgeModel(bridgeContract, issues, selectedMarkerId);
+  }, [bridgeContract, issues, selectedMarkerId]);
+  const selectedMarker = model.markers.find((marker) => marker.id === selectedMarkerId) ?? null;
+
   return (
     <div className="sb-scene-viewport">
       <Canvas
@@ -94,19 +127,27 @@ export function SceneViewportCanvas() {
         dpr={[1, 1.75]}
         camera={{ position: [7.8, 6.2, 7.8], fov: 42 }}
         fallback={<div className="sb-scene-fallback">当前环境暂不支持 WebGL 视口。</div>}
+        onPointerMissed={() => {
+          onClearSelection();
+        }}
       >
-        <SceneDraftStage />
+        <SceneDraftStage model={model} onSelectMarker={onSelectMarker} />
       </Canvas>
 
       <div className="sb-scene-overlay sb-scene-overlay-top">
-        <span className="sb-scene-chip">Draft Viewport</span>
-        <span className="sb-scene-chip">Marker x {sceneTheme.markers.length}</span>
+        <span className="sb-scene-chip">Bridge Viewport</span>
+        <span className="sb-scene-chip">Project {model.projectId ?? "<未指定>"}</span>
+        <span className="sb-scene-chip">Scene {model.sceneId ?? "<未指定>"}</span>
+        <span className="sb-scene-chip">Marker x {model.markerCount}</span>
+        <span className="sb-scene-chip">Warn {model.warningCount}</span>
+        <span className="sb-scene-chip">Error {model.errorCount}</span>
       </div>
 
       <div className="sb-scene-overlay sb-scene-overlay-bottom">
         <span>左键旋转</span>
         <span>右键平移</span>
         <span>滚轮缩放</span>
+        <span>{selectedMarker ? `当前 Marker：${selectedMarker.label}` : "单击 Marker 进入 Inspector"}</span>
       </div>
     </div>
   );

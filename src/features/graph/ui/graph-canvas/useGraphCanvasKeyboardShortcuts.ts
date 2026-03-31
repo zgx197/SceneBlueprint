@@ -1,23 +1,17 @@
 import { useEffect, type RefObject } from "react";
-import {
-  isGraphAutoLayoutShortcut,
-  isGraphCancelKey,
-  isGraphCopyShortcut,
-  isGraphDeleteKey,
-  isGraphFindShortcut,
-  isGraphPasteShortcut,
-  isGraphSelectAllShortcut,
-  shouldIgnoreGraphHotkeys,
-} from "../../../../host/input/graphInput";
+import type { GraphShortcutBindingService } from "../../services/graphShortcutBindingService";
 
 interface UseGraphCanvasKeyboardShortcutsOptions {
+  shortcutBindingService: GraphShortcutBindingService;
   contextMenuOpen: boolean;
+  commandPaletteOpen: boolean;
   contextMenuRef: RefObject<HTMLDivElement | null>;
   searchInputRef: RefObject<HTMLInputElement | null>;
-  selectedNodeCount: number;
-  selectedEdgeCount: number;
+  totalSelectionCount: number;
   hasActiveConnectionPreview: boolean;
   onDismissContextMenu: () => void;
+  onOpenCommandPalette: () => void;
+  onCloseCommandPalette: () => void;
   onClearSearch: () => void;
   onResetTransientInteraction: () => void;
   onSelectAll: () => void;
@@ -30,13 +24,16 @@ interface UseGraphCanvasKeyboardShortcutsOptions {
 
 export function useGraphCanvasKeyboardShortcuts(options: UseGraphCanvasKeyboardShortcutsOptions) {
   const {
+    shortcutBindingService,
     contextMenuOpen,
+    commandPaletteOpen,
     contextMenuRef,
     searchInputRef,
-    selectedNodeCount,
-    selectedEdgeCount,
+    totalSelectionCount,
     hasActiveConnectionPreview,
     onDismissContextMenu,
+    onOpenCommandPalette,
+    onCloseCommandPalette,
     onClearSearch,
     onResetTransientInteraction,
     onSelectAll,
@@ -61,75 +58,131 @@ export function useGraphCanvasKeyboardShortcuts(options: UseGraphCanvasKeyboardS
       onDismissContextMenu();
     };
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (shouldIgnoreGraphHotkeys(event.target)) {
-        return;
-      }
-
-      if (isGraphFindShortcut(event)) {
-        event.preventDefault();
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-        return;
-      }
-
-      if (isGraphSelectAllShortcut(event)) {
-        event.preventDefault();
-        onSelectAll();
-        return;
-      }
-
-      if (isGraphCopyShortcut(event)) {
-        event.preventDefault();
-        onCopy();
-        return;
-      }
-
-      if (isGraphPasteShortcut(event)) {
-        event.preventDefault();
-        onPaste();
-        return;
-      }
-
-      if (isGraphAutoLayoutShortcut(event)) {
-        event.preventDefault();
-        onAutoLayout();
-        return;
-      }
-
-      if (isGraphDeleteKey(event)) {
-        if (selectedNodeCount > 0 || selectedEdgeCount > 0) {
-          event.preventDefault();
-          onDeleteSelection();
-        }
-        return;
-      }
-
-      if (!isGraphCancelKey(event)) {
-        return;
-      }
-
-      onDismissContextMenu();
-      onClearSearch();
-      onResetTransientInteraction();
-      if (hasActiveConnectionPreview) {
-        onClearConnectionPreview();
-      }
-    };
-
     window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
     };
+  }, [contextMenuOpen, contextMenuRef, onDismissContextMenu]);
+
+  useEffect(() => {
+    return shortcutBindingService.bind(window, [
+      {
+        id: "graph.command-palette",
+        chords: ["$mod+k"],
+        handler: (event) => {
+          event.preventDefault();
+          onOpenCommandPalette();
+        },
+      },
+      {
+        id: "graph.focus-search",
+        chords: ["$mod+f"],
+        handler: (event) => {
+          if (commandPaletteOpen) {
+            return;
+          }
+
+          event.preventDefault();
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        },
+      },
+      {
+        id: "graph.select-all",
+        chords: ["$mod+a"],
+        handler: (event) => {
+          if (commandPaletteOpen) {
+            return;
+          }
+
+          event.preventDefault();
+          onSelectAll();
+        },
+      },
+      {
+        id: "graph.copy",
+        chords: ["$mod+c"],
+        handler: (event) => {
+          if (commandPaletteOpen) {
+            return;
+          }
+
+          event.preventDefault();
+          onCopy();
+        },
+      },
+      {
+        id: "graph.paste",
+        chords: ["$mod+v"],
+        handler: (event) => {
+          if (commandPaletteOpen) {
+            return;
+          }
+
+          event.preventDefault();
+          onPaste();
+        },
+      },
+      {
+        id: "graph.auto-layout",
+        chords: ["$mod+shift+l"],
+        handler: (event) => {
+          if (commandPaletteOpen) {
+            return;
+          }
+
+          event.preventDefault();
+          onAutoLayout();
+        },
+      },
+      {
+        id: "graph.delete-forward",
+        chords: ["Delete"],
+        handler: (event) => {
+          if (commandPaletteOpen || totalSelectionCount <= 0) {
+            return;
+          }
+
+          event.preventDefault();
+          onDeleteSelection();
+        },
+      },
+      {
+        id: "graph.delete-backward",
+        chords: ["Backspace"],
+        handler: (event) => {
+          if (commandPaletteOpen || totalSelectionCount <= 0) {
+            return;
+          }
+
+          event.preventDefault();
+          onDeleteSelection();
+        },
+      },
+      {
+        id: "graph.cancel",
+        chords: ["Escape"],
+        allowInEditable: true,
+        handler: (event) => {
+          event.preventDefault();
+          onCloseCommandPalette();
+          onDismissContextMenu();
+          onClearSearch();
+          onResetTransientInteraction();
+          if (hasActiveConnectionPreview) {
+            onClearConnectionPreview();
+          }
+        },
+      },
+    ]);
   }, [
-    contextMenuOpen,
-    contextMenuRef,
+    shortcutBindingService,
+    commandPaletteOpen,
     searchInputRef,
-    selectedNodeCount,
-    selectedEdgeCount,
+    totalSelectionCount,
     hasActiveConnectionPreview,
+    onOpenCommandPalette,
+    onCloseCommandPalette,
     onDismissContextMenu,
     onClearSearch,
     onResetTransientInteraction,
