@@ -1,8 +1,8 @@
-# SceneBlueprint 实现与迭代文档
+# SceneBlueprint 实现与迭代文档（当前进度：P6 总进度 4/4，严格 100% 已完成）
 
 > 版本：v0.6
-> 日期：2026-03-29
-> 状态：执行中，第一阶段桌面盒子已落地，第二阶段工作台第一轮骨架已落地
+> 日期：2026-03-31
+> 状态：当前中文进度：桌面盒子与工作台骨架阶段已落地；Graph Workspace 的 `P6` 严格 `100%` 总收口按 `4` 项计数；当前总进度已完成 `4/4`；`validate / export`、`深桥接`、`controller 瘦身`、`问题反馈 + 最小 UI 冒烟` 已全部收口；旧 `NodeGraph` 剩余未迁项当前不再追求 `1:1` 继续迁移。
 
 ---
 
@@ -537,9 +537,9 @@ flowchart LR
 
 ### 6.1.15 Graph Canvas 交互规格已完成收敛（已完成）
 
-在继续推进 Graph Workspace 实现之前，当前已经单独完成了一份正式的 `Graph Canvas` 交互设计清单：
+在继续推进 Graph Workspace 实现之前，当前已经把 `Graph Workspace` 的结构边界、阶段进度与 P6 主任务统一收敛到单文档：
 
-- 文档位置：`docs/development/GraphCanvas-交互设计清单.md`
+- 当前统一回写位置：`docs/development/SceneBlueprint-实现与迭代文档.md`
 
 这份文档已经明确了当前仓库第一轮 Graph Canvas 的核心规则：
 
@@ -666,14 +666,51 @@ flowchart LR
 - 新建 / 打开 / 保存
 - 最小编辑状态
 
-### 6.3 第四阶段：填入最小导出链（待开始）
+### 6.3 第四阶段：填入最小导出链（当前进度：导出链已完成，深桥接进行中）
 
-建议填入：
+当前已完成：
 
-- 导出命令入口
-- 最小 runtime contract
-- 最小 validate / export 逻辑
+- 导出命令入口已落地，工作台、命令面板、Graph HUD、原生菜单都可真实触发
+- 最小 runtime contract 已落地，`GraphRuntimeContract` / `GraphWorkspaceExportResult` / `GraphWorkspaceIssue` 已形成正式对象层
+- 最小 `validate -> contract projection -> export` 主链路已落地，且已能真实输出 `SceneBlueprint.runtime.json`
+- `kernel` 已开始承接导出编译主路径，controller 只负责触发与宿主文件写入协调
+- 构建检查与测试已覆盖并验证通过
 
+当前未完成：
+
+- `Scene / Marker / Project` 的正式 bridge contract、稳定映射层、issue 收口与真实消费者接入都已形成对象层
+- Graph 节点 payload 到 bridge object 的稳定映射层已经建立并进入 runtime bridge module
+- 缺失引用、失效目标、无效桥接对象的分析已进入 `kernel` 主路径
+- Scene Viewport 与 Inspector 已开始消费正式 bridge object，当前不再依赖纯静态 `sceneTheme` marker 数据
+
+因此当前判断：
+
+- 第四阶段里“最小导出链”这部分已经不再是待开始，而是已完成最小闭环
+- `Scene / Marker / Project` 深桥接已经完成
+- controller 瘦身与最小 UI 冒烟验证已经完成
+- 当前 `P6` 已严格 `4/4` 完成
+### 6.3.3 旧 NodeGraph 剩余未迁项的处置判断（已确认）
+
+在完成当前 `P6` 收口后，已经对旧 `com.zgx197.nodegraph` 的剩余未迁项做过一次专门评估。
+
+当前固定判断：
+
+- 旧 `NodeGraph` 中最重要的编辑器核心资产已经完成迁移与重做。
+- 当前仓库不再追求把旧 `NodeGraph` 作为通用 SDK 进行 `1:1` 完整复刻。
+- 剩余未迁项中，`Unity Editor 宿主层`、`通用宿主抽象层`、`旧 package 形态下的公共 SDK 接口` 当前均不进入继续迁移范围。
+- `ConditionDescriptor`、更完整的动态端口与显示模式能力，只在未来真实业务需要时再单独立项，不作为当前主线阻塞项。
+
+因此从当前版本开始，可以把下面这条判断固定下来：
+
+- SceneBlueprint 已完成对旧 `NodeGraph` 核心业务价值的主体迁移。
+- 后续工作重点转向当前产品本身，而不是继续追求旧仓库剩余接口的完整对齐。
+
+### 6.3.4 P6 收口回归记录（已验证）
+
+- `npm run check` 已通过。
+- `npm run test:run` 已通过，当前 `20` 个测试文件、`65` 个测试全部通过。
+- `src-tauri` 侧 `cargo check` 已通过。
+- 当前仅继续补充少量高价值注释，不再扩散无意义样板注释。
 ### 6.4 第五阶段：补测试与性能观测（待开始）
 
 建议补入：
@@ -1016,6 +1053,19 @@ SceneBlueprint 当前阶段的实现策略已经调整为：
 - 版本：v0.6
 - 创建日期：2026-03-28
 - 更新策略：随当前阶段实施重点逐步修订
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
